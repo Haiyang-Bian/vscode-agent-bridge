@@ -1,0 +1,11 @@
+# Replace the path below with this repository's absolute path.
+# Project-scoped MCP configuration is loaded only for trusted projects.
+
+[mcp_servers.vscode_agent_bridge]
+command = "bun"
+args = ["run", "packages/mcp-server/dist/index.js"]
+cwd = "C:/absolute/path/to/vscode-agent-bridge"
+startup_timeout_sec = 10
+tool_timeout_sec = 15
+default_tools_approval_mode = "writes"
+enabled_tools = ["vscode_list_instances", "vscode_get_editor_context"]

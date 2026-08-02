@@ -1,0 +1,41 @@
+{
+  "name": "vscode-agent-bridge",
+  "displayName": "VS Code Agent Bridge",
+  "description": "Expose IDE-native VS Code context to local MCP clients through an authenticated bridge.",
+  "version": "0.1.0",
+  "publisher": "local",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "vscodeAgentBridge.showStatus",
+        "title": "VS Code Agent Bridge: Show Status"
+      },
+      {
+        "command": "vscodeAgentBridge.copyInstanceId",
+        "title": "VS Code Agent Bridge: Copy Instance ID"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "bun build src/extension.ts --outdir dist --target node --format cjs --external vscode --sourcemap=external",
+    "typecheck": "tsc --project tsconfig.json"
+  },
+  "dependencies": {
+    "@vscode-agent-bridge/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.95.0"
+  }
+}

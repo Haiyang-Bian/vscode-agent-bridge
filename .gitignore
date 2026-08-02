@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+*.vsix
+*.log
+.DS_Store
+
+# Local bridge discovery state. Runtime state must never be committed.
+.vscode-agent-bridge/
