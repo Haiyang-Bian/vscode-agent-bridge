@@ -15,6 +15,6 @@
     "typecheck": "tsc --project tsconfig.json"
   },
   "dependencies": {
-    "zod": "latest"
+    "zod": "4.4.3"
   }
 }

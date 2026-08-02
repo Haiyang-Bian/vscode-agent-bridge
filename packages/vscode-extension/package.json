@@ -36,6 +36,6 @@
     "@vscode-agent-bridge/protocol": "workspace:*"
   },
   "devDependencies": {
-    "@types/vscode": "^1.95.0"
+    "@types/vscode": "1.95.0"
   }
 }

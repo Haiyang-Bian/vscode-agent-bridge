@@ -39,6 +39,8 @@ bun run --cwd packages/mcp-server start
 
 构建产物位于各 workspace 的 `dist/`。
 
+用 VS Code 打开仓库根目录后，可以直接按 `F5` 启动预配置的 Extension Development Host；启动前会自动执行 Bun workspace 构建。
+
 ## 连接 Codex
 
 1. 构建并将 `packages/vscode-extension` 安装或以 Extension Development Host 运行。

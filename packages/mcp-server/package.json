@@ -12,8 +12,8 @@
     "typecheck": "tsc --project tsconfig.json"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "latest",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "@vscode-agent-bridge/protocol": "workspace:*",
-    "zod": "latest"
+    "zod": "4.4.3"
   }
 }
