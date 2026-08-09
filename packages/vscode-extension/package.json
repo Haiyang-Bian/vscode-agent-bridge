@@ -2,7 +2,7 @@
   "name": "vscode-agent-bridge",
   "displayName": "VS Code Agent Bridge",
   "description": "Expose IDE-native VS Code context to local MCP clients through an authenticated bridge.",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "publisher": "AliceLin",
   "license": "MIT",
   "icon": "resources/icon.png",
@@ -81,6 +81,12 @@
           "default": "allow",
           "scope": "machine",
           "description": "Controls read-only terminal observation for this machine."
+        },
+        "vscodeAgentBridge.enableAcceptanceFixtures": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine",
+          "description": "Register a deterministic pure-text Code Action fixture for acceptance testing. Keep disabled during normal use."
         }
       }
     },

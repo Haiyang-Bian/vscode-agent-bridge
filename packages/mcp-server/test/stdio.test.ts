@@ -24,7 +24,7 @@ afterEach(async () => {
 describe("STDIO MCP server", () => {
   bunTest("advertises bounded read and experiment tools", async () => {
     const client = new Client(
-      { name: "vscode-agent-bridge-test", version: "0.5.0" },
+      { name: "vscode-agent-bridge-test", version: "0.5.1" },
       { capabilities: {} },
     );
     const compiledExecutable = process.env.VSCODE_AGENT_BRIDGE_TEST_EXE;

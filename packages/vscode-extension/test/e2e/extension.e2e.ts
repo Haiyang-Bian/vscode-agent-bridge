@@ -525,6 +525,22 @@ async function exerciseExperimentWorkflow(
   assert.equal(formatted.isDirty, true);
   assert.equal(formatDocument.getText(), "export const formattedValue = 42;\n");
 
+  const beforeNoOpFormat = await client.request<DocumentSnapshot>(BRIDGE_METHODS.readDocument, {
+    uri: formatUri.toString(true),
+  });
+  const noOpFormat = await client.request<FormatDocumentResult>(BRIDGE_METHODS.formatDocument, {
+    sessionId: active.sessionId,
+    uri: formatUri.toString(true),
+    expectedVersion: beforeNoOpFormat.documentVersion,
+    expectedSha256: beforeNoOpFormat.contentSha256,
+    reason: "Treat an undefined formatter result as an explicit no-op",
+  });
+  assert.equal(noOpFormat.applied, false);
+  assert.equal(noOpFormat.editCount, 0);
+  assert.equal(noOpFormat.checkpointId, null);
+  assert.equal(noOpFormat.documentVersion, beforeNoOpFormat.documentVersion);
+  assert.equal(noOpFormat.contentSha256, beforeNoOpFormat.contentSha256);
+
   const formatEditor = await vscode.window.showTextDocument(formatDocument, { preview: false });
   assert.equal(
     await formatEditor.edit((builder) =>
@@ -552,6 +568,9 @@ async function exerciseExperimentWorkflow(
   const actionUri = vscode.Uri.joinPath(workspaceUri, "action.bridgeaction");
   const actionDocument = await vscode.workspace.openTextDocument(actionUri);
   await vscode.window.showTextDocument(actionDocument, { preview: false });
+  await vscode.workspace
+    .getConfiguration("vscodeAgentBridge")
+    .update("enableAcceptanceFixtures", true, vscode.ConfigurationTarget.Global);
   const beforeActions = await client.request<DocumentSnapshot>(BRIDGE_METHODS.readDocument, {
     uri: actionUri.toString(true),
   });
@@ -567,8 +586,11 @@ async function exerciseExperimentWorkflow(
     kinds: ["quickfix"],
     limit: 20,
   });
-  const applicableAction = actions.actions.find((action) => action.applicable);
-  assert.ok(applicableAction, "the E2E pure-text Code Action should be applicable");
+  const applicableAction = actions.actions.find(
+    (action) =>
+      action.applicable && action.title === "Apply VS Code Agent Bridge acceptance text edit",
+  );
+  assert.ok(applicableAction, "the opt-in acceptance Code Action should be applicable");
   assert.ok(
     actions.actions.filter((action) => !action.applicable).length >= 2,
     "command-only and resource Code Actions must be visible but inapplicable",

@@ -2,7 +2,7 @@
 
 Connect Codex to capability-limited IDE autonomy, recoverable Agent experiments and read-only terminal observation in local VS Code windows.
 
-`0.5.0` is an unpublished Windows x64 desktop candidate distributed by side-loaded VSIX. The package contains a standalone MCP server, so testers do not need Bun, Node.js or the source repository.
+`0.5.1` is an unpublished Windows x64 desktop candidate distributed by side-loaded VSIX. The package contains a standalone MCP server, so testers do not need Bun, Node.js or the source repository.
 
 ## Setup
 
@@ -22,7 +22,9 @@ The bridge exposes 21 bounded IDE tools. In addition to editor/language-service 
 - `readOnly` removes write tools from Codex configuration and makes extension handlers reject writes.
 - Terminal policy `allow` exposes Shell Integration details in trusted workspaces, `metadataOnly` redacts command/output, and `deny` rejects all terminal tools.
 
-Change Sets, formatter edits, pure-text Code Actions and saves can only target existing documents inside a user-started experiment. Every write requires explicit instance/session routing plus fresh document version and SHA-256 preconditions. File creation/deletion/rename and command-bearing Code Actions are rejected.
+Change Sets, formatter edits, pure-text Code Actions and saves can only target existing documents inside a user-started experiment. Every write requires explicit instance/session routing plus fresh document version and SHA-256 preconditions. File creation/deletion/rename and command-bearing Code Actions are rejected. A formatter that reports no edits is treated as a successful no-op, not as a missing provider.
+
+For deterministic acceptance testing, the machine setting `vscodeAgentBridge.enableAcceptanceFixtures` may be enabled temporarily. It registers one pure-text Quick Fix for existing `*.bridgeaction` documents containing `BROKEN_E2E`; the action replaces that marker with `FIXED_E2E`. The setting is off by default and should be disabled after the test.
 
 Run **Start Agent Experiment** on an ordinary Git experiment branch. The Agent may edit, format, apply safe Quick Fixes and save while automatic checkpoints remain separate from Git. In autonomous mode, Finalize may use the current saved state if no candidate was accepted; an existing accepted candidate stays authoritative. The user then uses normal Git squash/rebase to create the desired formal history. Review, restore and explicit acceptance remain available in the native **Agent Experiments** view.
 
@@ -46,11 +48,13 @@ Source, issues, checksums and release artifacts are available at [GitHub](https:
 
 # 中文说明
 
-VS Code Agent Bridge 将 Codex 连接到本机 VS Code 的 IDE 原生状态，提供能力受限的自治、可恢复实验会话和终端只读观测。`0.5.0` 是暂未发布 Marketplace 的 Windows x64 候选版本；通过 VSIX 旁加载测试时不需要安装 Bun、Node.js 或克隆源码。
+VS Code Agent Bridge 将 Codex 连接到本机 VS Code 的 IDE 原生状态，提供能力受限的自治、可恢复实验会话和终端只读观测。`0.5.1` 是暂未发布 Marketplace 的 Windows x64 候选版本；通过 VSIX 旁加载测试时不需要安装 Bun、Node.js 或克隆源码。
 
 安装后先运行 **Configure Agent Policies**。默认 `autonomous + allow` 允许 Agent 在严格校验下编辑、格式化、应用纯文本 Code Action 并保存已有文档；`review` 要求写审批和显式接受；`readOnly` 在配置与扩展处理器两层拒绝写入。随后运行 **Configure Codex** 并重启 Codex。
 
-在可信的本地工作区中运行 **Start Agent Experiment**。所有写操作仍要求明确实例/会话 ID、文档版本和 SHA-256；保存只允许已打开且已存在的 `file:` 文档，格式化只调用固定 Provider，Code Action 只能包含纯文本 WorkspaceEdit，不能包含 command 或资源操作。
+在可信的本地工作区中运行 **Start Agent Experiment**。所有写操作仍要求明确实例/会话 ID、文档版本和 SHA-256；保存只允许已打开且已存在的 `file:` 文档，格式化只调用固定 Provider，Code Action 只能包含纯文本 WorkspaceEdit，不能包含 command 或资源操作。Formatter 返回零个 edit 时按成功 no-op 处理。
+
+为了稳定覆盖 Code Action 正向验收，可临时开启机器级设置 `vscodeAgentBridge.enableAcceptanceFixtures`。它只为包含 `BROKEN_E2E` 的既有 `*.bridgeaction` 文档提供一个纯文本 Quick Fix，并将其替换为 `FIXED_E2E`；该设置默认关闭，验收后应重新关闭。
 
 默认 Git 流程是“普通实验分支 + 自动检查点 + 用户执行 Git squash”。自动检查点不会生成提交。自治档位下如果没有接受候选，Finalize 可使用当前已保存状态；如果已有接受候选，它仍然优先。恢复、永久删除和 Managed Git 晋升继续要求用户确认。
 

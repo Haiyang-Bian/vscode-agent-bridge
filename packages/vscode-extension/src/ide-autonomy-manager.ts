@@ -122,17 +122,14 @@ export class IdeAutonomyManager {
     const tabSize = typeof editor?.options.tabSize === "number" ? editor.options.tabSize : 4;
     const insertSpaces =
       typeof editor?.options.insertSpaces === "boolean" ? editor.options.insertSpaces : true;
-    const edits = await vscode.commands.executeCommand<vscode.TextEdit[] | undefined>(
-      "vscode.executeFormatDocumentProvider",
-      uri,
-      { tabSize, insertSpaces },
-    );
-    if (edits === undefined) {
-      throw new BridgeError(
-        "FORMAT_PROVIDER_UNAVAILABLE",
-        "No VS Code document formatter is available for this document.",
-      );
-    }
+    const edits =
+      (await vscode.commands.executeCommand<vscode.TextEdit[] | undefined>(
+        "vscode.executeFormatDocumentProvider",
+        uri,
+        { tabSize, insertSpaces },
+      )) ?? [];
+    // The fixed VS Code command can return undefined when a formatter has no changes,
+    // so the safe observable meaning is a successful no-op rather than provider absence.
     assertExpectedDocument(document, params.expectedSha256, params.expectedVersion);
     if (edits.length === 0) {
       return {

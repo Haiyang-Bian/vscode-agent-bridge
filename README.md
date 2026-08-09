@@ -2,7 +2,7 @@
 
 VS Code Agent Bridge connects local MCP clients such as Codex to IDE-native VS Code state. It has two runtime layers: a standalone STDIO MCP server and a VS Code desktop extension. `packages/protocol` contains their shared RPC contracts and is not a third service.
 
-The unpublished `0.5.0` candidate targets Windows x64 and is distributed as a side-loaded VSIX. Testers do not need Bun, Node.js or this repository: the package contains a Bun-compiled MCP executable and installs a versioned copy only after explicit confirmation.
+The unpublished `0.5.1` candidate targets Windows x64 and is distributed as a side-loaded VSIX. Testers do not need Bun, Node.js or this repository: the package contains a Bun-compiled MCP executable and installs a versioned copy only after explicit confirmation.
 
 ## MCP tools
 
@@ -98,7 +98,7 @@ bun run test:artifact
 
 Pull requests and `master` run [CI](.github/workflows/ci.yml). A version tag runs [the release workflow](.github/workflows/release.yml), creates checksums, a version-specific cross-machine test bundle and provenance, and publishes a GitHub Release. Marketplace publishing remains disabled and runs through `vsce --oidc` only if `MARKETPLACE_TRUSTED_PUBLISHING_ENABLED` is explicitly set to `true`.
 
-No PAT is stored in this repository. See the [v0.5 release checklist](docs/releases/v0.5.0.md) and [v0.5 cross-machine acceptance prompt](docs/acceptance/v0.5.0-windows-x64.md).
+No PAT is stored in this repository. See the [v0.5.1 release checklist](docs/releases/v0.5.1.md) and [v0.5.1 cross-machine acceptance prompt](docs/acceptance/v0.5.1-windows-x64.md).
 
 ## Security and license
 

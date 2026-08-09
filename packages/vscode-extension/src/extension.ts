@@ -33,6 +33,8 @@ let activeHost: BridgeHost | undefined;
 let activeExperimentManager: ExperimentManager | undefined;
 let activeTerminalObserver: TerminalObserver | undefined;
 
+const ACCEPTANCE_ACTION_TITLE = "Apply VS Code Agent Bridge acceptance text edit";
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const output = vscode.window.createOutputChannel("VS Code Agent Bridge", { log: true });
   const host = new BridgeHost(output);
@@ -53,6 +55,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   activeTerminalObserver = terminals;
   registerExperimentUi(context, experiments, output);
   registerManagedWorktreeUi(context, managed, output);
+  registerAcceptanceFixtureProvider(context);
   registerE2ECommands(context, experiments, managed);
 
   await host.start();
@@ -105,6 +108,66 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   void maybeOfferCodexSetup(context, output);
 }
 
+function registerAcceptanceFixtureProvider(context: vscode.ExtensionContext): void {
+  let registration: vscode.Disposable | undefined;
+
+  const refreshRegistration = (): void => {
+    const enabled = vscode.workspace
+      .getConfiguration("vscodeAgentBridge")
+      .get<boolean>("enableAcceptanceFixtures", false);
+    if (enabled === Boolean(registration)) {
+      return;
+    }
+    registration?.dispose();
+    registration = undefined;
+    if (!enabled) {
+      return;
+    }
+
+    registration = vscode.languages.registerCodeActionsProvider(
+      { scheme: "file", pattern: "**/*.bridgeaction" },
+      {
+        provideCodeActions(document) {
+          const marker = "BROKEN_E2E";
+          const markerOffset = document.getText().indexOf(marker);
+          if (markerOffset < 0) {
+            return [];
+          }
+          const edit = new vscode.WorkspaceEdit();
+          edit.replace(
+            document.uri,
+            new vscode.Range(
+              document.positionAt(markerOffset),
+              document.positionAt(markerOffset + marker.length),
+            ),
+            "FIXED_E2E",
+          );
+          const action = new vscode.CodeAction(
+            ACCEPTANCE_ACTION_TITLE,
+            vscode.CodeActionKind.QuickFix,
+          );
+          action.edit = edit;
+          return [action];
+        },
+      },
+      { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] },
+    );
+  };
+
+  refreshRegistration();
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration("vscodeAgentBridge.enableAcceptanceFixtures")) {
+        refreshRegistration();
+      }
+    }),
+    new vscode.Disposable(() => {
+      registration?.dispose();
+      registration = undefined;
+    }),
+  );
+}
+
 function registerE2ECommands(
   context: vscode.ExtensionContext,
   experiments: ExperimentManager,
@@ -124,10 +187,14 @@ function registerE2ECommands(
   context.subscriptions.push(
     vscode.languages.registerDocumentFormattingEditProvider(formatterSelector, {
       provideDocumentFormattingEdits(document) {
+        const formattedText = "export const formattedValue = 42;\n";
+        if (document.getText() === formattedText) {
+          return undefined;
+        }
         return [
           vscode.TextEdit.replace(
             new vscode.Range(new vscode.Position(0, 0), document.positionAt(document.getText().length)),
-            "export const formattedValue = 42;\n",
+            formattedText,
           ),
         ];
       },

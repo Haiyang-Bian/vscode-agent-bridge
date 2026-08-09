@@ -20,4 +20,6 @@ Version `0.4.0` adds no Agent-callable Git tools. User-only managed-worktree com
 
 Version `0.5.0` allows capability-limited IDE autonomy: saving an existing document, provider formatting and pure-text Code Actions. These writes still require a trusted local workspace, an active user-started experiment, explicit instance/session IDs and fresh version/hash preconditions. `readOnly` is enforced by both the generated Codex tool list and extension handlers.
 
+Version `0.5.1` clarifies zero-edit formatting as a no-op and adds a default-off acceptance Code Action fixture. The fixture only contributes a pure-text WorkspaceEdit for an explicit `*.bridgeaction` marker and does not bypass experiment, trust, policy, version or content-hash enforcement.
+
 Terminal access is observation-only. The MCP surface cannot create, focus, close or write to a terminal and cannot execute a command. Command lines and sanitized output depend on Shell Integration, remain in memory only, are bounded and report incomplete coverage. Untrusted workspaces and `metadataOnly` redact sensitive fields; `deny` rejects terminal tools and discards retained execution details. Raw command lines/output never enter logs, Doctor, experiment snapshots or crash reports.

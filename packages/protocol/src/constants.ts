@@ -1,5 +1,5 @@
 export const BRIDGE_NAME = "vscode-agent-bridge" as const;
-export const BRIDGE_RELEASE_VERSION = "0.5.0" as const;
+export const BRIDGE_RELEASE_VERSION = "0.5.1" as const;
 export const BRIDGE_PROTOCOL_VERSION = 4 as const;
 export const DEFAULT_BRIDGE_TIMEOUT_MS = 5_000;
 export const MAX_RPC_MESSAGE_BYTES = 1_048_576;

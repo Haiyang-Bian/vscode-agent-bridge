@@ -1,5 +1,10 @@
 # Change Log
 
+## 0.5.1 - 2026-08-09
+
+- Treat formatter responses with zero edits as successful no-ops instead of reporting `FORMAT_PROVIDER_UNAVAILABLE`.
+- Added a default-off deterministic pure-text Code Action fixture for positive acceptance testing.
+
 ## 0.5.0 - 2026-08-09
 
 - Added autonomous, review and read-only machine profiles with extension-side enforcement and policy-aware Codex configuration.
