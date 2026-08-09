@@ -1,6 +1,6 @@
 export const BRIDGE_NAME = "vscode-agent-bridge" as const;
-export const BRIDGE_RELEASE_VERSION = "0.4.0" as const;
-export const BRIDGE_PROTOCOL_VERSION = 3 as const;
+export const BRIDGE_RELEASE_VERSION = "0.5.0" as const;
+export const BRIDGE_PROTOCOL_VERSION = 4 as const;
 export const DEFAULT_BRIDGE_TIMEOUT_MS = 5_000;
 export const MAX_RPC_MESSAGE_BYTES = 1_048_576;
 export const DEFAULT_DOCUMENT_MAX_CHARACTERS = 65_536;
@@ -18,6 +18,14 @@ export const MAX_CHECKPOINT_LIMIT = 200;
 export const MAX_EXPERIMENT_TITLE_CHARACTERS = 120;
 export const MAX_EXPERIMENT_RATIONALE_CHARACTERS = 2_000;
 export const MAX_EXPERIMENT_EVIDENCE_CHARACTERS = 2_000;
+export const CODE_ACTION_TTL_MS = 10 * 60 * 1_000;
+export const DEFAULT_TERMINAL_EXECUTION_LIMIT = 50;
+export const MAX_TERMINAL_EXECUTION_LIMIT = 200;
+export const DEFAULT_TERMINAL_OUTPUT_CHARACTERS = 65_536;
+export const MAX_TERMINAL_OUTPUT_CHARACTERS = 200_000;
+export const MAX_TERMINAL_EXECUTION_OUTPUT_BYTES = 1_048_576;
+export const MAX_TERMINAL_WINDOW_OUTPUT_BYTES = 16 * 1_048_576;
+export const CLOSED_TERMINAL_RETENTION_MS = 15 * 60 * 1_000;
 
 export const BRIDGE_METHODS = {
   initialize: "bridge/initialize",
@@ -34,6 +42,13 @@ export const BRIDGE_METHODS = {
   prepareRename: "experiment/prepareRename",
   applyChangeSet: "experiment/applyChangeSet",
   recordExperimentEvidence: "experiment/recordEvidence",
+  saveDocument: "document/save",
+  formatDocument: "languages/formatDocument",
+  listCodeActions: "languages/listCodeActions",
+  applyCodeAction: "languages/applyCodeAction",
+  listTerminals: "terminals/list",
+  listTerminalExecutions: "terminals/listExecutions",
+  readTerminalOutput: "terminals/readOutput",
 } as const;
 
 export const BRIDGE_CAPABILITIES = [
@@ -50,6 +65,13 @@ export const BRIDGE_CAPABILITIES = [
   "experiment.prepareRename",
   "experiment.applyChangeSet",
   "experiment.recordEvidence",
+  "document.save",
+  "languages.formatDocument",
+  "languages.listCodeActions",
+  "languages.applyCodeAction",
+  "terminals.list",
+  "terminals.listExecutions",
+  "terminals.readOutput",
 ] as const;
 
 export const MCP_TOOL_NAMES = [
@@ -67,6 +89,13 @@ export const MCP_TOOL_NAMES = [
   "vscode_prepare_rename",
   "vscode_apply_change_set",
   "vscode_record_experiment_evidence",
+  "vscode_save_document",
+  "vscode_format_document",
+  "vscode_list_code_actions",
+  "vscode_apply_code_action",
+  "vscode_list_terminals",
+  "vscode_list_terminal_executions",
+  "vscode_read_terminal_output",
 ] as const;
 
 export const BRIDGE_ERROR_CODES = [
@@ -105,6 +134,16 @@ export const BRIDGE_ERROR_CODES = [
   "SYNC_CONFLICTED",
   "ACCEPTED_COMMIT_REQUIRED",
   "PROMOTION_RECOVERY_REQUIRED",
+  "POLICY_DENIED",
+  "SAVE_FAILED",
+  "FORMAT_PROVIDER_UNAVAILABLE",
+  "CODE_ACTION_NOT_FOUND",
+  "CODE_ACTION_EXPIRED",
+  "CODE_ACTION_ALREADY_APPLIED",
+  "CODE_ACTION_UNSUPPORTED",
+  "TERMINAL_NOT_FOUND",
+  "TERMINAL_EXECUTION_NOT_FOUND",
+  "TERMINAL_OUTPUT_UNAVAILABLE",
   "INTERNAL_ERROR",
 ] as const;
 

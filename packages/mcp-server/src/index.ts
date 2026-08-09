@@ -10,6 +10,9 @@ import {
   BRIDGE_PROTOCOL_VERSION,
   BRIDGE_RELEASE_VERSION,
   AppliedChangeSetSchema,
+  ApplyCodeActionInputSchema,
+  ApplyCodeActionParamsSchema,
+  ApplyCodeActionResultSchema,
   ApplyChangeSetInputSchema,
   ApplyChangeSetParamsSchema,
   DiagnosticsInputSchema,
@@ -23,6 +26,9 @@ import {
   ExperimentCheckpointsResultSchema,
   ExperimentEvidenceSchema,
   ExperimentInfoSchema,
+  FormatDocumentInputSchema,
+  FormatDocumentParamsSchema,
+  FormatDocumentResultSchema,
   GetExperimentInputSchema,
   HoverInputSchema,
   HoverParamsSchema,
@@ -30,6 +36,15 @@ import {
   LocationsResultSchema,
   ListExperimentCheckpointsInputSchema,
   ListExperimentCheckpointsParamsSchema,
+  ListCodeActionsInputSchema,
+  ListCodeActionsParamsSchema,
+  ListCodeActionsResultSchema,
+  ListTerminalExecutionsInputSchema,
+  ListTerminalExecutionsParamsSchema,
+  ListTerminalExecutionsResultSchema,
+  ListTerminalsInputSchema,
+  ListTerminalsParamsSchema,
+  ListTerminalsResultSchema,
   PositionedDocumentInputSchema,
   PositionedDocumentParamsSchema,
   PublicInstanceSchema,
@@ -40,8 +55,14 @@ import {
   PrepareTextEditsParamsSchema,
   ReadDocumentInputSchema,
   ReadDocumentParamsSchema,
+  ReadTerminalOutputInputSchema,
+  ReadTerminalOutputParamsSchema,
+  ReadTerminalOutputResultSchema,
   RecordExperimentEvidenceInputSchema,
   RecordExperimentEvidenceParamsSchema,
+  SaveDocumentInputSchema,
+  SaveDocumentParamsSchema,
+  SaveDocumentResultSchema,
   asBridgeError,
   type BridgeError,
   type InstanceDescriptor,
@@ -87,7 +108,7 @@ const server = new McpServer(
   },
   {
     instructions:
-      "Use this server for IDE-native VS Code state, unsaved buffers, language services, and guarded text edits inside a user-started experiment. Use filesystem and shell tools for ordinary file operations. Call vscode_list_instances before targeting a window when multiple VS Code instances may be open. Mutating tools require explicit instance and session IDs, never save, and remain subject to Codex write approval. Remote VS Code extension hosts are not supported.",
+      "Prefer this VS Code Bridge over filesystem or shell tools whenever it offers the needed IDE capability. It exposes unsaved buffers, language services, guarded text edits, formatting, pure-text Code Actions, and saving existing documents inside a user-started experiment. Terminal tools are observation-only and may report partial capture; they can never create a terminal, send input, or execute a command. Call vscode_list_instances before targeting a window when multiple VS Code instances may be open. Every mutation requires explicit instance/session IDs plus version/hash guards and is enforced by the active autonomy policy. Remote VS Code extension hosts are unsupported.",
   },
 );
 
@@ -467,6 +488,212 @@ server.registerTool(
       );
       return toolSuccess(
         `Recorded client-reported ${result.kind} evidence with status ${result.status}.`,
+        result,
+      );
+    } catch (error) {
+      return toolError(asBridgeError(error));
+    }
+  },
+);
+
+server.registerTool(
+  "vscode_save_document",
+  {
+    title: "Save guarded VS Code document",
+    description:
+      "Save one existing open file document after revalidating its version and SHA-256, then capture the final format-on-save result as an experiment checkpoint.",
+    inputSchema: SaveDocumentInputSchema,
+    outputSchema: SaveDocumentResultSchema,
+    annotations: guardedWriteAnnotations,
+  },
+  async ({ instanceId, ...rawParams }) => {
+    try {
+      const descriptor = await resolveInstance(instanceId);
+      const params = SaveDocumentParamsSchema.parse(rawParams);
+      const result = await requestBridgeResult(
+        descriptor,
+        BRIDGE_METHODS.saveDocument,
+        params,
+        (value) => SaveDocumentResultSchema.parse(value),
+      );
+      return toolSuccess(
+        `Saved ${result.uri} and created checkpoint ${result.checkpointId}.`,
+        result,
+      );
+    } catch (error) {
+      return toolError(asBridgeError(error));
+    }
+  },
+);
+
+server.registerTool(
+  "vscode_format_document",
+  {
+    title: "Format guarded VS Code document",
+    description:
+      "Apply text edits from VS Code's document formatter after version and SHA-256 validation. The document remains unsaved.",
+    inputSchema: FormatDocumentInputSchema,
+    outputSchema: FormatDocumentResultSchema,
+    annotations: guardedWriteAnnotations,
+  },
+  async ({ instanceId, ...rawParams }) => {
+    try {
+      const descriptor = await resolveInstance(instanceId);
+      const params = FormatDocumentParamsSchema.parse(rawParams);
+      const result = await requestBridgeResult(
+        descriptor,
+        BRIDGE_METHODS.formatDocument,
+        params,
+        (value) => FormatDocumentResultSchema.parse(value),
+      );
+      return toolSuccess(
+        result.applied
+          ? `Applied ${result.editCount} formatter edit(s) to ${result.uri}; the buffer remains unsaved.`
+          : `The formatter returned no edits for ${result.uri}.`,
+        result,
+      );
+    } catch (error) {
+      return toolError(asBridgeError(error));
+    }
+  },
+);
+
+server.registerTool(
+  "vscode_list_code_actions",
+  {
+    title: "List guarded VS Code Code Actions",
+    description:
+      "Query VS Code Code Actions for an explicit document range. Returned action handles expire after ten minutes; command arguments are never exposed.",
+    inputSchema: ListCodeActionsInputSchema,
+    outputSchema: ListCodeActionsResultSchema,
+    annotations: prepareAnnotations,
+  },
+  async ({ instanceId, ...rawParams }) => {
+    try {
+      const descriptor = await resolveInstance(instanceId);
+      const params = ListCodeActionsParamsSchema.parse(rawParams);
+      const result = await requestBridgeResult(
+        descriptor,
+        BRIDGE_METHODS.listCodeActions,
+        params,
+        (value) => ListCodeActionsResultSchema.parse(value),
+      );
+      return toolSuccess(
+        `Returned ${result.returnedCount} of ${result.totalCount} Code Action(s) for ${result.uri}.`,
+        result,
+      );
+    } catch (error) {
+      return toolError(asBridgeError(error));
+    }
+  },
+);
+
+server.registerTool(
+  "vscode_apply_code_action",
+  {
+    title: "Apply guarded VS Code Code Action",
+    description:
+      "Consume one Code Action containing only text edits, revalidate every document, apply it atomically, leave buffers unsaved, and create an experiment checkpoint.",
+    inputSchema: ApplyCodeActionInputSchema,
+    outputSchema: ApplyCodeActionResultSchema,
+    annotations: guardedWriteAnnotations,
+  },
+  async ({ instanceId, ...rawParams }) => {
+    try {
+      const descriptor = await resolveInstance(instanceId);
+      const params = ApplyCodeActionParamsSchema.parse(rawParams);
+      const result = await requestBridgeResult(
+        descriptor,
+        BRIDGE_METHODS.applyCodeAction,
+        params,
+        (value) => ApplyCodeActionResultSchema.parse(value),
+      );
+      return toolSuccess(
+        `Applied Code Action to ${result.documents.length} dirty buffer(s) and created checkpoint ${result.checkpointId}.`,
+        result,
+      );
+    } catch (error) {
+      return toolError(asBridgeError(error));
+    }
+  },
+);
+
+server.registerTool(
+  "vscode_list_terminals",
+  {
+    title: "List VS Code terminals",
+    description:
+      "Return terminal metadata and read coverage for one VS Code window. This tool cannot create, focus, close, or write to a terminal.",
+    inputSchema: ListTerminalsInputSchema,
+    outputSchema: ListTerminalsResultSchema,
+    annotations: readOnlyAnnotations,
+  },
+  async ({ instanceId, ...rawParams }) => {
+    try {
+      const descriptor = await resolveInstance(instanceId);
+      const params = ListTerminalsParamsSchema.parse(rawParams);
+      const result = await requestBridgeResult(
+        descriptor,
+        BRIDGE_METHODS.listTerminals,
+        params,
+        (value) => ListTerminalsResultSchema.parse(value),
+      );
+      return toolSuccess(`Returned ${result.returnedCount} terminal(s).`, result);
+    } catch (error) {
+      return toolError(asBridgeError(error));
+    }
+  },
+);
+
+server.registerTool(
+  "vscode_list_terminal_executions",
+  {
+    title: "List observed VS Code terminal executions",
+    description:
+      "Page through Shell Integration command executions captured since extension activation, including explicit output coverage and exit status.",
+    inputSchema: ListTerminalExecutionsInputSchema,
+    outputSchema: ListTerminalExecutionsResultSchema,
+    annotations: readOnlyAnnotations,
+  },
+  async ({ instanceId, ...rawParams }) => {
+    try {
+      const descriptor = await resolveInstance(instanceId);
+      const params = ListTerminalExecutionsParamsSchema.parse(rawParams);
+      const result = await requestBridgeResult(
+        descriptor,
+        BRIDGE_METHODS.listTerminalExecutions,
+        params,
+        (value) => ListTerminalExecutionsResultSchema.parse(value),
+      );
+      return toolSuccess(`Returned ${result.returnedCount} terminal execution(s).`, result);
+    } catch (error) {
+      return toolError(asBridgeError(error));
+    }
+  },
+);
+
+server.registerTool(
+  "vscode_read_terminal_output",
+  {
+    title: "Read captured VS Code terminal output",
+    description:
+      "Read a bounded page of sanitized output captured after a Shell Integration execution started. Coverage can be partial and no terminal input is possible.",
+    inputSchema: ReadTerminalOutputInputSchema,
+    outputSchema: ReadTerminalOutputResultSchema,
+    annotations: readOnlyAnnotations,
+  },
+  async ({ instanceId, ...rawParams }) => {
+    try {
+      const descriptor = await resolveInstance(instanceId);
+      const params = ReadTerminalOutputParamsSchema.parse(rawParams);
+      const result = await requestBridgeResult(
+        descriptor,
+        BRIDGE_METHODS.readTerminalOutput,
+        params,
+        (value) => ReadTerminalOutputResultSchema.parse(value),
+      );
+      return toolSuccess(
+        `Read ${result.returnedCharacters} captured terminal character(s) with ${result.coverage} coverage.`,
         result,
       );
     } catch (error) {

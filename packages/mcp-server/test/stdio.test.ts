@@ -24,7 +24,7 @@ afterEach(async () => {
 describe("STDIO MCP server", () => {
   bunTest("advertises bounded read and experiment tools", async () => {
     const client = new Client(
-      { name: "vscode-agent-bridge-test", version: "0.3.0" },
+      { name: "vscode-agent-bridge-test", version: "0.5.0" },
       { capabilities: {} },
     );
     const compiledExecutable = process.env.VSCODE_AGENT_BRIDGE_TEST_EXE;
@@ -44,6 +44,8 @@ describe("STDIO MCP server", () => {
       const tools = await client.listTools();
       expect(tools.tools.map((tool) => tool.name).sort()).toEqual([
         "vscode_apply_change_set",
+        "vscode_apply_code_action",
+        "vscode_format_document",
         "vscode_get_definitions",
         "vscode_get_diagnostics",
         "vscode_get_document_symbols",
@@ -51,19 +53,28 @@ describe("STDIO MCP server", () => {
         "vscode_get_experiment",
         "vscode_get_hover",
         "vscode_get_references",
+        "vscode_list_code_actions",
         "vscode_list_experiment_checkpoints",
         "vscode_list_instances",
+        "vscode_list_terminal_executions",
+        "vscode_list_terminals",
         "vscode_prepare_rename",
         "vscode_prepare_text_edits",
         "vscode_read_document",
+        "vscode_read_terminal_output",
         "vscode_record_experiment_evidence",
+        "vscode_save_document",
       ]);
       for (const tool of tools.tools.filter((item) =>
         ![
           "vscode_prepare_text_edits",
           "vscode_prepare_rename",
+          "vscode_list_code_actions",
           "vscode_apply_change_set",
+          "vscode_apply_code_action",
+          "vscode_format_document",
           "vscode_record_experiment_evidence",
+          "vscode_save_document",
         ].includes(item.name),
       )) {
         expect(tool.annotations).toEqual({
@@ -73,7 +84,11 @@ describe("STDIO MCP server", () => {
           openWorldHint: false,
         });
       }
-      for (const name of ["vscode_prepare_text_edits", "vscode_prepare_rename"]) {
+      for (const name of [
+        "vscode_prepare_text_edits",
+        "vscode_prepare_rename",
+        "vscode_list_code_actions",
+      ]) {
         expect(tools.tools.find((tool) => tool.name === name)?.annotations).toEqual({
           readOnlyHint: true,
           destructiveHint: false,
@@ -81,7 +96,13 @@ describe("STDIO MCP server", () => {
           openWorldHint: false,
         });
       }
-      for (const name of ["vscode_apply_change_set", "vscode_record_experiment_evidence"]) {
+      for (const name of [
+        "vscode_apply_change_set",
+        "vscode_apply_code_action",
+        "vscode_format_document",
+        "vscode_record_experiment_evidence",
+        "vscode_save_document",
+      ]) {
         expect(tools.tools.find((tool) => tool.name === name)?.annotations).toEqual({
           readOnlyHint: false,
           destructiveHint: false,
