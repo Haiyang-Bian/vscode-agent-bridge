@@ -40,6 +40,8 @@ export const DEFAULT_EXPERIMENT_RETENTION_DAYS = 30;
 export const DEFAULT_EXPERIMENT_STORAGE_LIMIT_BYTES = 500 * 1024 * 1024;
 export const MAX_EXPERIMENT_BLOB_BYTES = 2 * 1024 * 1024;
 export const EXPERIMENT_LEASE_STALE_MS = 30_000;
+const ATOMIC_RENAME_RETRY_DELAYS_MS = [10, 25, 50, 100, 200] as const;
+const atomicWriteQueues = new Map<string, Promise<void>>();
 
 const StoredDocumentSchema = z
   .object({
@@ -789,11 +791,43 @@ export class ExperimentStore {
 }
 
 async function writeAtomic(filePath: string, contents: string): Promise<void> {
+  const resolvedPath = path.resolve(filePath);
+  const normalizedPath = process.platform === "win32" ? resolvedPath.toLowerCase() : resolvedPath;
+  const previous = atomicWriteQueues.get(normalizedPath) ?? Promise.resolve();
+  const operation = previous.then(
+    () => writeAtomicNow(filePath, contents),
+    () => writeAtomicNow(filePath, contents),
+  );
+  const tail = operation.then(
+    () => undefined,
+    () => undefined,
+  );
+  atomicWriteQueues.set(normalizedPath, tail);
+  void tail.then(() => {
+    if (atomicWriteQueues.get(normalizedPath) === tail) {
+      atomicWriteQueues.delete(normalizedPath);
+    }
+  });
+  return operation;
+}
+
+async function writeAtomicNow(filePath: string, contents: string): Promise<void> {
   await mkdir(path.dirname(filePath), { recursive: true });
   const temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
   try {
     await writeFile(temporaryPath, contents, { encoding: "utf8", mode: 0o600 });
-    await rename(temporaryPath, filePath);
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await rename(temporaryPath, filePath);
+        break;
+      } catch (error) {
+        const delay = ATOMIC_RENAME_RETRY_DELAYS_MS[attempt];
+        if (delay === undefined || !isRetryableAtomicRenameError(error)) {
+          throw error;
+        }
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
   } finally {
     await rm(temporaryPath, { force: true }).catch(() => undefined);
   }
@@ -809,6 +843,15 @@ function isAlreadyExistsError(error: unknown): boolean {
     error !== null &&
     "code" in error &&
     (error as NodeJS.ErrnoException).code === "EEXIST"
+  );
+}
+
+function isRetryableAtomicRenameError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    ["EACCES", "EBUSY", "EPERM"].includes((error as NodeJS.ErrnoException).code ?? "")
   );
 }
 

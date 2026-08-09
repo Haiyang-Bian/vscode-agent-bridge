@@ -140,6 +140,31 @@ describe("experiment store", () => {
     expect((await store.readCheckpoint(manifest.sessionId, manifest.currentCheckpointId!)).evidence).toHaveLength(1);
   });
 
+  test("serializes concurrent atomic replacements for one manifest", async () => {
+    const directory = await temporaryDirectory();
+    const store = new ExperimentStore(directory, INSTANCE_A);
+    const manifest = await store.createExperiment({
+      mode: "workspace",
+      title: "Concurrent manifest writes",
+      rootUri: "file:///workspace",
+      workspaceIdentity: "workspace",
+      baseRevision: null,
+      branch: null,
+      health: "partial",
+    });
+
+    await Promise.all(
+      Array.from({ length: 32 }, (_, index) => store.setPinned(manifest.sessionId, index % 2 === 0)),
+    );
+
+    expect((await store.readManifest(manifest.sessionId)).sessionId).toBe(manifest.sessionId);
+    expect(
+      (await readdir(path.join(directory, "sessions", manifest.sessionId))).filter((file) =>
+        file.endsWith(".tmp"),
+      ),
+    ).toEqual([]);
+  });
+
   test("does not retention-delete active or pinned sessions", async () => {
     const directory = await temporaryDirectory();
     let now = new Date("2026-01-01T00:00:00.000Z");

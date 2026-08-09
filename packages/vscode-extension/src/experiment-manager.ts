@@ -320,44 +320,48 @@ export class ExperimentManager implements vscode.Disposable {
   }
 
   async finalize(): Promise<void> {
-    const active = this.#requireActive();
     await this.flushPendingCaptures();
-    await this.#reconcileGitDocuments(active);
-    const acceptedId = active.manifest.acceptedCheckpointId;
-    if (!acceptedId) {
-      throw new BridgeError("INVALID_REQUEST", "No experiment checkpoint has been accepted.");
-    }
-    const accepted = await this.#store.readCheckpoint(active.manifest.sessionId, acceptedId);
-    await this.#refreshCurrentDocuments(active);
-    const resolvedAccepted = await this.#resolveCheckpointDocuments(active, accepted.documents);
-    if (!sameDocumentContent(resolvedAccepted.map(({ state }) => state), active.documents.values())) {
-      throw new BridgeError(
-        "STALE_CHANGE_SET",
-        "The current workspace no longer matches the accepted checkpoint. Restore it explicitly first.",
+    await this.#enqueue(async () => {
+      const active = this.#requireActive();
+      await this.#reconcileGitDocuments(active);
+      const acceptedId = active.manifest.acceptedCheckpointId;
+      if (!acceptedId) {
+        throw new BridgeError("INVALID_REQUEST", "No experiment checkpoint has been accepted.");
+      }
+      const accepted = await this.#store.readCheckpoint(active.manifest.sessionId, acceptedId);
+      await this.#refreshCurrentDocuments(active);
+      const resolvedAccepted = await this.#resolveCheckpointDocuments(active, accepted.documents);
+      if (!sameDocumentContent(resolvedAccepted.map(({ state }) => state), active.documents.values())) {
+        throw new BridgeError(
+          "STALE_CHANGE_SET",
+          "The current workspace no longer matches the accepted checkpoint. Restore it explicitly first.",
+        );
+      }
+      const dirty = vscode.workspace.textDocuments.some(
+        (document) => document.isDirty && isUriWithin(active.root, document.uri),
       );
-    }
-    const dirty = vscode.workspace.textDocuments.some(
-      (document) => document.isDirty && isUriWithin(active.root, document.uri),
-    );
-    if (dirty) {
-      throw new BridgeError(
-        "INVALID_REQUEST",
-        "Save all experiment documents before finalizing. The extension will not save automatically.",
-      );
-    }
-    active.manifest = await this.#store.setLifecycle(active.manifest.sessionId, "finalized");
-    this.#stopActiveMonitoring();
-    this.#active = undefined;
-    this.#changeEmitter.fire();
+      if (dirty) {
+        throw new BridgeError(
+          "INVALID_REQUEST",
+          "Save all experiment documents before finalizing. The extension will not save automatically.",
+        );
+      }
+      active.manifest = await this.#store.setLifecycle(active.manifest.sessionId, "finalized");
+      this.#stopActiveMonitoring();
+      this.#active = undefined;
+      this.#changeEmitter.fire();
+    });
   }
 
   async abandon(): Promise<void> {
-    const active = this.#requireActive();
     await this.flushPendingCaptures();
-    active.manifest = await this.#store.setLifecycle(active.manifest.sessionId, "abandoned");
-    this.#stopActiveMonitoring();
-    this.#active = undefined;
-    this.#changeEmitter.fire();
+    await this.#enqueue(async () => {
+      const active = this.#requireActive();
+      active.manifest = await this.#store.setLifecycle(active.manifest.sessionId, "abandoned");
+      this.#stopActiveMonitoring();
+      this.#active = undefined;
+      this.#changeEmitter.fire();
+    });
   }
 
   async setPinned(sessionId: string, pinned: boolean): Promise<void> {
@@ -462,6 +466,7 @@ export class ExperimentManager implements vscode.Disposable {
         this.#captureCheckpoint("externalChange", "External workspace changes", externalUris),
       );
     }
+    await this.#operationQueue;
   }
 
   async disposeAsync(): Promise<void> {
@@ -569,7 +574,7 @@ export class ExperimentManager implements vscode.Disposable {
       return;
     }
     this.#leaseTimer = setInterval(() => {
-      void this.#refreshActiveLease(active).catch((error: unknown) => {
+      void this.#enqueue(() => this.#refreshActiveLease(active)).catch((error: unknown) => {
         this.#output.error("Experiment lease refresh failed.", error);
       });
     }, LEASE_REFRESH_INTERVAL_MS);
@@ -727,7 +732,7 @@ export class ExperimentManager implements vscode.Disposable {
 
   #scheduleDiagnosticEvidence(active: ActiveExperiment, checkpointId: string): void {
     setTimeout(() => {
-      void this.#captureDiagnosticEvidence(active, checkpointId);
+      void this.#enqueue(() => this.#captureDiagnosticEvidence(active, checkpointId));
     }, DIAGNOSTIC_SETTLE_MS);
   }
 
