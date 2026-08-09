@@ -1,5 +1,14 @@
 # Change Log
 
+## 0.5.0 - 2026-08-09
+
+- Added autonomous, review and read-only machine profiles with extension-side enforcement and policy-aware Codex configuration.
+- Added guarded save, fixed-provider formatting and expiring pure-text Code Action tools for existing experiment documents.
+- Added read-only terminal metadata, Shell Integration execution and sanitized output tools with explicit coverage and memory limits.
+- Added autonomous Finalize from current saved state while preserving accepted-candidate precedence and review-mode acceptance.
+- Positioned ordinary experiment branches plus user-controlled Git squash as the default and managed worktrees as an advanced mode.
+- Extended real Extension Host coverage through format-on-save, Code Actions, terminal output pagination, policy transitions and v0.4 promotion regression.
+
 ## 0.4.0 - 2026-08-09
 
 - Added user-created, locked managed Git worktrees with private experiment branches.

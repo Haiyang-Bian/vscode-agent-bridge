@@ -60,7 +60,7 @@ assert(
   Array.isArray(extensionManifest.extensionKind) && extensionManifest.extensionKind.includes("ui"),
   "Extension must run as a desktop UI extension.",
 );
-assert(MCP_TOOL_NAMES.length === 14, "The release must expose exactly fourteen MCP tools.");
+assert(MCP_TOOL_NAMES.length === 21, "The release must expose exactly twenty-one MCP tools.");
 assert(
   rootDevDependencies["@vscode/vsce"] === "3.9.3-4",
   "The release must pin the verified OIDC-capable vsce build exactly.",
@@ -82,13 +82,28 @@ for (const forbidden of [
   assert(!forbidden.test(gitRunnerSource), `Forbidden Git execution pattern: ${forbidden}.`);
 }
 assert(gitRunnerSource.includes("execFile"), "Managed Git operations must use execFile.");
+const terminalObserverSource = await readFile(
+  path.join(extensionRoot, "src", "terminal-observer.ts"),
+  "utf8",
+);
+for (const forbidden of [
+  /window\.createTerminal/u,
+  /\.sendText\s*\(/u,
+  /shellIntegration\?*\.executeCommand\s*\(/u,
+  /terminal\.(?:show|hide|dispose)\s*\(/u,
+]) {
+  assert(
+    !forbidden.test(terminalObserverSource),
+    `Forbidden terminal mutation pattern in TerminalObserver: ${forbidden}.`,
+  );
+}
 assert(
   (await capture(["node", vscePath, "publish", "--help"], repositoryRoot)).includes("--oidc"),
   "The installed vsce does not implement trusted publishing with --oidc.",
 );
 assert(
   MCP_TOOL_NAMES.every((name) => name.startsWith("vscode_")) &&
-    MCP_TOOL_NAMES.every((name) => !/(terminal|shell|execute_command|filesystem|git_)/iu.test(name)),
+    MCP_TOOL_NAMES.every((name) => !/(shell|execute_command|filesystem|git_)/iu.test(name)),
   "The MCP surface must remain IDE-native and must not expose shell, filesystem or Git commands.",
 );
 assert(
@@ -97,8 +112,21 @@ assert(
     "vscode_prepare_rename",
     "vscode_apply_change_set",
     "vscode_record_experiment_evidence",
+    "vscode_save_document",
+    "vscode_format_document",
+    "vscode_list_code_actions",
+    "vscode_apply_code_action",
   ].every((name) => MCP_TOOL_NAMES.includes(name)),
   "The guarded mutation surface is not the expected prepare/apply workflow.",
+);
+assert(
+  MCP_TOOL_NAMES.filter((name) => name.includes("terminal")).join(",") ===
+    [
+      "vscode_list_terminals",
+      "vscode_list_terminal_executions",
+      "vscode_read_terminal_output",
+    ].join(","),
+  "Only the three bounded read-only terminal observation tools may be exposed.",
 );
 
 const releaseTag = resolveReleaseTag(process.env);

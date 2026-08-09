@@ -113,7 +113,59 @@ function registerE2ECommands(
   if (process.env.VSCODE_AGENT_BRIDGE_E2E !== "1") {
     return;
   }
+  const formatterSelector: vscode.DocumentSelector = {
+    scheme: "file",
+    pattern: "**/*.bridgeformat",
+  };
+  const codeActionSelector: vscode.DocumentSelector = {
+    scheme: "file",
+    pattern: "**/*.bridgeaction",
+  };
   context.subscriptions.push(
+    vscode.languages.registerDocumentFormattingEditProvider(formatterSelector, {
+      provideDocumentFormattingEdits(document) {
+        return [
+          vscode.TextEdit.replace(
+            new vscode.Range(new vscode.Position(0, 0), document.positionAt(document.getText().length)),
+            "export const formattedValue = 42;\n",
+          ),
+        ];
+      },
+    }),
+    vscode.languages.registerCodeActionsProvider(codeActionSelector, {
+      provideCodeActions(document) {
+        const safe = new vscode.CodeAction("Apply safe bridge E2E fix", vscode.CodeActionKind.QuickFix);
+        const markerOffset = document.getText().indexOf("BROKEN_E2E");
+        if (markerOffset >= 0) {
+          safe.edit = new vscode.WorkspaceEdit();
+          safe.edit.replace(
+            document.uri,
+            new vscode.Range(
+              document.positionAt(markerOffset),
+              document.positionAt(markerOffset + "BROKEN_E2E".length),
+            ),
+            "FIXED_E2E",
+          );
+        }
+
+        const commandOnly = new vscode.CodeAction(
+          "Unsupported command-only bridge E2E action",
+          vscode.CodeActionKind.QuickFix,
+        );
+        commandOnly.command = {
+          title: "Must never run",
+          command: "vscodeAgentBridge.e2eNeverRun",
+        };
+
+        const resourceOperation = new vscode.CodeAction(
+          "Unsupported resource bridge E2E action",
+          vscode.CodeActionKind.QuickFix,
+        );
+        resourceOperation.edit = new vscode.WorkspaceEdit();
+        resourceOperation.edit.createFile(vscode.Uri.joinPath(document.uri, "..", "forbidden.txt"));
+        return [safe, commandOnly, resourceOperation];
+      },
+    }),
     vscode.commands.registerCommand("vscodeAgentBridge.e2eStartExperiment", async (title: string) => {
       const root = vscode.workspace.workspaceFolders?.[0]?.uri;
       if (!root) {
@@ -124,6 +176,9 @@ function registerE2ECommands(
     vscode.commands.registerCommand(
       "vscodeAgentBridge.e2eMarkCheckpointAccepted",
       (checkpointId: string) => experiments.markAccepted(checkpointId),
+    ),
+    vscode.commands.registerCommand("vscodeAgentBridge.e2eCreateCheckpoint", (summary: string) =>
+      experiments.createExplicitCheckpoint(summary),
     ),
     vscode.commands.registerCommand("vscodeAgentBridge.e2eRestoreAccepted", () =>
       experiments.restoreAccepted(),
