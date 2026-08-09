@@ -1,5 +1,15 @@
 # Change Log
 
+## 0.4.0 - 2026-08-09
+
+- Added user-created, locked managed Git worktrees with private experiment branches.
+- Added fixed `execFile` Git boundaries, repository/worktree validation and no remote/config operations.
+- Added user-only private checkpoint commits that preserve normal hooks and signing.
+- Added explicit target-drift refusal and sync/rebase preview, continue and abort flows.
+- Added accepted-commit validation and one-commit promotion with parent/tree invariants and guarded cherry-pick recovery.
+- Added explicit abandon, exact-path cleanup, optional force confirmation, expected-old-SHA branch deletion and repair reports.
+- Added temporary-repository boundary tests and real two-window E2E proving ten private commits become one target commit after explicit sync.
+
 ## 0.3.0 - 2026-08-09
 
 - Added recoverable local Agent experiments with content-addressed snapshots, immutable events, leases, retention and crash recovery.

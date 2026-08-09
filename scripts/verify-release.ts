@@ -60,11 +60,28 @@ assert(
   Array.isArray(extensionManifest.extensionKind) && extensionManifest.extensionKind.includes("ui"),
   "Extension must run as a desktop UI extension.",
 );
-assert(MCP_TOOL_NAMES.length === 14, "The v0.3 release must expose exactly fourteen MCP tools.");
+assert(MCP_TOOL_NAMES.length === 14, "The release must expose exactly fourteen MCP tools.");
 assert(
   rootDevDependencies["@vscode/vsce"] === "3.9.3-4",
   "The release must pin the verified OIDC-capable vsce build exactly.",
 );
+const gitRunnerSource = await readFile(
+  path.join(extensionRoot, "src", "git-runner.ts"),
+  "utf8",
+);
+for (const forbidden of [
+  /\["fetch"/u,
+  /\["pull"/u,
+  /\["push"/u,
+  /\["remote"/u,
+  /\["config"/u,
+  /worktree",\s*"prune/u,
+  /reset",\s*"--hard/u,
+  /shell\s*:/u,
+]) {
+  assert(!forbidden.test(gitRunnerSource), `Forbidden Git execution pattern: ${forbidden}.`);
+}
+assert(gitRunnerSource.includes("execFile"), "Managed Git operations must use execFile.");
 assert(
   (await capture(["node", vscePath, "publish", "--help"], repositoryRoot)).includes("--oidc"),
   "The installed vsce does not implement trusted publishing with --oidc.",

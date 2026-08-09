@@ -2,4 +2,4 @@
 
 Please use GitHub private vulnerability reporting for `Haiyang-Bian/vscode-agent-bridge`. Do not publish live tokens, descriptors, IPC endpoints or an unredacted Codex configuration.
 
-Version `0.3.0` adds only guarded text-buffer mutation inside a trusted, user-started experiment. It exposes no terminal, generic command, filesystem, Git or file-resource operation. See the repository [security policy](https://github.com/Haiyang-Bian/vscode-agent-bridge/blob/master/SECURITY.md) for snapshot privacy, the supported version and reporting details.
+Version `0.4.0` adds user-only managed worktree commands but exposes no Git operation through MCP. Git execution is fixed, local and path-validated; it never contacts remotes or automatically cleans up. See the repository [security policy](https://github.com/Haiyang-Bian/vscode-agent-bridge/blob/master/SECURITY.md) for snapshot privacy, promotion recovery, the supported version and reporting details.
