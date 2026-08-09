@@ -139,6 +139,8 @@ export const DocumentSnapshotSchema = z
     returnedCharacters: z.number().int().nonnegative(),
     totalCharacters: z.number().int().nonnegative(),
     truncated: z.boolean(),
+    contentSha256: z.string().regex(/^[0-9a-f]{64}$/u),
+    capturedAt: z.string().min(1),
   })
   .strict();
 

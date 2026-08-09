@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import * as vscode from "vscode";
 
 import {
@@ -40,6 +42,8 @@ export async function readDocument(
     returnedCharacters: text.length,
     totalCharacters: completeText.length,
     truncated: text.length < completeText.length,
+    contentSha256: createHash("sha256").update(document.getText()).digest("hex"),
+    capturedAt: new Date().toISOString(),
   };
 }
 
