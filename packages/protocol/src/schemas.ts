@@ -4,6 +4,12 @@ import {
   BRIDGE_CAPABILITIES,
   BRIDGE_ERROR_CODES,
   BRIDGE_PROTOCOL_VERSION,
+  DEFAULT_DOCUMENT_MAX_CHARACTERS,
+  DEFAULT_HOVER_MAX_CHARACTERS,
+  DEFAULT_RESULT_LIMIT,
+  MAX_DOCUMENT_CHARACTERS,
+  MAX_HOVER_CHARACTERS,
+  MAX_RESULT_LIMIT,
 } from "./constants.js";
 
 export const PositionSchema = z
@@ -67,6 +73,7 @@ export const TransportDescriptorSchema = z.discriminatedUnion("kind", [
 export const InstanceDescriptorSchema = z
   .object({
     protocolVersion: z.literal(BRIDGE_PROTOCOL_VERSION),
+    extensionVersion: z.string().min(1),
     instanceId: z.string().uuid(),
     pid: z.number().int().positive(),
     createdAt: z.string().min(1),
@@ -96,6 +103,211 @@ export const EditorContextSchema = z
     workspaceFolders: z.array(WorkspaceFolderSchema),
     activeEditor: EditorInfoSchema.nullable(),
     visibleEditors: z.array(EditorInfoSchema),
+  })
+  .strict();
+
+const InstanceIdSchema = z.string().uuid();
+const UriSchema = z.string().min(1);
+
+export const ReadDocumentParamsSchema = z
+  .object({
+    uri: UriSchema.optional(),
+    range: RangeSchema.optional(),
+    maxChars: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_DOCUMENT_CHARACTERS)
+      .default(DEFAULT_DOCUMENT_MAX_CHARACTERS),
+  })
+  .strict();
+
+export const ReadDocumentInputSchema = ReadDocumentParamsSchema.extend({
+  instanceId: InstanceIdSchema.optional(),
+}).strict();
+
+export const DocumentSnapshotSchema = z
+  .object({
+    instanceId: InstanceIdSchema,
+    uri: UriSchema,
+    languageId: z.string(),
+    documentVersion: z.number().int().nonnegative(),
+    isDirty: z.boolean(),
+    isUntitled: z.boolean(),
+    range: RangeSchema,
+    text: z.string(),
+    returnedCharacters: z.number().int().nonnegative(),
+    totalCharacters: z.number().int().nonnegative(),
+    truncated: z.boolean(),
+  })
+  .strict();
+
+export const DiagnosticSeveritySchema = z.enum(["error", "warning", "information", "hint"]);
+export const DiagnosticTagSchema = z.enum(["unnecessary", "deprecated"]);
+
+export const DiagnosticsParamsSchema = z
+  .object({
+    scope: z.enum(["active", "document", "workspace"]).default("active"),
+    uri: UriSchema.optional(),
+    workspaceFolderUri: UriSchema.optional(),
+    severities: z.array(DiagnosticSeveritySchema).max(4).optional(),
+    source: z.string().min(1).optional(),
+    limit: z.number().int().positive().max(MAX_RESULT_LIMIT).default(DEFAULT_RESULT_LIMIT),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.scope === "document" && !value.uri) {
+      context.addIssue({
+        code: "custom",
+        message: "uri is required when scope is document.",
+        path: ["uri"],
+      });
+    }
+    if (value.scope !== "document" && value.uri) {
+      context.addIssue({
+        code: "custom",
+        message: "uri is only valid when scope is document.",
+        path: ["uri"],
+      });
+    }
+    if (value.scope !== "workspace" && value.workspaceFolderUri) {
+      context.addIssue({
+        code: "custom",
+        message: "workspaceFolderUri is only valid when scope is workspace.",
+        path: ["workspaceFolderUri"],
+      });
+    }
+  });
+
+export const DiagnosticsInputSchema = DiagnosticsParamsSchema.safeExtend({
+  instanceId: InstanceIdSchema.optional(),
+});
+
+export const DiagnosticRelatedInformationSchema = z
+  .object({
+    uri: UriSchema,
+    range: RangeSchema,
+    message: z.string(),
+  })
+  .strict();
+
+export const DiagnosticItemSchema = z
+  .object({
+    uri: UriSchema,
+    range: RangeSchema,
+    message: z.string(),
+    severity: DiagnosticSeveritySchema,
+    source: z.string().nullable(),
+    code: z.string().nullable(),
+    codeDescriptionUri: UriSchema.nullable(),
+    tags: z.array(DiagnosticTagSchema),
+    relatedInformation: z.array(DiagnosticRelatedInformationSchema),
+  })
+  .strict();
+
+export const DiagnosticsResultSchema = z
+  .object({
+    instanceId: InstanceIdSchema,
+    scope: z.enum(["active", "document", "workspace"]),
+    diagnostics: z.array(DiagnosticItemSchema),
+    returnedCount: z.number().int().nonnegative(),
+    totalCount: z.number().int().nonnegative(),
+    truncated: z.boolean(),
+  })
+  .strict();
+
+export const DocumentSymbolsParamsSchema = z
+  .object({
+    uri: UriSchema.optional(),
+    limit: z.number().int().positive().max(MAX_RESULT_LIMIT).default(DEFAULT_RESULT_LIMIT),
+  })
+  .strict();
+
+export const DocumentSymbolsInputSchema = DocumentSymbolsParamsSchema.extend({
+  instanceId: InstanceIdSchema.optional(),
+}).strict();
+
+export const DocumentSymbolItemSchema = z
+  .object({
+    name: z.string(),
+    detail: z.string().nullable(),
+    kind: z.string().min(1),
+    containerName: z.string().nullable(),
+    depth: z.number().int().nonnegative(),
+    range: RangeSchema,
+    selectionRange: RangeSchema,
+  })
+  .strict();
+
+export const DocumentSymbolsResultSchema = z
+  .object({
+    instanceId: InstanceIdSchema,
+    uri: UriSchema,
+    symbols: z.array(DocumentSymbolItemSchema),
+    returnedCount: z.number().int().nonnegative(),
+    totalCount: z.number().int().nonnegative(),
+    truncated: z.boolean(),
+  })
+  .strict();
+
+export const PositionedDocumentParamsSchema = z
+  .object({
+    uri: UriSchema,
+    position: PositionSchema,
+    limit: z.number().int().positive().max(MAX_RESULT_LIMIT).default(DEFAULT_RESULT_LIMIT),
+  })
+  .strict();
+
+export const PositionedDocumentInputSchema = PositionedDocumentParamsSchema.extend({
+  instanceId: InstanceIdSchema.optional(),
+}).strict();
+
+export const LocationItemSchema = z
+  .object({
+    uri: UriSchema,
+    range: RangeSchema,
+  })
+  .strict();
+
+export const LocationsResultSchema = z
+  .object({
+    instanceId: InstanceIdSchema,
+    uri: UriSchema,
+    position: PositionSchema,
+    locations: z.array(LocationItemSchema),
+    returnedCount: z.number().int().nonnegative(),
+    totalCount: z.number().int().nonnegative(),
+    truncated: z.boolean(),
+  })
+  .strict();
+
+export const HoverParamsSchema = z
+  .object({
+    uri: UriSchema,
+    position: PositionSchema,
+    maxChars: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_HOVER_CHARACTERS)
+      .default(DEFAULT_HOVER_MAX_CHARACTERS),
+  })
+  .strict();
+
+export const HoverInputSchema = HoverParamsSchema.extend({
+  instanceId: InstanceIdSchema.optional(),
+}).strict();
+
+export const HoverResultSchema = z
+  .object({
+    instanceId: InstanceIdSchema,
+    uri: UriSchema,
+    position: PositionSchema,
+    range: RangeSchema.nullable(),
+    contents: z.array(z.string()),
+    returnedCharacters: z.number().int().nonnegative(),
+    totalCharacters: z.number().int().nonnegative(),
+    truncated: z.boolean(),
   })
   .strict();
 
@@ -167,12 +379,25 @@ export const JsonRpcResponseSchema = z.union([
 
 export type BridgeInitializeParams = z.infer<typeof BridgeInitializeParamsSchema>;
 export type BridgeInitializeResult = z.infer<typeof BridgeInitializeResultSchema>;
+export type DiagnosticItem = z.infer<typeof DiagnosticItemSchema>;
+export type DiagnosticsParams = z.infer<typeof DiagnosticsParamsSchema>;
+export type DiagnosticsResult = z.infer<typeof DiagnosticsResultSchema>;
+export type DocumentSnapshot = z.infer<typeof DocumentSnapshotSchema>;
+export type DocumentSymbolItem = z.infer<typeof DocumentSymbolItemSchema>;
+export type DocumentSymbolsParams = z.infer<typeof DocumentSymbolsParamsSchema>;
+export type DocumentSymbolsResult = z.infer<typeof DocumentSymbolsResultSchema>;
 export type EditorContext = z.infer<typeof EditorContextSchema>;
 export type EditorInfo = z.infer<typeof EditorInfoSchema>;
+export type HoverParams = z.infer<typeof HoverParamsSchema>;
+export type HoverResult = z.infer<typeof HoverResultSchema>;
 export type InstanceDescriptor = z.infer<typeof InstanceDescriptorSchema>;
 export type JsonRpcId = z.infer<typeof JsonRpcIdSchema>;
 export type JsonRpcRequest = z.infer<typeof JsonRpcRequestSchema>;
 export type JsonRpcResponse = z.infer<typeof JsonRpcResponseSchema>;
+export type LocationItem = z.infer<typeof LocationItemSchema>;
+export type LocationsResult = z.infer<typeof LocationsResultSchema>;
+export type PositionedDocumentParams = z.infer<typeof PositionedDocumentParamsSchema>;
 export type PublicInstance = z.infer<typeof PublicInstanceSchema>;
+export type ReadDocumentParams = z.infer<typeof ReadDocumentParamsSchema>;
 export type TransportDescriptor = z.infer<typeof TransportDescriptorSchema>;
 export type WorkspaceFolder = z.infer<typeof WorkspaceFolderSchema>;

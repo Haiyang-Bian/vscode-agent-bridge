@@ -4,6 +4,7 @@ import {
   BRIDGE_METHODS,
   BRIDGE_NAME,
   BRIDGE_PROTOCOL_VERSION,
+  BRIDGE_RELEASE_VERSION,
   BridgeError,
   BridgeInitializeResultSchema,
   DEFAULT_BRIDGE_TIMEOUT_MS,
@@ -77,7 +78,7 @@ class BridgeRpcClient {
           authToken: descriptor.authToken,
           client: {
             name: BRIDGE_NAME,
-            version: "0.1.0",
+            version: BRIDGE_RELEASE_VERSION,
           },
         }),
       );
@@ -170,11 +171,20 @@ class BridgeRpcClient {
 export async function requestEditorContext(
   descriptor: InstanceDescriptor,
 ): Promise<EditorContext> {
+  return requestBridgeResult(descriptor, BRIDGE_METHODS.getEditorContext, {}, (value) =>
+    EditorContextSchema.parse(value),
+  );
+}
+
+export async function requestBridgeResult<Result>(
+  descriptor: InstanceDescriptor,
+  method: string,
+  params: unknown,
+  parseResult: (value: unknown) => Result,
+): Promise<Result> {
   const client = await BridgeRpcClient.connect(descriptor);
   try {
-    return EditorContextSchema.parse(
-      await client.request(BRIDGE_METHODS.getEditorContext, {}),
-    );
+    return parseResult(await client.request(method, params));
   } finally {
     client.close();
   }

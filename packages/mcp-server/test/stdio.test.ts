@@ -22,7 +22,7 @@ afterEach(async () => {
 });
 
 describe("STDIO MCP server", () => {
-  test("advertises the initial tools and lists an empty registry", async () => {
+  test("advertises the read-only tools and lists an empty registry", async () => {
     const client = new Client(
       { name: "vscode-agent-bridge-test", version: "0.1.0" },
       { capabilities: {} },
@@ -42,8 +42,14 @@ describe("STDIO MCP server", () => {
     try {
       const tools = await client.listTools();
       expect(tools.tools.map((tool) => tool.name).sort()).toEqual([
+        "vscode_get_definitions",
+        "vscode_get_diagnostics",
+        "vscode_get_document_symbols",
         "vscode_get_editor_context",
+        "vscode_get_hover",
+        "vscode_get_references",
         "vscode_list_instances",
+        "vscode_read_document",
       ]);
 
       const result = await client.callTool({
@@ -59,6 +65,16 @@ describe("STDIO MCP server", () => {
       });
       expect(missingInstance.isError).toBe(true);
       expect(JSON.stringify(missingInstance.content)).toContain("NO_VSCODE_INSTANCE");
+
+      for (const name of [
+        "vscode_read_document",
+        "vscode_get_diagnostics",
+        "vscode_get_document_symbols",
+      ]) {
+        const missing = await client.callTool({ name, arguments: {} });
+        expect(missing.isError).toBe(true);
+        expect(JSON.stringify(missing.content)).toContain("NO_VSCODE_INSTANCE");
+      }
     } finally {
       await client.close();
     }

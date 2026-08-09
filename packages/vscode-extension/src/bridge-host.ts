@@ -8,6 +8,7 @@ import {
   BRIDGE_CAPABILITIES,
   BRIDGE_METHODS,
   BRIDGE_PROTOCOL_VERSION,
+  BRIDGE_RELEASE_VERSION,
   BridgeError,
   BridgeInitializeParamsSchema,
   JsonRpcRequestSchema,
@@ -248,6 +249,7 @@ export class BridgeHost {
 
     const descriptor: InstanceDescriptor = {
       protocolVersion: BRIDGE_PROTOCOL_VERSION,
+      extensionVersion: BRIDGE_RELEASE_VERSION,
       instanceId: this.instanceId,
       pid: process.pid,
       createdAt: this.#createdAt,
