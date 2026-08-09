@@ -4,7 +4,11 @@ import path from "node:path";
 
 import { parse } from "smol-toml";
 
-import { MCP_TOOL_NAMES } from "@vscode-agent-bridge/protocol";
+import {
+  MCP_TOOL_NAMES,
+  type AutonomyProfile,
+  type TerminalReadPolicy,
+} from "@vscode-agent-bridge/protocol";
 
 export const MANAGED_BLOCK_START = "# vscode-agent-bridge:begin";
 export const MANAGED_BLOCK_END = "# vscode-agent-bridge:end";
@@ -16,6 +20,16 @@ export interface CodexConfigChangeResult {
   readonly backupPath?: string;
 }
 
+export interface AgentPolicyOptions {
+  readonly autonomyProfile: AutonomyProfile;
+  readonly terminalReadPolicy: TerminalReadPolicy;
+}
+
+export const DEFAULT_AGENT_POLICIES: AgentPolicyOptions = {
+  autonomyProfile: "autonomous",
+  terminalReadPolicy: "allow",
+};
+
 export class CodexConfigConflictError extends Error {
   constructor(message: string) {
     super(message);
@@ -23,25 +37,35 @@ export class CodexConfigConflictError extends Error {
   }
 }
 
-export function createManagedConfigBlock(executablePath: string): string {
+export function createManagedConfigBlock(
+  executablePath: string,
+  policies: AgentPolicyOptions = DEFAULT_AGENT_POLICIES,
+): string {
   const command = JSON.stringify(normalizeCommandPath(executablePath));
-  const enabledTools = MCP_TOOL_NAMES.map((name) => `  ${JSON.stringify(name)},`).join("\n");
+  const enabledTools = enabledToolsForPolicies(policies)
+    .map((name) => `  ${JSON.stringify(name)},`)
+    .join("\n");
+  const approvalMode = policies.autonomyProfile === "autonomous" ? "approve" : "writes";
   return `${MANAGED_BLOCK_START}
 [mcp_servers.vscode_agent_bridge]
 command = ${command}
 startup_timeout_sec = 10
 tool_timeout_sec = 15
-default_tools_approval_mode = "writes"
+default_tools_approval_mode = "${approvalMode}"
 enabled_tools = [
 ${enabledTools}
 ]
 ${MANAGED_BLOCK_END}`;
 }
 
-export function updateManagedConfigText(source: string, executablePath: string): string {
+export function updateManagedConfigText(
+  source: string,
+  executablePath: string,
+  policies: AgentPolicyOptions = DEFAULT_AGENT_POLICIES,
+): string {
   validateToml(source);
   const markerRange = findManagedMarkerRange(source);
-  const block = createManagedConfigBlock(executablePath);
+  const block = createManagedConfigBlock(executablePath, policies);
 
   let result: string;
   if (markerRange) {
@@ -86,6 +110,7 @@ export function removeManagedConfigText(source: string): string {
 export function inspectManagedConfigText(
   source: string,
   expectedExecutablePath: string,
+  policies: AgentPolicyOptions = DEFAULT_AGENT_POLICIES,
 ): CodexConfigStatus {
   try {
     validateToml(source);
@@ -104,16 +129,31 @@ export function inspectManagedConfigText(
   }
 
   const parsed = parse(source) as Record<string, unknown>;
-  const command = readConfiguredCommand(parsed);
-  return command === normalizeCommandPath(expectedExecutablePath) ? "current" : "outdated";
+  const bridge = readBridgeTable(parsed);
+  if (!bridge) {
+    return "outdated";
+  }
+  const command = readConfiguredCommand(bridge);
+  const approvalMode = policies.autonomyProfile === "autonomous" ? "approve" : "writes";
+  const expectedTools = enabledToolsForPolicies(policies);
+  const configuredTools = Array.isArray(bridge.enabled_tools)
+    ? bridge.enabled_tools.filter((value): value is string => typeof value === "string")
+    : [];
+  return command === normalizeCommandPath(expectedExecutablePath) &&
+    bridge.default_tools_approval_mode === approvalMode &&
+    configuredTools.length === expectedTools.length &&
+    configuredTools.every((value, index) => value === expectedTools[index])
+    ? "current"
+    : "outdated";
 }
 
 export async function updateCodexConfigFile(
   configPath: string,
   executablePath: string,
+  policies: AgentPolicyOptions = DEFAULT_AGENT_POLICIES,
 ): Promise<CodexConfigChangeResult> {
   const source = await readOptionalText(configPath);
-  const result = updateManagedConfigText(source, executablePath);
+  const result = updateManagedConfigText(source, executablePath, policies);
   return writeConfigChange(configPath, source, result);
 }
 
@@ -128,9 +168,10 @@ export async function removeCodexConfigBlock(
 export async function inspectCodexConfigFile(
   configPath: string,
   expectedExecutablePath: string,
+  policies: AgentPolicyOptions = DEFAULT_AGENT_POLICIES,
 ): Promise<CodexConfigStatus> {
   const source = await readOptionalText(configPath);
-  return inspectManagedConfigText(source, expectedExecutablePath);
+  return inspectManagedConfigText(source, expectedExecutablePath, policies);
 }
 
 function findManagedMarkerRange(source: string): { start: number; end: number } | undefined {
@@ -165,7 +206,7 @@ function normalizeCommandPath(executablePath: string): string {
   return path.resolve(executablePath).replaceAll("\\", "/");
 }
 
-function readConfiguredCommand(parsed: Record<string, unknown>): string | undefined {
+function readBridgeTable(parsed: Record<string, unknown>): Record<string, unknown> | undefined {
   const servers = parsed.mcp_servers;
   if (!isRecord(servers)) {
     return undefined;
@@ -174,7 +215,40 @@ function readConfiguredCommand(parsed: Record<string, unknown>): string | undefi
   if (!isRecord(bridge)) {
     return undefined;
   }
+  return bridge;
+}
+
+function readConfiguredCommand(bridge: Record<string, unknown>): string | undefined {
   return typeof bridge.command === "string" ? bridge.command.replaceAll("\\", "/") : undefined;
+}
+
+export function enabledToolsForPolicies(policies: AgentPolicyOptions): readonly string[] {
+  const terminalTools = new Set([
+    "vscode_list_terminals",
+    "vscode_list_terminal_executions",
+    "vscode_read_terminal_output",
+  ]);
+  const writeWorkflowTools = new Set([
+    "vscode_prepare_text_edits",
+    "vscode_prepare_rename",
+    "vscode_apply_change_set",
+    "vscode_record_experiment_evidence",
+    "vscode_save_document",
+    "vscode_format_document",
+    "vscode_apply_code_action",
+  ]);
+  return MCP_TOOL_NAMES.filter((name) => {
+    if (terminalTools.has(name)) {
+      if (policies.terminalReadPolicy === "deny") {
+        return false;
+      }
+      if (policies.autonomyProfile === "readOnly" || policies.terminalReadPolicy === "metadataOnly") {
+        return name === "vscode_list_terminals";
+      }
+      return true;
+    }
+    return policies.autonomyProfile !== "readOnly" || !writeWorkflowTools.has(name);
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

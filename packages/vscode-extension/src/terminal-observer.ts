@@ -11,6 +11,7 @@ import {
 } from "@vscode-agent-bridge/protocol";
 
 import { TerminalCaptureStore, type TerminalCaptureStats } from "./terminal-capture.js";
+import { canCaptureTerminalSensitiveData } from "./policies.js";
 
 export class TerminalObserver implements vscode.Disposable {
   readonly #capture: TerminalCaptureStore;
@@ -37,6 +38,12 @@ export class TerminalObserver implements vscode.Disposable {
       ),
       vscode.window.onDidStartTerminalShellExecution((event) => this.#startExecution(event)),
       vscode.window.onDidEndTerminalShellExecution((event) => this.#endExecution(event)),
+      vscode.workspace.onDidChangeConfiguration((event) => {
+        if (event.affectsConfiguration("vscodeAgentBridge.terminalReadPolicy")) {
+          this.#handlePolicyChange();
+        }
+      }),
+      vscode.workspace.onDidGrantWorkspaceTrust(() => this.#refreshActiveTerminals()),
     );
     this.#cleanupTimer = setInterval(() => this.#capture.cleanupExpired(), 60_000);
   }
@@ -80,7 +87,9 @@ export class TerminalObserver implements vscode.Disposable {
       processId: null,
       isActive: terminal === vscode.window.activeTerminal,
       shellIntegration: Boolean(terminal.shellIntegration),
-      cwd: terminal.shellIntegration?.cwd?.toString() ?? null,
+      cwd: canCaptureTerminalSensitiveData()
+        ? terminal.shellIntegration?.cwd?.toString() ?? null
+        : null,
       existedAtActivation,
     });
     void terminal.processId.then((processId) => {
@@ -97,7 +106,9 @@ export class TerminalObserver implements vscode.Disposable {
       name: terminal.name,
       isActive: terminal === vscode.window.activeTerminal,
       shellIntegration: Boolean(terminal.shellIntegration),
-      cwd: terminal.shellIntegration?.cwd?.toString() ?? null,
+      cwd: canCaptureTerminalSensitiveData()
+        ? terminal.shellIntegration?.cwd?.toString() ?? null
+        : null,
     });
   }
 
@@ -113,6 +124,9 @@ export class TerminalObserver implements vscode.Disposable {
   }
 
   #startExecution(event: vscode.TerminalShellExecutionStartEvent): void {
+    if (!canCaptureTerminalSensitiveData()) {
+      return;
+    }
     const terminalId = this.#registerTerminal(event.terminal, false);
     const executionId = randomUUID();
     this.#executionIds.set(event.execution, executionId);
@@ -138,17 +152,24 @@ export class TerminalObserver implements vscode.Disposable {
   async #consumeOutput(executionId: string, stream: AsyncIterable<string>): Promise<void> {
     try {
       for await (const chunk of stream) {
+        if (!this.#capture.hasExecution(executionId)) {
+          return;
+        }
         this.#capture.appendOutput(executionId, chunk);
       }
-      this.#capture.finishOutput(executionId);
+      if (this.#capture.hasExecution(executionId)) {
+        this.#capture.finishOutput(executionId);
+      }
     } catch {
-      this.#capture.failOutput(executionId);
+      if (this.#capture.hasExecution(executionId)) {
+        this.#capture.failOutput(executionId);
+      }
     }
   }
 
   #endExecution(event: vscode.TerminalShellExecutionEndEvent): void {
     const executionId = this.#executionIds.get(event.execution);
-    if (!executionId) {
+    if (!executionId || !this.#capture.hasExecution(executionId)) {
       return;
     }
     this.#capture.updateExecution(executionId, {
@@ -158,6 +179,14 @@ export class TerminalObserver implements vscode.Disposable {
       cwd: event.execution.cwd?.toString() ?? null,
     });
     this.#capture.finishExecution(executionId, event.exitCode ?? null);
+  }
+
+  #handlePolicyChange(): void {
+    if (!canCaptureTerminalSensitiveData()) {
+      this.#capture.clearSensitiveData();
+      this.#executionIds.clear();
+    }
+    this.#refreshActiveTerminals();
   }
 }
 

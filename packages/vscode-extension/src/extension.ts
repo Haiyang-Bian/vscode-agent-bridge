@@ -18,6 +18,11 @@ import { registerExperimentUi } from "./experiment-ui.js";
 import { ManagedWorktreeManager } from "./managed-worktree-manager.js";
 import { registerManagedWorktreeUi } from "./managed-worktree-ui.js";
 import {
+  getAgentPolicyOptions,
+  getAutonomyProfile,
+  getTerminalReadPolicy,
+} from "./policies.js";
+import {
   createExperimentRequestHandlers,
   createIdeAutonomyRequestHandlers,
   createTerminalRequestHandlers,
@@ -69,11 +74,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("vscodeAgentBridge.configureCodex", async () => {
       await configureCodexCommand(context, output);
     }),
+    vscode.commands.registerCommand("vscodeAgentBridge.configureAgentPolicies", async () => {
+      await configureAgentPoliciesCommand();
+    }),
     vscode.commands.registerCommand("vscodeAgentBridge.removeCodexConfiguration", async () => {
       await removeCodexCommand(output);
     }),
     vscode.commands.registerCommand("vscodeAgentBridge.runDoctor", async () => {
-      await runDoctorCommand(context, host, experiments, managed, output);
+      await runDoctorCommand(context, host, experiments, managed, terminals, output);
     }),
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       void host.refreshDescriptor();
@@ -180,7 +188,7 @@ async function configureCodexCommand(
   }
 
   try {
-    const result = await configureCodexIntegration(context);
+    const result = await configureCodexIntegration(context, getAgentPolicyOptions());
     await vscode.window.showInformationMessage(
       result.changed || result.executableInstalled
         ? "Codex integration configured. Restart Codex to load the MCP server."
@@ -189,7 +197,7 @@ async function configureCodexCommand(
   } catch (error) {
     if (error instanceof CodexConfigConflictError) {
       await vscode.env.clipboard.writeText(
-        `${createManagedConfigBlock(resolveInstalledExecutablePath())}\n`,
+        `${createManagedConfigBlock(resolveInstalledExecutablePath(), getAgentPolicyOptions())}\n`,
       );
       await openCodexConfig();
       await vscode.window.showWarningMessage(
@@ -225,18 +233,84 @@ async function removeCodexCommand(output: vscode.LogOutputChannel): Promise<void
   }
 }
 
+async function configureAgentPoliciesCommand(): Promise<void> {
+  const autonomy = await vscode.window.showQuickPick(
+    [
+      {
+        label: "Autonomous (Default)",
+        description: "Guarded IDE writes can run without per-tool approval and may save.",
+        value: "autonomous" as const,
+      },
+      {
+        label: "Review",
+        description: "Codex prompts for writes and Finalize requires an accepted checkpoint.",
+        value: "review" as const,
+      },
+      {
+        label: "Read Only",
+        description: "The bridge rejects every Agent write.",
+        value: "readOnly" as const,
+      },
+    ],
+    {
+      title: "Agent autonomy profile",
+      placeHolder: `Current: ${getAutonomyProfile()}`,
+    },
+  );
+  if (!autonomy) {
+    return;
+  }
+  const terminal = await vscode.window.showQuickPick(
+    [
+      {
+        label: "Allow (Default)",
+        description: "Trusted workspaces may expose captured command lines and output.",
+        value: "allow" as const,
+      },
+      {
+        label: "Metadata Only",
+        description: "Expose terminal names, process IDs, lifecycle and coverage only.",
+        value: "metadataOnly" as const,
+      },
+      {
+        label: "Deny",
+        description: "Do not expose terminal tools or retain new terminal output.",
+        value: "deny" as const,
+      },
+    ],
+    {
+      title: "Terminal read policy",
+      placeHolder: `Current: ${getTerminalReadPolicy()}`,
+    },
+  );
+  if (!terminal) {
+    return;
+  }
+  const configuration = vscode.workspace.getConfiguration("vscodeAgentBridge");
+  await Promise.all([
+    configuration.update("autonomyProfile", autonomy.value, vscode.ConfigurationTarget.Global),
+    configuration.update("terminalReadPolicy", terminal.value, vscode.ConfigurationTarget.Global),
+  ]);
+  await vscode.window.showInformationMessage(
+    "Agent policies updated. Run “VS Code Agent Bridge: Configure Codex” and restart Codex to update its managed tool list and approval mode.",
+  );
+}
+
 async function runDoctorCommand(
   context: vscode.ExtensionContext,
   host: BridgeHost,
   experiments: ExperimentManager,
   managed: ManagedWorktreeManager,
+  terminals: TerminalObserver,
   output: vscode.LogOutputChannel,
 ): Promise<void> {
+  const policies = getAgentPolicyOptions();
   const [report, experimentStats, managedReport] = await Promise.all([
-    inspectInstallation(context),
+    inspectInstallation(context, policies),
     experiments.getStoreStats(),
     managed.repairReport().catch(() => []),
   ]);
+  const terminalStats = terminals.getStats();
   const lines = [
     `releaseVersion=${report.releaseVersion}`,
     `extensionVersion=${report.extensionVersion}`,
@@ -247,6 +321,8 @@ async function runDoctorCommand(
     `bundledExecutable=${report.bundledExecutable}`,
     `installedExecutable=${report.installedExecutable}`,
     `codexConfig=${report.codexConfig}`,
+    `autonomyProfile=${policies.autonomyProfile}`,
+    `terminalReadPolicy=${policies.terminalReadPolicy}`,
     `remoteContext=${vscode.env.remoteName ? "unsupported" : "local"}`,
     `experimentSessions=${experimentStats.sessionCount}`,
     `activeExperiments=${experimentStats.activeCount}`,
@@ -254,6 +330,11 @@ async function runDoctorCommand(
     `experimentStorageBytes=${experimentStats.storageBytes}`,
     `managedExperiments=${managedReport.length}`,
     `managedAttentionRequired=${managedReport.filter((item) => !item.worktreeRegistered || !item.worktreePathPresent || !item.branchMatches || item.state !== "ready").length}`,
+    `terminalCount=${terminalStats.terminalCount}`,
+    `terminalExecutions=${terminalStats.executionCount}`,
+    `terminalExecutionsWithOutput=${terminalStats.executionsWithOutput}`,
+    `terminalCompleteCoverage=${terminalStats.executionsWithCompleteCoverage}`,
+    `terminalCaptureMemoryBytes=${terminalStats.memoryBytes}`,
   ];
   output.info(`Doctor report:\n${lines.join("\n")}`);
   output.show(true);
@@ -289,7 +370,7 @@ async function maybeOfferCodexSetup(
   await context.globalState.update(promptKey, true);
 
   try {
-    const report = await inspectInstallation(context);
+    const report = await inspectInstallation(context, getAgentPolicyOptions());
     if (report.codexConfig === "current" && report.installedExecutable === "present") {
       return;
     }

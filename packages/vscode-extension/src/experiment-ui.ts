@@ -4,6 +4,7 @@ import { BridgeError, type ExperimentCheckpoint } from "@vscode-agent-bridge/pro
 
 import { ExperimentManager } from "./experiment-manager.js";
 import type { ExperimentManifest, StoredCheckpoint } from "./experiment-store.js";
+import { getAutonomyProfile } from "./policies.js";
 
 const SNAPSHOT_SCHEME = "vscode-agent-bridge-snapshot";
 const VIEW_ID = "vscodeAgentBridge.experimentsView";
@@ -180,8 +181,13 @@ export function registerExperimentUi(
     vscode.commands.registerCommand("vscodeAgentBridge.finalizeExperiment", async () => {
       await runUiCommand(output, async () => {
         const experiment = await experiments.getActiveExperiment();
+        const candidateRule = experiment.acceptedCheckpointId
+          ? "Current content must match the accepted checkpoint"
+          : getAutonomyProfile() === "autonomous" && experiment.mode === "workspace"
+            ? "The current saved state will become an explicit final checkpoint"
+            : "An accepted checkpoint is required";
         const confirmation = await vscode.window.showWarningMessage(
-          `Finalize “${experiment.title}”? Current content must match the accepted checkpoint and all files must already be saved. This does not create a Git commit.`,
+          `Finalize “${experiment.title}”? ${candidateRule}, and all files must already be saved. This does not create a Git commit.`,
           { modal: true },
           "Finalize Experiment",
         );

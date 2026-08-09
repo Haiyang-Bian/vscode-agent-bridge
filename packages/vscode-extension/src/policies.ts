@@ -8,6 +8,8 @@ import {
   type TerminalReadPolicy,
 } from "@vscode-agent-bridge/protocol";
 
+import type { AgentPolicyOptions } from "./codex-config.js";
+
 const CONFIGURATION_SECTION = "vscodeAgentBridge";
 
 export function getAutonomyProfile(): AutonomyProfile {
@@ -22,6 +24,21 @@ export function getTerminalReadPolicy(): TerminalReadPolicy {
     .getConfiguration(CONFIGURATION_SECTION)
     .get<unknown>("terminalReadPolicy", "allow");
   return TerminalReadPolicySchema.catch("allow").parse(value);
+}
+
+export function getAgentPolicyOptions(): AgentPolicyOptions {
+  return {
+    autonomyProfile: getAutonomyProfile(),
+    terminalReadPolicy: getTerminalReadPolicy(),
+  };
+}
+
+export function canCaptureTerminalSensitiveData(): boolean {
+  return (
+    getTerminalReadPolicy() === "allow" &&
+    vscode.workspace.isTrusted &&
+    !vscode.env.remoteName
+  );
 }
 
 export function assertAgentWriteAllowed(): void {

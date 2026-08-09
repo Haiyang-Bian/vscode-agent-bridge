@@ -155,6 +155,17 @@ describe("terminal capture store", () => {
     expect(store.listTerminals("full").terminals).toEqual([]);
     expect(store.listExecutions({ limit: 50 }).executions).toEqual([]);
   });
+
+  test("forgets sensitive execution data when policy becomes restrictive", () => {
+    const store = new TerminalCaptureStore(INSTANCE_ID);
+    registerTerminal(store, TERMINAL_ID);
+    startExecution(store, EXECUTION_ID, TERMINAL_ID);
+    store.appendOutput(EXECUTION_ID, "secret output");
+    store.clearSensitiveData();
+    expect(store.hasExecution(EXECUTION_ID)).toBe(false);
+    expect(store.getStats().memoryBytes).toBe(0);
+    expect(store.listTerminals("metadata").terminals[0]).toMatchObject({ cwd: null });
+  });
 });
 
 function registerTerminal(

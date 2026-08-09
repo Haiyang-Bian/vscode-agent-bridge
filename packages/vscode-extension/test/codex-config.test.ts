@@ -8,6 +8,8 @@ import { MCP_TOOL_NAMES } from "@vscode-agent-bridge/protocol";
 
 import {
   CodexConfigConflictError,
+  createManagedConfigBlock,
+  enabledToolsForPolicies,
   inspectManagedConfigText,
   removeCodexConfigBlock,
   removeManagedConfigText,
@@ -33,12 +35,69 @@ describe("Codex managed MCP configuration", () => {
 
     expect(result).toStartWith(source);
     expect(result).toContain("[mcp_servers.vscode_agent_bridge]");
-    expect(result).toContain("default_tools_approval_mode = \"writes\"");
+    expect(result).toContain("default_tools_approval_mode = \"approve\"");
     for (const toolName of MCP_TOOL_NAMES) {
       expect(result).toContain(toolName);
     }
     expect(result).not.toMatch(/^cwd\s*=/mu);
     expect(inspectManagedConfigText(result, executable)).toBe("current");
+  });
+
+  test("maps autonomy and terminal policies to approval and bounded tool lists", () => {
+    const executable = path.join(temporaryRoot, "bridge.exe");
+    const autonomous = createManagedConfigBlock(executable, {
+      autonomyProfile: "autonomous",
+      terminalReadPolicy: "allow",
+    });
+    expect(autonomous).toContain('default_tools_approval_mode = "approve"');
+    expect(autonomous).toContain("vscode_read_terminal_output");
+
+    const review = createManagedConfigBlock(executable, {
+      autonomyProfile: "review",
+      terminalReadPolicy: "metadataOnly",
+    });
+    expect(review).toContain('default_tools_approval_mode = "writes"');
+    expect(review).toContain("vscode_list_terminals");
+    expect(review).not.toContain("vscode_list_terminal_executions");
+    expect(review).not.toContain("vscode_read_terminal_output");
+
+    const readOnlyTools = enabledToolsForPolicies({
+      autonomyProfile: "readOnly",
+      terminalReadPolicy: "allow",
+    });
+    expect(readOnlyTools).toContain("vscode_read_document");
+    expect(readOnlyTools).toContain("vscode_list_code_actions");
+    expect(readOnlyTools).toContain("vscode_list_terminals");
+    expect(readOnlyTools).not.toContain("vscode_prepare_text_edits");
+    expect(readOnlyTools).not.toContain("vscode_apply_change_set");
+    expect(readOnlyTools).not.toContain("vscode_save_document");
+    expect(readOnlyTools).not.toContain("vscode_read_terminal_output");
+
+    const denied = createManagedConfigBlock(executable, {
+      autonomyProfile: "autonomous",
+      terminalReadPolicy: "deny",
+    });
+    expect(denied).not.toContain("vscode_list_terminals");
+  });
+
+  test("detects a managed block whose policy no longer matches", () => {
+    const executable = path.join(temporaryRoot, "bridge.exe");
+    const source = createManagedConfigBlock(executable, {
+      autonomyProfile: "autonomous",
+      terminalReadPolicy: "allow",
+    });
+    expect(
+      inspectManagedConfigText(source, executable, {
+        autonomyProfile: "review",
+        terminalReadPolicy: "allow",
+      }),
+    ).toBe("outdated");
+    expect(
+      inspectManagedConfigText(source, executable, {
+        autonomyProfile: "autonomous",
+        terminalReadPolicy: "metadataOnly",
+      }),
+    ).toBe("outdated");
   });
 
   test("updates only the existing managed block", () => {

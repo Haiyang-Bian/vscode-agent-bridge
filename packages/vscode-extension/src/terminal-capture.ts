@@ -324,6 +324,20 @@ export class TerminalCaptureStore {
     };
   }
 
+  clearSensitiveData(): void {
+    this.#executions.clear();
+    for (const terminal of this.#terminals.values()) {
+      Object.assign(terminal, { cwd: null });
+      if (terminal.lifecycle === "open") {
+        terminal.status = terminal.shellIntegration ? "idle" : "unknown";
+      }
+    }
+  }
+
+  hasExecution(executionId: string): boolean {
+    return this.#executions.has(executionId);
+  }
+
   cleanupExpired(): void {
     const threshold = this.#now() - this.#closedRetentionMs;
     for (const terminal of this.#terminals.values()) {

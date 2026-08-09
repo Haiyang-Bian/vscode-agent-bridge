@@ -21,6 +21,7 @@ import {
   type StoredDocument,
 } from "./experiment-store.js";
 import { ReadOnlyGitBaseline, type GitBaseline } from "./git-baseline.js";
+import { getAutonomyProfile } from "./policies.js";
 
 const MANUAL_CAPTURE_IDLE_MS = 3_000;
 const GIT_POLL_INTERVAL_MS = 5_000;
@@ -348,18 +349,7 @@ export class ExperimentManager implements vscode.Disposable {
       const active = this.#requireActive();
       await this.#reconcileGitDocuments(active);
       const acceptedId = active.manifest.acceptedCheckpointId;
-      if (!acceptedId) {
-        throw new BridgeError("INVALID_REQUEST", "No experiment checkpoint has been accepted.");
-      }
-      const accepted = await this.#store.readCheckpoint(active.manifest.sessionId, acceptedId);
       await this.#refreshCurrentDocuments(active);
-      const resolvedAccepted = await this.#resolveCheckpointDocuments(active, accepted.documents);
-      if (!sameDocumentContent(resolvedAccepted.map(({ state }) => state), active.documents.values())) {
-        throw new BridgeError(
-          "STALE_CHANGE_SET",
-          "The current workspace no longer matches the accepted checkpoint. Restore it explicitly first.",
-        );
-      }
       const dirty = vscode.workspace.textDocuments.some(
         (document) => document.isDirty && isUriWithin(active.root, document.uri),
       );
@@ -367,6 +357,28 @@ export class ExperimentManager implements vscode.Disposable {
         throw new BridgeError(
           "INVALID_REQUEST",
           "Save all experiment documents before finalizing. The extension will not save automatically.",
+        );
+      }
+      if (acceptedId) {
+        const accepted = await this.#store.readCheckpoint(active.manifest.sessionId, acceptedId);
+        const resolvedAccepted = await this.#resolveCheckpointDocuments(active, accepted.documents);
+        if (!sameDocumentContent(resolvedAccepted.map(({ state }) => state), active.documents.values())) {
+          throw new BridgeError(
+            "STALE_CHANGE_SET",
+            "The current workspace no longer matches the accepted checkpoint. Restore it explicitly first.",
+          );
+        }
+      } else if (active.manifest.mode === "worktree" || getAutonomyProfile() !== "autonomous") {
+        throw new BridgeError(
+          "INVALID_REQUEST",
+          "No experiment checkpoint has been accepted under the active review policy.",
+        );
+      } else {
+        await this.#appendCheckpoint(
+          active,
+          "explicit",
+          "Autonomous Finalize from current saved state",
+          true,
         );
       }
       active.manifest = await this.#store.setLifecycle(active.manifest.sessionId, "finalized");

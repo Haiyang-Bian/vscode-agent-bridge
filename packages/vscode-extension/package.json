@@ -42,11 +42,48 @@
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": "limited",
-      "description": "Read-only editor context remains available. Experiment sessions, guarded edits, restore, and Git inspection require a trusted workspace."
+      "description": "Read-only editor context and terminal metadata remain available. Experiment sessions, guarded edits, terminal command/output access, restore, and Git inspection require a trusted workspace."
     },
     "virtualWorkspaces": false
   },
   "contributes": {
+    "configuration": {
+      "title": "VS Code Agent Bridge",
+      "properties": {
+        "vscodeAgentBridge.autonomyProfile": {
+          "type": "string",
+          "enum": [
+            "autonomous",
+            "review",
+            "readOnly"
+          ],
+          "enumDescriptions": [
+            "Allow guarded IDE writes without per-tool approval and permit Agent saves.",
+            "Require Codex write approval and an explicitly accepted checkpoint for Finalize.",
+            "Reject all Agent writes and configure Codex with read tools only."
+          ],
+          "default": "autonomous",
+          "scope": "machine",
+          "description": "Controls the capability-limited Agent write policy for this machine."
+        },
+        "vscodeAgentBridge.terminalReadPolicy": {
+          "type": "string",
+          "enum": [
+            "allow",
+            "metadataOnly",
+            "deny"
+          ],
+          "enumDescriptions": [
+            "Allow trusted local workspaces to expose captured terminal command lines and sanitized output.",
+            "Expose only terminal names, process IDs, lifecycle and coverage metadata.",
+            "Do not expose terminal tools or retain new command output."
+          ],
+          "default": "allow",
+          "scope": "machine",
+          "description": "Controls read-only terminal observation for this machine."
+        }
+      }
+    },
     "commands": [
       {
         "command": "vscodeAgentBridge.showStatus",
@@ -59,6 +96,10 @@
       {
         "command": "vscodeAgentBridge.configureCodex",
         "title": "VS Code Agent Bridge: Configure Codex"
+      },
+      {
+        "command": "vscodeAgentBridge.configureAgentPolicies",
+        "title": "VS Code Agent Bridge: Configure Agent Policies"
       },
       {
         "command": "vscodeAgentBridge.removeCodexConfiguration",
@@ -116,12 +157,12 @@
       },
       {
         "command": "vscodeAgentBridge.startManagedExperiment",
-        "title": "VS Code Agent Bridge: Start Managed Worktree Experiment",
+        "title": "VS Code Agent Bridge: Start Managed Worktree Experiment (Advanced)",
         "enablement": "isWindows && isWorkspaceTrusted"
       },
       {
         "command": "vscodeAgentBridge.openManagedExperiment",
-        "title": "VS Code Agent Bridge: Open Managed Experiment"
+        "title": "VS Code Agent Bridge: Open Managed Experiment (Advanced)"
       },
       {
         "command": "vscodeAgentBridge.createPrivateCheckpointCommit",
@@ -145,7 +186,7 @@
       },
       {
         "command": "vscodeAgentBridge.finalizeManagedExperiment",
-        "title": "VS Code Agent Bridge: Finalize Managed Experiment",
+        "title": "VS Code Agent Bridge: Finalize Managed Experiment (Advanced)",
         "enablement": "isWindows && isWorkspaceTrusted"
       },
       {
