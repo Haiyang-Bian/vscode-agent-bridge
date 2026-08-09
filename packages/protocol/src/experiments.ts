@@ -21,6 +21,22 @@ export const CheckpointIdSchema = z.uuid();
 export const ExperimentModeSchema = z.enum(["workspace", "worktree"]);
 export const ExperimentLifecycleSchema = z.enum(["active", "finalized", "abandoned"]);
 export const ExperimentHealthSchema = z.enum(["complete", "partial", "corrupt"]);
+export const ManagedExperimentStateSchema = z.enum([
+  "ready",
+  "sync-conflicted",
+  "promotion-recovery-required",
+]);
+export const ManagedExperimentInfoSchema = z
+  .object({
+    targetBranch: z.string().min(1),
+    baseHead: GitObjectIdSchema,
+    experimentBranch: z.string().min(1),
+    experimentHead: GitObjectIdSchema,
+    acceptedCommit: GitObjectIdSchema.nullable(),
+    formalCommit: GitObjectIdSchema.nullable(),
+    state: ManagedExperimentStateSchema,
+  })
+  .strict();
 export const ExperimentCheckpointSourceSchema = z.enum([
   "baseline",
   "agentApply",
@@ -95,6 +111,7 @@ export const ExperimentInfoSchema = z
     pinned: z.boolean(),
     storageBytes: z.number().int().nonnegative(),
     warnings: z.array(z.string()),
+    managed: ManagedExperimentInfoSchema.nullable(),
   })
   .strict();
 
@@ -292,6 +309,7 @@ export type ExperimentInfo = z.infer<typeof ExperimentInfoSchema>;
 export type ListExperimentCheckpointsParams = z.infer<
   typeof ListExperimentCheckpointsParamsSchema
 >;
+export type ManagedExperimentInfo = z.infer<typeof ManagedExperimentInfoSchema>;
 export type PreparedChangeSet = z.infer<typeof PreparedChangeSetSchema>;
 export type PreparedDocumentChange = z.infer<typeof PreparedDocumentChangeSchema>;
 export type PrepareRenameParams = z.infer<typeof PrepareRenameParamsSchema>;

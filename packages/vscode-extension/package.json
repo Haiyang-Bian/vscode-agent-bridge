@@ -2,7 +2,7 @@
   "name": "vscode-agent-bridge",
   "displayName": "VS Code Agent Bridge",
   "description": "Expose IDE-native VS Code context to local MCP clients through an authenticated bridge.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "AliceLin",
   "license": "MIT",
   "icon": "resources/icon.png",
@@ -113,6 +113,55 @@
       {
         "command": "vscodeAgentBridge.deleteExperiment",
         "title": "VS Code Agent Bridge: Delete Experiment Data"
+      },
+      {
+        "command": "vscodeAgentBridge.startManagedExperiment",
+        "title": "VS Code Agent Bridge: Start Managed Worktree Experiment",
+        "enablement": "isWindows && isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.openManagedExperiment",
+        "title": "VS Code Agent Bridge: Open Managed Experiment"
+      },
+      {
+        "command": "vscodeAgentBridge.createPrivateCheckpointCommit",
+        "title": "VS Code Agent Bridge: Create Private Checkpoint Commit",
+        "enablement": "isWindows && isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.syncManagedExperiment",
+        "title": "VS Code Agent Bridge: Sync Managed Experiment",
+        "enablement": "isWindows && isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.continueManagedSync",
+        "title": "VS Code Agent Bridge: Continue Experiment Sync",
+        "enablement": "isWindows && isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.abortManagedSync",
+        "title": "VS Code Agent Bridge: Abort Experiment Sync",
+        "enablement": "isWindows && isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.finalizeManagedExperiment",
+        "title": "VS Code Agent Bridge: Finalize Managed Experiment",
+        "enablement": "isWindows && isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.abandonManagedExperiment",
+        "title": "VS Code Agent Bridge: Abandon Managed Experiment",
+        "enablement": "isWindows && isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.deleteManagedWorktree",
+        "title": "VS Code Agent Bridge: Delete Managed Worktree",
+        "enablement": "isWindows && isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.repairManagedExperiments",
+        "title": "VS Code Agent Bridge: Repair Managed Experiments",
+        "enablement": "isWindows && isWorkspaceTrusted"
       }
     ],
     "viewsContainers": {

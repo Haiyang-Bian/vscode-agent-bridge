@@ -1,4 +1,4 @@
-import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -19,10 +19,21 @@ try {
       VSCODE_AGENT_BRIDGE_REGISTRY_DIR: registryDirectory,
       VSCODE_AGENT_BRIDGE_E2E: "1",
       VSCODE_AGENT_BRIDGE_E2E_WORKSPACE: workspaceDirectory,
+      VSCODE_AGENT_BRIDGE_MANAGED_ROOT: path.join(registryDirectory, "managed-worktrees"),
     },
   );
+  await assertManagedE2EMarker(registryDirectory);
 } finally {
   await rm(registryDirectory, { recursive: true, force: true });
+}
+
+async function assertManagedE2EMarker(registryDirectory: string): Promise<void> {
+  const marker = JSON.parse(
+    await readFile(path.join(registryDirectory, "managed-e2e-passed.json"), "utf8"),
+  ) as Record<string, unknown>;
+  if (marker.privateCommitCount !== 10 || marker.promotedCommitCount !== 1 || marker.treeMatches !== true) {
+    throw new Error("Managed worktree E2E completion marker is invalid.");
+  }
 }
 
 async function prepareWorkspace(target: string): Promise<void> {

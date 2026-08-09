@@ -14,6 +14,8 @@ import {
 } from "./installation.js";
 import { ExperimentManager } from "./experiment-manager.js";
 import { registerExperimentUi } from "./experiment-ui.js";
+import { ManagedWorktreeManager } from "./managed-worktree-manager.js";
+import { registerManagedWorktreeUi } from "./managed-worktree-ui.js";
 import { createExperimentRequestHandlers } from "./request-handlers.js";
 
 let activeHost: BridgeHost | undefined;
@@ -24,6 +26,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const host = new BridgeHost(output);
   const experiments = new ExperimentManager(context, host.instanceId, output);
   const changeSets = new ChangeSetManager(host.instanceId, experiments);
+  const managed = new ManagedWorktreeManager(experiments);
   host.registerRequestHandlers(
     createExperimentRequestHandlers(host.instanceId, experiments, changeSets),
   );
@@ -31,7 +34,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   activeHost = host;
   activeExperimentManager = experiments;
   registerExperimentUi(context, experiments, output);
-  registerE2ECommands(context, experiments);
+  registerManagedWorktreeUi(context, managed, output);
+  registerE2ECommands(context, experiments, managed);
 
   await host.start();
 
@@ -55,7 +59,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await removeCodexCommand(output);
     }),
     vscode.commands.registerCommand("vscodeAgentBridge.runDoctor", async () => {
-      await runDoctorCommand(context, host, experiments, output);
+      await runDoctorCommand(context, host, experiments, managed, output);
     }),
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       void host.refreshDescriptor();
@@ -82,6 +86,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 function registerE2ECommands(
   context: vscode.ExtensionContext,
   experiments: ExperimentManager,
+  managed: ManagedWorktreeManager,
 ): void {
   if (process.env.VSCODE_AGENT_BRIDGE_E2E !== "1") {
     return;
@@ -106,6 +111,31 @@ function registerE2ECommands(
     ),
     vscode.commands.registerCommand("vscodeAgentBridge.e2eAbandonExperiment", () =>
       experiments.abandon(),
+    ),
+    vscode.commands.registerCommand("vscodeAgentBridge.e2eStartManagedExperiment", async (title: string) => {
+      const root = vscode.workspace.workspaceFolders?.[0]?.uri;
+      if (!root) {
+        throw new Error("The E2E workspace root is unavailable.");
+      }
+      return managed.start({ repositoryRoot: root.fsPath, title });
+    }),
+    vscode.commands.registerCommand(
+      "vscodeAgentBridge.e2eSetManagedAcceptedCommit",
+      (sessionId: string, acceptedCommit: string) =>
+        experiments.updateManagedMetadata(sessionId, { acceptedCommit }),
+    ),
+    vscode.commands.registerCommand(
+      "vscodeAgentBridge.e2eUpdateManagedMetadata",
+      (sessionId: string, update: Parameters<ExperimentManager["updateManagedMetadata"]>[1]) =>
+        experiments.updateManagedMetadata(sessionId, update),
+    ),
+    vscode.commands.registerCommand("vscodeAgentBridge.e2ePreviewManagedPromotion", (sessionId: string) =>
+      managed.previewPromotion(sessionId),
+    ),
+    vscode.commands.registerCommand(
+      "vscodeAgentBridge.e2ePromoteManagedExperiment",
+      (preview: Awaited<ReturnType<ManagedWorktreeManager["previewPromotion"]>>, message: string) =>
+        managed.promote(preview, message),
     ),
   );
 }
@@ -182,11 +212,13 @@ async function runDoctorCommand(
   context: vscode.ExtensionContext,
   host: BridgeHost,
   experiments: ExperimentManager,
+  managed: ManagedWorktreeManager,
   output: vscode.LogOutputChannel,
 ): Promise<void> {
-  const [report, experimentStats] = await Promise.all([
+  const [report, experimentStats, managedReport] = await Promise.all([
     inspectInstallation(context),
     experiments.getStoreStats(),
+    managed.repairReport().catch(() => []),
   ]);
   const lines = [
     `releaseVersion=${report.releaseVersion}`,
@@ -203,6 +235,8 @@ async function runDoctorCommand(
     `activeExperiments=${experimentStats.activeCount}`,
     `corruptExperiments=${experimentStats.corruptCount}`,
     `experimentStorageBytes=${experimentStats.storageBytes}`,
+    `managedExperiments=${managedReport.length}`,
+    `managedAttentionRequired=${managedReport.filter((item) => !item.worktreeRegistered || !item.worktreePathPresent || !item.branchMatches || item.state !== "ready").length}`,
   ];
   output.info(`Doctor report:\n${lines.join("\n")}`);
   output.show(true);

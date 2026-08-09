@@ -43,9 +43,10 @@ describe("experiment store", () => {
     const checkpoints = await store.listCheckpoints(manifest.sessionId);
     expect(checkpoints).toHaveLength(1);
     expect(checkpoints[0]?.documents[0]?.blobSha256).toBe(firstBlob.sha256);
-    expect(store.toExperimentInfo(await store.readManifest(manifest.sessionId))).toMatchObject({
+    expect(await store.toExperimentInfo(await store.readManifest(manifest.sessionId))).toMatchObject({
       sessionId: manifest.sessionId,
       lifecycle: "active",
+      managed: null,
     });
     expect((await store.addWarning(manifest.sessionId, "Informational Git warning", false)).health).toBe(
       "complete",
@@ -71,6 +72,44 @@ describe("experiment store", () => {
     now = new Date(now.getTime() + EXPERIMENT_LEASE_STALE_MS + 1);
     await storeB.acquireLease(manifest.sessionId);
     await expect(storeA.assertLease(manifest.sessionId)).rejects.toThrow();
+  });
+
+  test("stores managed metadata separately from checkpoint manifests", async () => {
+    const directory = await temporaryDirectory();
+    const store = new ExperimentStore(directory, INSTANCE_A);
+    const sessionId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    const manifest = await store.createExperiment({
+      sessionId,
+      mode: "worktree",
+      title: "Managed",
+      rootUri: "file:///managed/session",
+      workspaceIdentity: "managed",
+      baseRevision: "a".repeat(40),
+      branch: "vscode-agent-bridge/experiment/test",
+      health: "complete",
+    });
+    await store.writeManagedMetadata(sessionId, {
+      schemaVersion: 1,
+      repositoryRoot: "C:/repository",
+      worktreePath: "C:/managed/session",
+      targetBranch: "main",
+      baseHead: "a".repeat(40),
+      experimentBranch: "vscode-agent-bridge/experiment/test",
+      experimentHead: "a".repeat(40),
+      acceptedCommit: null,
+      formalCommit: null,
+      state: "ready",
+      syncTargetHead: null,
+    });
+    expect(await store.toExperimentInfo(manifest)).toMatchObject({
+      mode: "worktree",
+      managed: {
+        targetBranch: "main",
+        baseHead: "a".repeat(40),
+        state: "ready",
+      },
+    });
+    expect(JSON.parse(await readFile(path.join(directory, "sessions", sessionId, "manifest.json"), "utf8"))).not.toHaveProperty("repositoryRoot");
   });
 
   test("appends evidence without rewriting the checkpoint event", async () => {

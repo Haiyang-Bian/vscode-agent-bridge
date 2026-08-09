@@ -23,6 +23,8 @@ import {
   ExperimentIdSchema,
   ExperimentInfoSchema,
   ExperimentLifecycleSchema,
+  ManagedExperimentInfoSchema,
+  ManagedExperimentStateSchema,
   ExperimentModeSchema,
   GitObjectIdSchema,
   type ExperimentCheckpoint,
@@ -95,11 +97,20 @@ const LeaseSchema = z
   })
   .strict();
 
+const ManagedExperimentMetadataSchema = ManagedExperimentInfoSchema.extend({
+  schemaVersion: z.literal(1),
+  repositoryRoot: z.string().min(1),
+  worktreePath: z.string().min(1),
+  syncTargetHead: GitObjectIdSchema.nullable(),
+}).strict();
+
 export type StoredDocument = z.infer<typeof StoredDocumentSchema>;
 export type StoredCheckpoint = z.infer<typeof StoredCheckpointSchema>;
 export type ExperimentManifest = z.infer<typeof ExperimentManifestSchema>;
+export type ManagedExperimentMetadata = z.infer<typeof ManagedExperimentMetadataSchema>;
 
 export interface CreateExperimentInput {
+  readonly sessionId?: string;
   readonly mode: "workspace" | "worktree";
   readonly title: string;
   readonly rootUri: string;
@@ -174,7 +185,8 @@ export class ExperimentStore {
 
   async createExperiment(input: CreateExperimentInput): Promise<ExperimentManifest> {
     await this.initialize();
-    const sessionId = randomUUID();
+    const sessionId = input.sessionId ?? randomUUID();
+    assertUuid(sessionId);
     const now = this.#now().toISOString();
     const manifest: ExperimentManifest = {
       schemaVersion: EXPERIMENT_STORAGE_SCHEMA_VERSION,
@@ -354,12 +366,41 @@ export class ExperimentStore {
     return updated;
   }
 
+  async clearAcceptedCheckpoint(sessionId: string): Promise<ExperimentManifest> {
+    const manifest = await this.readManifest(sessionId);
+    const updated = {
+      ...manifest,
+      acceptedCheckpointId: null,
+      updatedAt: this.#now().toISOString(),
+    };
+    await this.#writeManifest(updated);
+    return updated;
+  }
+
   async setLifecycle(
     sessionId: string,
     lifecycle: "finalized" | "abandoned",
   ): Promise<ExperimentManifest> {
     await this.assertLease(sessionId);
     const manifest = await this.readManifest(sessionId);
+    const updated = {
+      ...manifest,
+      lifecycle,
+      updatedAt: this.#now().toISOString(),
+    };
+    await this.#writeManifest(updated);
+    await this.releaseLease(sessionId);
+    return updated;
+  }
+
+  async setManagedLifecycle(
+    sessionId: string,
+    lifecycle: "finalized" | "abandoned",
+  ): Promise<ExperimentManifest> {
+    const manifest = await this.readManifest(sessionId);
+    if (manifest.mode !== "worktree") {
+      throw new Error("Controlled lifecycle updates belong only to managed experiments.");
+    }
     const updated = {
       ...manifest,
       lifecycle,
@@ -379,6 +420,41 @@ export class ExperimentStore {
     };
     await this.#writeManifest(updated);
     return updated;
+  }
+
+  async writeManagedMetadata(
+    sessionId: string,
+    metadata: ManagedExperimentMetadata,
+  ): Promise<ManagedExperimentMetadata> {
+    const manifest = await this.readManifest(sessionId);
+    if (manifest.mode !== "worktree") {
+      throw new Error("Managed metadata belongs only to worktree experiments.");
+    }
+    const parsed = ManagedExperimentMetadataSchema.parse(metadata);
+    await writeAtomic(this.#managedMetadataPath(sessionId), `${JSON.stringify(parsed, null, 2)}\n`);
+    return parsed;
+  }
+
+  async readManagedMetadata(sessionId: string): Promise<ManagedExperimentMetadata> {
+    assertUuid(sessionId);
+    return ManagedExperimentMetadataSchema.parse(
+      JSON.parse(await readFile(this.#managedMetadataPath(sessionId), "utf8")),
+    );
+  }
+
+  async updateManagedMetadata(
+    sessionId: string,
+    update: Partial<{
+      baseHead: string;
+      experimentHead: string;
+      acceptedCommit: string | null;
+      formalCommit: string | null;
+      state: z.infer<typeof ManagedExperimentStateSchema>;
+      syncTargetHead: string | null;
+    }>,
+  ): Promise<ManagedExperimentMetadata> {
+    const current = await this.readManagedMetadata(sessionId);
+    return this.writeManagedMetadata(sessionId, { ...current, ...update });
   }
 
   async addWarning(
@@ -588,7 +664,8 @@ export class ExperimentStore {
     };
   }
 
-  toExperimentInfo(manifest: ExperimentManifest): ExperimentInfo {
+  async toExperimentInfo(manifest: ExperimentManifest): Promise<ExperimentInfo> {
+    const managed = manifest.mode === "worktree" ? await this.readManagedMetadata(manifest.sessionId) : null;
     return ExperimentInfoSchema.parse({
       instanceId: this.#instanceId,
       sessionId: manifest.sessionId,
@@ -606,6 +683,17 @@ export class ExperimentStore {
       pinned: manifest.pinned,
       storageBytes: manifest.storageBytes,
       warnings: manifest.warnings,
+      managed: managed
+        ? {
+            targetBranch: managed.targetBranch,
+            baseHead: managed.baseHead,
+            experimentBranch: managed.experimentBranch,
+            experimentHead: managed.experimentHead,
+            acceptedCommit: managed.acceptedCommit,
+            formalCommit: managed.formalCommit,
+            state: managed.state,
+          }
+        : null,
     });
   }
 
@@ -630,6 +718,10 @@ export class ExperimentStore {
 
   #manifestPath(sessionId: string): string {
     return path.join(this.#sessionDirectory(sessionId), "manifest.json");
+  }
+
+  #managedMetadataPath(sessionId: string): string {
+    return path.join(this.#sessionDirectory(sessionId), "managed.json");
   }
 
   #eventPath(sessionId: string, sequence: number, checkpointId: string): string {

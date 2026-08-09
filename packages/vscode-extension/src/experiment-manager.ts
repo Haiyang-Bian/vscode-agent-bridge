@@ -16,6 +16,7 @@ import {
   ExperimentStore,
   MAX_EXPERIMENT_BLOB_BYTES,
   type ExperimentManifest,
+  type ManagedExperimentMetadata,
   type StoredCheckpoint,
   type StoredDocument,
 } from "./experiment-store.js";
@@ -42,6 +43,13 @@ interface ResolvedCheckpointDocument {
 export interface StartExperimentOptions {
   readonly title: string;
   readonly root: vscode.Uri;
+}
+
+export interface CreateManagedExperimentOptions {
+  readonly sessionId: string;
+  readonly title: string;
+  readonly worktreeRoot: vscode.Uri;
+  readonly metadata: ManagedExperimentMetadata;
 }
 
 export class ExperimentManager implements vscode.Disposable {
@@ -146,6 +154,31 @@ export class ExperimentManager implements vscode.Disposable {
     return this.#store.toExperimentInfo(manifest);
   }
 
+  async createManagedExperimentSession(
+    options: CreateManagedExperimentOptions,
+  ): Promise<ExperimentInfo> {
+    this.#assertMutationAllowed();
+    if (this.#active) {
+      throw new BridgeError(
+        "EXPERIMENT_ALREADY_ACTIVE",
+        "Finish the active experiment before creating a managed worktree experiment.",
+      );
+    }
+    const created = await this.#store.createExperiment({
+      sessionId: options.sessionId,
+      mode: "worktree",
+      title: options.title,
+      rootUri: options.worktreeRoot.toString(true),
+      workspaceIdentity: workspaceIdentity(options.worktreeRoot),
+      baseRevision: options.metadata.baseHead,
+      branch: options.metadata.experimentBranch,
+      health: "complete",
+    });
+    await this.#store.writeManagedMetadata(created.sessionId, options.metadata);
+    await this.#store.releaseLease(created.sessionId);
+    return this.#store.toExperimentInfo(await this.#store.readManifest(created.sessionId));
+  }
+
   async getActiveExperiment(): Promise<ExperimentInfo> {
     const active = this.#requireActive();
     active.manifest = await this.#store.readManifest(active.manifest.sessionId);
@@ -219,6 +252,18 @@ export class ExperimentManager implements vscode.Disposable {
   async markAccepted(checkpointId: string): Promise<void> {
     const active = this.#requireActive();
     await this.flushPendingCaptures();
+    if (active.manifest.mode === "worktree") {
+      const checkpoint = await this.#store.readCheckpoint(active.manifest.sessionId, checkpointId);
+      if (!checkpoint.gitCommit) {
+        throw new BridgeError(
+          "ACCEPTED_COMMIT_REQUIRED",
+          "Managed experiments can accept only checkpoints backed by a Git commit.",
+        );
+      }
+      await this.#store.updateManagedMetadata(active.manifest.sessionId, {
+        acceptedCommit: checkpoint.gitCommit,
+      });
+    }
     active.manifest = await this.#store.setAcceptedCheckpoint(
       active.manifest.sessionId,
       checkpointId,
@@ -360,6 +405,44 @@ export class ExperimentManager implements vscode.Disposable {
     return this.#store.getStats();
   }
 
+  async readManagedMetadata(sessionId: string): Promise<ManagedExperimentMetadata> {
+    return this.#store.readManagedMetadata(sessionId);
+  }
+
+  async updateManagedMetadata(
+    sessionId: string,
+    update: Parameters<ExperimentStore["updateManagedMetadata"]>[1],
+  ): Promise<ManagedExperimentMetadata> {
+    return this.#store.updateManagedMetadata(sessionId, update);
+  }
+
+  async clearManagedAcceptedCandidate(sessionId: string): Promise<void> {
+    await Promise.all([
+      this.#store.clearAcceptedCheckpoint(sessionId),
+      this.#store.updateManagedMetadata(sessionId, { acceptedCommit: null }),
+    ]);
+    if (this.#active?.manifest.sessionId === sessionId) {
+      this.#active.manifest = await this.#store.readManifest(sessionId);
+    }
+    this.#changeEmitter.fire();
+  }
+
+  async setManagedLifecycle(
+    sessionId: string,
+    lifecycle: "finalized" | "abandoned",
+  ): Promise<void> {
+    await this.#store.setManagedLifecycle(sessionId, lifecycle);
+    if (this.#active?.manifest.sessionId === sessionId) {
+      this.#stopActiveMonitoring();
+      this.#active = undefined;
+    }
+    this.#changeEmitter.fire();
+  }
+
+  async captureGitHeadNow(): Promise<void> {
+    await this.#pollGitHead();
+  }
+
   async flushPendingCaptures(): Promise<void> {
     if (this.#manualTimer) {
       clearTimeout(this.#manualTimer);
@@ -408,7 +491,7 @@ export class ExperimentManager implements vscode.Disposable {
     );
     const candidate = (await this.#store.listManifests()).find(
       (manifest) =>
-        manifest.mode === "workspace" &&
+        (manifest.mode === "workspace" || manifest.mode === "worktree") &&
         manifest.lifecycle === "active" &&
         roots.has(manifest.rootUri),
     );
@@ -486,7 +569,7 @@ export class ExperimentManager implements vscode.Disposable {
       return;
     }
     this.#leaseTimer = setInterval(() => {
-      void this.#store.refreshLease(active.manifest.sessionId).catch((error: unknown) => {
+      void this.#refreshActiveLease(active).catch((error: unknown) => {
         this.#output.error("Experiment lease refresh failed.", error);
       });
     }, LEASE_REFRESH_INTERVAL_MS);
@@ -808,11 +891,31 @@ export class ExperimentManager implements vscode.Disposable {
             !resourceChange,
             head,
           );
+          if (active.manifest.mode === "worktree") {
+            await this.#store.updateManagedMetadata(active.manifest.sessionId, {
+              experimentHead: head,
+            });
+          }
         });
       }
     } catch {
       // A transient Git failure is retried on the next poll.
     }
+  }
+
+  async #refreshActiveLease(active: ActiveExperiment): Promise<void> {
+    const manifest = await this.#store.readManifest(active.manifest.sessionId);
+    if (manifest.lifecycle !== "active") {
+      await this.#store.releaseLease(active.manifest.sessionId);
+      if (this.#active?.manifest.sessionId === active.manifest.sessionId) {
+        this.#stopActiveMonitoring();
+        this.#active = undefined;
+        this.#changeEmitter.fire();
+      }
+      return;
+    }
+    active.manifest = manifest;
+    await this.#store.refreshLease(active.manifest.sessionId);
   }
 
   async #reconcileGitDocuments(active: ActiveExperiment): Promise<void> {

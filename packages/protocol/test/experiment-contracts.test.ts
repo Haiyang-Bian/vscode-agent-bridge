@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   MAX_CHANGE_SET_DOCUMENTS,
+  ManagedExperimentInfoSchema,
   PrepareRenameInputSchema,
   PrepareTextEditsInputSchema,
 } from "../src/index.js";
@@ -80,5 +81,19 @@ describe("experiment contracts", () => {
 
   test("bounds document count", () => {
     expect(MAX_CHANGE_SET_DOCUMENTS).toBe(50);
+  });
+
+  test("models managed worktree promotion without exposing paths", () => {
+    const managed = ManagedExperimentInfoSchema.parse({
+      targetBranch: "main",
+      baseHead: "a".repeat(40),
+      experimentBranch: "vscode-agent-bridge/experiment/test",
+      experimentHead: "b".repeat(40),
+      acceptedCommit: "b".repeat(40),
+      formalCommit: null,
+      state: "ready",
+    });
+    expect(managed).not.toHaveProperty("repositoryRoot");
+    expect(managed).not.toHaveProperty("worktreePath");
   });
 });

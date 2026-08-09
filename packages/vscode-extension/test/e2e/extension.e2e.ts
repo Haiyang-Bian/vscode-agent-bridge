@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { once } from "node:events";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import net, { type Socket } from "node:net";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -31,6 +31,9 @@ suite("VS Code Agent Bridge Extension Host", function () {
   this.timeout(90_000);
 
   test("serves unsaved text, diagnostics, symbols, navigation, and hover", async () => {
+    if (!(await isPrimaryTestWindow())) {
+      return;
+    }
     const extension = vscode.extensions.all.find(
       (candidate) => candidate.id.toLowerCase() === "alicelin.vscode-agent-bridge",
     );
@@ -153,11 +156,182 @@ suite("VS Code Agent Bridge Extension Host", function () {
         () => client.request(BRIDGE_METHODS.readDocument, {}),
         (error: unknown) => error instanceof BridgeRpcError && error.bridgeCode === "NO_ACTIVE_EDITOR",
       );
+      await execGit(workspaceFolder.uri.fsPath, ["restore", "--staged", "--worktree", "--", "."]);
     } finally {
       client.close();
     }
   });
+
+  test("isolates ten private commits and promotes one target commit", async () => {
+    if (!(await isPrimaryTestWindow())) {
+      await waitForManagedCompletionMarker();
+      return;
+    }
+    const extension = vscode.extensions.getExtension("AliceLin.vscode-agent-bridge");
+    assert.ok(extension);
+    await extension.activate();
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    assert.ok(workspaceFolder);
+    const targetHead = await readGitHead(workspaceFolder.uri.fsPath);
+
+    const experiment = await vscode.commands.executeCommand<ExperimentInfo>(
+      "vscodeAgentBridge.e2eStartManagedExperiment",
+      "E2E managed worktree",
+    );
+    assert.ok(experiment?.managed);
+    const worktreePath = await findWorktreePath(
+      workspaceFolder.uri.fsPath,
+      experiment.managed.experimentBranch,
+    );
+    const descriptor = await waitForDescriptorForWorkspace(worktreePath);
+    const worktreeClient = await BridgeRpcClient.connect(descriptor.transport.endpoint);
+    try {
+      await worktreeClient.request(BRIDGE_METHODS.initialize, {
+        protocolVersion: BRIDGE_PROTOCOL_VERSION,
+        authToken: descriptor.authToken,
+        client: { name: "managed-extension-host-e2e", version: BRIDGE_RELEASE_VERSION },
+      });
+      const resumed = await waitFor(
+        async () => {
+          const active = await worktreeClient.request<ExperimentInfo>(BRIDGE_METHODS.getExperiment, {});
+          return active.mode === "worktree" ? active : undefined;
+        },
+        "managed worktree experiment lease",
+      );
+      assert.equal(resumed.sessionId, experiment.sessionId);
+
+      for (let index = 1; index <= 10; index += 1) {
+        await writeFile(
+          path.join(worktreePath, "app.ts"),
+          `export const acceptedValue = ${index};\n`,
+          "utf8",
+        );
+        await execGit(worktreePath, ["add", "app.ts"]);
+        await execGit(worktreePath, ["commit", "-m", `private attempt ${index}`]);
+      }
+      let acceptedCommit = await readGitHead(worktreePath);
+      assert.equal(
+        (await readGitOutput(worktreePath, ["rev-list", "--count", `${targetHead}..HEAD`])).trim(),
+        "10",
+      );
+      await waitFor(
+        async () => {
+          const active = await worktreeClient.request<ExperimentInfo>(BRIDGE_METHODS.getExperiment, {});
+          return active.managed?.experimentHead === acceptedCommit ? active : undefined;
+        },
+        "managed Git checkpoint capture",
+        20_000,
+      );
+      await writeFile(
+        path.join(workspaceFolder.uri.fsPath, "target-drift.ts"),
+        "export const targetDrift = true;\n",
+        "utf8",
+      );
+      await execGit(workspaceFolder.uri.fsPath, ["add", "target-drift.ts"]);
+      await execGit(workspaceFolder.uri.fsPath, ["commit", "-m", "target drift"]);
+      const movedTargetHead = await readGitHead(workspaceFolder.uri.fsPath);
+      await vscode.commands.executeCommand(
+        "vscodeAgentBridge.e2eSetManagedAcceptedCommit",
+        experiment.sessionId,
+        acceptedCommit,
+      );
+      await assert.rejects(
+        async () =>
+          await vscode.commands.executeCommand(
+            "vscodeAgentBridge.e2ePreviewManagedPromotion",
+            experiment.sessionId,
+          ),
+        (error: unknown) =>
+          typeof error === "object" &&
+          error !== null &&
+          "code" in error &&
+          error.code === "TARGET_MOVED",
+      );
+      await execGit(worktreePath, ["rebase", movedTargetHead]);
+      acceptedCommit = await readGitHead(worktreePath);
+      await vscode.commands.executeCommand(
+        "vscodeAgentBridge.e2eUpdateManagedMetadata",
+        experiment.sessionId,
+        {
+          baseHead: movedTargetHead,
+          experimentHead: acceptedCommit,
+          acceptedCommit,
+        },
+      );
+      const preview = await vscode.commands.executeCommand<{
+        sessionId: string;
+        targetHead: string;
+        acceptedCommit: string;
+        files: string[];
+        stat: string;
+      }>("vscodeAgentBridge.e2ePreviewManagedPromotion", experiment.sessionId);
+      assert.ok(preview);
+      const formalCommit = await vscode.commands.executeCommand<string>(
+        "vscodeAgentBridge.e2ePromoteManagedExperiment",
+        preview,
+        "formal managed delivery",
+      );
+      assert.ok(formalCommit);
+      assert.equal(await readGitHead(workspaceFolder.uri.fsPath), formalCommit);
+      assert.equal(
+        (await readGitOutput(workspaceFolder.uri.fsPath, ["rev-list", "--count", `${movedTargetHead}..HEAD`])).trim(),
+        "1",
+      );
+      assert.equal(
+        (await readGitOutput(workspaceFolder.uri.fsPath, ["rev-list", "--count", `${targetHead}..HEAD`])).trim(),
+        "2",
+      );
+      assert.equal(
+        (await readGitOutput(workspaceFolder.uri.fsPath, ["rev-parse", `${formalCommit}^{tree}`])).trim(),
+        (await readGitOutput(worktreePath, ["rev-parse", `${acceptedCommit}^{tree}`])).trim(),
+      );
+      const registryDirectory = process.env.VSCODE_AGENT_BRIDGE_REGISTRY_DIR;
+      assert.ok(registryDirectory);
+      await writeFile(
+        path.join(registryDirectory, "managed-e2e-passed.json"),
+        `${JSON.stringify({ privateCommitCount: 10, promotedCommitCount: 1, treeMatches: true })}\n`,
+        "utf8",
+      );
+    } finally {
+      worktreeClient.close();
+    }
+  });
 });
+
+async function isPrimaryTestWindow(): Promise<boolean> {
+  const configured = process.env.VSCODE_AGENT_BRIDGE_E2E_WORKSPACE;
+  if (!configured) {
+    return false;
+  }
+  const current = await waitFor(
+    () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    "E2E workspace folder",
+    5_000,
+  ).catch(() => undefined);
+  return (
+    current !== undefined &&
+    path.resolve(configured).toLowerCase() === path.resolve(current).toLowerCase()
+  );
+}
+
+async function waitForManagedCompletionMarker(): Promise<void> {
+  const registryDirectory = process.env.VSCODE_AGENT_BRIDGE_REGISTRY_DIR;
+  if (!registryDirectory) {
+    return;
+  }
+  await waitFor(
+    async () => {
+      try {
+        await readFile(path.join(registryDirectory, "managed-e2e-passed.json"), "utf8");
+        return true;
+      } catch {
+        return undefined;
+      }
+    },
+    "primary managed E2E completion",
+    60_000,
+  );
+}
 
 async function assertAuthenticationBoundary(descriptor: InstanceDescriptor): Promise<void> {
   const unauthenticated = await BridgeRpcClient.connect(descriptor.transport.endpoint);
@@ -360,12 +534,34 @@ async function exerciseExperimentWorkflow(
 }
 
 async function readGitHead(cwd: string): Promise<string> {
-  const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], {
+  return (await readGitOutput(cwd, ["rev-parse", "HEAD"])).trim();
+}
+
+async function readGitOutput(cwd: string, args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync("git", args, {
     cwd,
     encoding: "utf8",
     windowsHide: true,
   });
-  return stdout.trim();
+  return stdout;
+}
+
+async function execGit(cwd: string, args: string[]): Promise<void> {
+  await execFileAsync("git", args, { cwd, windowsHide: true });
+}
+
+async function findWorktreePath(repository: string, branch: string): Promise<string> {
+  const output = await readGitOutput(repository, ["worktree", "list", "--porcelain"]);
+  for (const record of output.split(/\r?\n\r?\n/u)) {
+    const fields = record.split(/\r?\n/u);
+    if (fields.includes(`branch refs/heads/${branch}`)) {
+      const worktree = fields.find((field) => field.startsWith("worktree "));
+      if (worktree) {
+        return path.resolve(worktree.slice("worktree ".length));
+      }
+    }
+  }
+  throw new Error(`Managed worktree for ${branch} was not found.`);
 }
 
 async function waitForDescriptor(): Promise<InstanceDescriptor> {
@@ -381,6 +577,29 @@ async function waitForDescriptor(): Promise<InstanceDescriptor> {
     );
     return parsed.success ? parsed.data : undefined;
   }, "bridge instance descriptor");
+}
+
+async function waitForDescriptorForWorkspace(workspacePath: string): Promise<InstanceDescriptor> {
+  const instancesDirectory = resolveRegistryDirectories().instances;
+  return waitFor(async () => {
+    const names = await readdir(instancesDirectory).catch(() => []);
+    for (const name of names.filter((candidate) => candidate.endsWith(".json"))) {
+      const parsed = InstanceDescriptorSchema.safeParse(
+        JSON.parse(await readFile(path.join(instancesDirectory, name), "utf8")),
+      );
+      if (
+        parsed.success &&
+        parsed.data.workspaceFolders.some(
+          (folder) =>
+            path.resolve(vscode.Uri.parse(folder.uri, true).fsPath).toLowerCase() ===
+            path.resolve(workspacePath).toLowerCase(),
+        )
+      ) {
+        return parsed.data;
+      }
+    }
+    return undefined;
+  }, "managed worktree descriptor", 30_000);
 }
 
 async function waitFor<T>(
