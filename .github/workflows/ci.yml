@@ -51,6 +51,9 @@ jobs:
       - name: Create checksums
         run: bun run release:checksums
 
+      - name: Create cross-machine test bundle
+        run: bun run package:test-bundle
+
       - name: Smoke-test release artifacts
         run: bun run test:artifact
 

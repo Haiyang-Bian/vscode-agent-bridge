@@ -2,7 +2,7 @@
 
 VS Code Agent Bridge connects local MCP clients such as Codex to IDE-native, read-only VS Code state. It is intentionally split into two runtime layers: a standalone STDIO MCP server and a VS Code desktop extension. `packages/protocol` contains their shared RPC contracts and is not a third service.
 
-The `0.2.0` release targets Windows x64. Marketplace users do not need Bun, Node.js, or this repository: the platform-specific VSIX contains a Bun-compiled MCP executable and the extension installs a versioned copy on explicit request.
+The `0.2.0` release targets Windows x64. VSIX and future Marketplace users do not need Bun, Node.js, or this repository: the platform-specific package contains a Bun-compiled MCP executable and the extension installs a versioned copy on explicit request.
 
 ## Read-only tools
 
@@ -40,14 +40,16 @@ bun install --frozen-lockfile
 bun run check
 bun run test:e2e
 bun run package:vsix
+bun run release:checksums
+bun run package:test-bundle
 bun run test:artifact
 ```
 
-`bun run check` performs type checking, Bun unit/contract tests and workspace builds. `test:e2e` runs the extension inside an isolated real VS Code Extension Host. `package:vsix` compiles the Windows x64 baseline EXE, packages a platform-specific VSIX and audits its contents. Generated release files are written to `artifacts/`.
+`bun run check` performs type checking, Bun unit/contract tests and workspace builds. `test:e2e` runs the extension inside an isolated real VS Code Extension Host. `package:vsix` compiles the Windows x64 baseline EXE, packages a platform-specific VSIX and audits its contents. `package:test-bundle` creates a checksum-protected archive for a different Windows x64 computer. Generated release files are written to `artifacts/`.
 
 ## Release
 
-Pull requests and `master` run [CI](.github/workflows/ci.yml). A `v0.2.0` tag runs [the release workflow](.github/workflows/release.yml), creates SHA-256 checksums and provenance, publishes a GitHub Release, and publishes to Marketplace through `vsce --oidc` after approval of the `marketplace` environment.
+Pull requests and `master` run [CI](.github/workflows/ci.yml). A `v0.2.0` tag runs [the release workflow](.github/workflows/release.yml), creates SHA-256 checksums, a cross-machine test bundle and provenance, and publishes a GitHub Release. Marketplace publishing is disabled by default and runs through `vsce --oidc` only when the repository variable `MARKETPLACE_TRUSTED_PUBLISHING_ENABLED` is explicitly set to `true`.
 
 Publisher creation and the Marketplace Trusted Publishing policy are one-time account operations; no PAT is stored in this repository. See [the release checklist](docs/releases/v0.2.0.md) and [cross-machine acceptance prompt](docs/acceptance/windows-x64-cross-machine.md).
 

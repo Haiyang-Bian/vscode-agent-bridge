@@ -15,6 +15,7 @@
     "check": "bun scripts/check.ts",
     "build:mcp:exe": "bun scripts/build-mcp-executable.ts",
     "package:vsix": "bun scripts/package-vsix.ts",
+    "package:test-bundle": "bun scripts/create-test-bundle.ts",
     "verify:release": "bun scripts/verify-release.ts",
     "release:checksums": "bun scripts/create-checksums.ts"
   },

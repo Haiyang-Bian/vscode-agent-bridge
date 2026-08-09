@@ -2,11 +2,11 @@
 
 Connect Codex to the IDE-native, read-only state of your local VS Code windows.
 
-`0.2.0` is a Windows x64 desktop release. The extension contains a standalone MCP server, so Marketplace users do not need Bun, Node.js or the source repository.
+`0.2.0` is a Windows x64 desktop release candidate. The extension contains a standalone MCP server, so VSIX and future Marketplace users do not need Bun, Node.js or the source repository.
 
 ## Setup
 
-1. Install `AliceLin.vscode-agent-bridge` from the VS Code Marketplace.
+1. For cross-machine candidate testing, use **Extensions > ... > Install from VSIX...**. After publication, install `AliceLin.vscode-agent-bridge` from the VS Code Marketplace.
 2. Run **VS Code Agent Bridge: Configure Codex** from the Command Palette.
 3. Review and confirm the exact operation. The extension installs its versioned MCP executable and updates only its marked block in `~/.codex/config.toml`.
 4. Restart Codex, then ask it to call `vscode_list_instances`.
@@ -40,7 +40,7 @@ Source, issues, checksums and release artifacts are available at [GitHub](https:
 
 # 中文说明
 
-VS Code Agent Bridge 将 Codex 连接到本机 VS Code 的 IDE 原生只读状态。`0.2.0` 首发仅支持 Windows x64 桌面版，扩展已内置独立 MCP 程序，Marketplace 用户不需要安装 Bun、Node.js 或克隆源码。
+VS Code Agent Bridge 将 Codex 连接到本机 VS Code 的 IDE 原生只读状态。`0.2.0` 候选版本仅支持 Windows x64 桌面版，扩展已内置独立 MCP 程序，通过 VSIX 旁加载测试时不需要安装 Bun、Node.js 或克隆源码。正式发布后也可从 Marketplace 安装。
 
 安装后从命令面板运行 **VS Code Agent Bridge: Configure Codex**，确认后扩展会安装带版本的 MCP 程序，并且只管理 `~/.codex/config.toml` 中带 begin/end 标记的配置块。随后重启 Codex，先调用 `vscode_list_instances` 即可。
 

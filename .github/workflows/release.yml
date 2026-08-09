@@ -50,6 +50,7 @@ jobs:
           bun run test:e2e
           bun run package:vsix
           bun run release:checksums
+          bun run package:test-bundle
           bun run test:artifact
 
       - name: Attest release artifacts
@@ -67,6 +68,7 @@ jobs:
           retention-days: 30
 
   marketplace:
+    if: ${{ vars.MARKETPLACE_TRUSTED_PUBLISHING_ENABLED == 'true' }}
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
