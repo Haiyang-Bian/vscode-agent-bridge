@@ -233,6 +233,29 @@ export class ExperimentManager implements vscode.Disposable {
     }
   }
 
+  async saveGuardedDocument(
+    sessionId: string,
+    document: vscode.TextDocument,
+    summary: string,
+  ): Promise<{ saved: boolean; checkpointId: string }> {
+    this.#assertMutationAllowed();
+    this.#requireActive(sessionId);
+    this.#suppressAutomaticCapture += 1;
+    let saved: boolean;
+    try {
+      saved = await document.save();
+    } finally {
+      this.#suppressAutomaticCapture -= 1;
+    }
+    if (!saved) {
+      return { saved: false, checkpointId: "" };
+    }
+    const checkpointId = await this.#enqueue(() =>
+      this.#captureCheckpoint("save", summary, [document.uri]),
+    );
+    return { saved: true, checkpointId };
+  }
+
   async recordClientEvidence(params: RecordExperimentEvidenceParams): Promise<ExperimentEvidence> {
     const active = this.#requireActive(params.sessionId);
     const evidence: ExperimentEvidence = {
@@ -549,7 +572,11 @@ export class ExperimentManager implements vscode.Disposable {
         }, MANUAL_CAPTURE_IDLE_MS);
       }),
       vscode.workspace.onDidSaveTextDocument((document) => {
-        if (!this.#active || !isUriWithin(this.#active.root, document.uri)) {
+        if (
+          this.#suppressAutomaticCapture > 0 ||
+          !this.#active ||
+          !isUriWithin(this.#active.root, document.uri)
+        ) {
           return;
         }
         this.#pendingManualUris.delete(document.uri.toString(true));

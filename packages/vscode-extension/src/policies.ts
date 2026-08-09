@@ -24,6 +24,21 @@ export function getTerminalReadPolicy(): TerminalReadPolicy {
   return TerminalReadPolicySchema.catch("allow").parse(value);
 }
 
+export function assertAgentWriteAllowed(): void {
+  if (getAutonomyProfile() === "readOnly") {
+    throw new BridgeError("POLICY_DENIED", "Agent writes are disabled by the read-only policy.");
+  }
+  if (vscode.env.remoteName) {
+    throw new BridgeError("UNSUPPORTED_REMOTE", "Remote document mutation is not supported.");
+  }
+  if (!vscode.workspace.isTrusted) {
+    throw new BridgeError(
+      "WORKSPACE_UNTRUSTED",
+      "Trust the workspace before an Agent prepares or applies document changes.",
+    );
+  }
+}
+
 export function assertTerminalMetadataAllowed(): "full" | "metadata" {
   if (vscode.env.remoteName) {
     throw new BridgeError("UNSUPPORTED_REMOTE", "Remote VS Code terminal routing is unsupported.");

@@ -13,11 +13,13 @@ import {
   resolveInstalledExecutablePath,
 } from "./installation.js";
 import { ExperimentManager } from "./experiment-manager.js";
+import { IdeAutonomyManager } from "./ide-autonomy-manager.js";
 import { registerExperimentUi } from "./experiment-ui.js";
 import { ManagedWorktreeManager } from "./managed-worktree-manager.js";
 import { registerManagedWorktreeUi } from "./managed-worktree-ui.js";
 import {
   createExperimentRequestHandlers,
+  createIdeAutonomyRequestHandlers,
   createTerminalRequestHandlers,
 } from "./request-handlers.js";
 import { TerminalObserver } from "./terminal-observer.js";
@@ -33,10 +35,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const changeSets = new ChangeSetManager(host.instanceId, experiments);
   const managed = new ManagedWorktreeManager(experiments);
   const terminals = new TerminalObserver(host.instanceId);
+  const ideAutonomy = new IdeAutonomyManager(host.instanceId, experiments, changeSets);
   host.registerRequestHandlers(
     createExperimentRequestHandlers(host.instanceId, experiments, changeSets),
   );
   host.registerRequestHandlers(createTerminalRequestHandlers(terminals));
+  host.registerRequestHandlers(createIdeAutonomyRequestHandlers(ideAutonomy));
   await experiments.initialize();
   terminals.start();
   activeHost = host;

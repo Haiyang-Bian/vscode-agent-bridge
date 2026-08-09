@@ -19,6 +19,7 @@ import {
 } from "@vscode-agent-bridge/protocol";
 
 import { ExperimentManager } from "./experiment-manager.js";
+import { assertAgentWriteAllowed } from "./policies.js";
 
 interface InternalPreparedDocument {
   readonly uri: vscode.Uri;
@@ -105,6 +106,27 @@ export class ChangeSetManager {
   }
 
   async apply(params: ApplyChangeSetParams): Promise<AppliedChangeSet> {
+    return this.applyPrepared(params);
+  }
+
+  async prepareGeneratedTextEdits(
+    sessionId: string,
+    title: string,
+    rationale: string,
+    documents: readonly {
+      uri: string;
+      expectedSha256: string;
+      expectedVersion: number;
+      edits: readonly TextReplacement[];
+    }[],
+  ): Promise<PreparedChangeSet> {
+    return this.#prepare("text-edits", sessionId, title, rationale, documents);
+  }
+
+  async applyPrepared(
+    params: ApplyChangeSetParams,
+    checkpointSummary?: string,
+  ): Promise<AppliedChangeSet> {
     this.#assertMutationAllowed();
     await this.#assertActiveSession(params.sessionId);
     const changeSet = this.#changeSets.get(params.changeSetId);
@@ -159,7 +181,7 @@ export class ChangeSetManager {
     }));
     const checkpointId = await this.#experiments.captureAfterAgentApply(
       params.sessionId,
-      changeSet.result.title,
+      checkpointSummary ?? changeSet.result.title,
       resolved.map(({ document }) => document.uri),
     );
     return {
@@ -263,15 +285,7 @@ export class ChangeSetManager {
   }
 
   #assertMutationAllowed(): void {
-    if (vscode.env.remoteName) {
-      throw new BridgeError("UNSUPPORTED_REMOTE", "Remote document mutation is not supported.");
-    }
-    if (!vscode.workspace.isTrusted) {
-      throw new BridgeError(
-        "WORKSPACE_UNTRUSTED",
-        "Trust the workspace before preparing or applying edits.",
-      );
-    }
+    assertAgentWriteAllowed();
   }
 
   #purgeExpired(): void {
@@ -284,7 +298,7 @@ export class ChangeSetManager {
   }
 }
 
-function parseSupportedUri(rawUri: string, rootUri: string): vscode.Uri {
+export function parseSupportedUri(rawUri: string, rootUri: string): vscode.Uri {
   let uri: vscode.Uri;
   try {
     uri = vscode.Uri.parse(rawUri, true);
@@ -311,7 +325,7 @@ function parseSupportedUri(rawUri: string, rootUri: string): vscode.Uri {
   return uri;
 }
 
-async function resolveExistingDocument(uri: vscode.Uri): Promise<vscode.TextDocument> {
+export async function resolveExistingDocument(uri: vscode.Uri): Promise<vscode.TextDocument> {
   const open = vscode.workspace.textDocuments.find(
     (document) => document.uri.toString(true) === uri.toString(true),
   );
@@ -331,7 +345,7 @@ async function resolveExistingDocument(uri: vscode.Uri): Promise<vscode.TextDocu
   }
 }
 
-function assertExpectedDocument(
+export function assertExpectedDocument(
   document: vscode.TextDocument,
   expectedSha256: string,
   expectedVersion?: number,
@@ -347,7 +361,7 @@ function assertExpectedDocument(
   }
 }
 
-function validateRange(
+export function validateRange(
   document: vscode.TextDocument,
   range: TextReplacement["range"],
 ): vscode.Range {
@@ -398,7 +412,7 @@ function toPosition(position: { line: number; character: number }): vscode.Posit
   return new vscode.Position(position.line, position.character);
 }
 
-function toBridgeRange(range: vscode.Range): TextReplacement["range"] {
+export function toBridgeRange(range: vscode.Range): TextReplacement["range"] {
   return {
     start: { line: range.start.line, character: range.start.character },
     end: { line: range.end.line, character: range.end.character },
@@ -412,6 +426,6 @@ function comparePositions(
   return left.line - right.line || left.character - right.character;
 }
 
-function sha256(text: string): string {
+export function sha256(text: string): string {
   return createHash("sha256").update(text).digest("hex");
 }

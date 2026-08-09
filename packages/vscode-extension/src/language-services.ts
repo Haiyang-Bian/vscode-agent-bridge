@@ -285,7 +285,7 @@ function fullDocumentRange(document: vscode.TextDocument): vscode.Range {
   return new vscode.Range(new vscode.Position(0, 0), document.positionAt(document.getText().length));
 }
 
-function toDiagnosticItem(uri: vscode.Uri, diagnostic: vscode.Diagnostic): DiagnosticItem {
+export function toDiagnosticItem(uri: vscode.Uri, diagnostic: vscode.Diagnostic): DiagnosticItem {
   const code = diagnostic.code;
   const codeValue =
     code === undefined

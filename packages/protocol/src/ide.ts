@@ -2,7 +2,9 @@ import { z } from "zod";
 
 import {
   CODE_ACTION_TTL_MS,
+  DEFAULT_RESULT_LIMIT,
   MAX_EXPERIMENT_RATIONALE_CHARACTERS,
+  MAX_RESULT_LIMIT,
 } from "./constants.js";
 import {
   CheckpointIdSchema,
@@ -73,6 +75,7 @@ export const ListCodeActionsParamsSchema = z
     expectedVersion: z.number().int().nonnegative(),
     expectedSha256: ContentSha256Schema,
     kinds: z.array(z.string().min(1)).max(32).optional(),
+    limit: z.number().int().positive().max(MAX_RESULT_LIMIT).default(DEFAULT_RESULT_LIMIT),
   })
   .strict();
 export const ListCodeActionsInputSchema = ListCodeActionsParamsSchema.extend({
@@ -81,9 +84,9 @@ export const ListCodeActionsInputSchema = ListCodeActionsParamsSchema.extend({
 export const CodeActionSummarySchema = z
   .object({
     actionId: CodeActionIdSchema,
-    title: z.string().min(1),
+    title: z.string().min(1).max(1_000),
     kind: z.string().nullable(),
-    diagnostics: z.array(DiagnosticItemSchema),
+    diagnostics: z.array(DiagnosticItemSchema).max(50),
     applicable: z.boolean(),
     unsupportedReason: z.string().nullable(),
     expiresAt: z.string().min(1),
