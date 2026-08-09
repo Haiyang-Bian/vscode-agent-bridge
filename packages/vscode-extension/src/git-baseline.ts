@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { realpath } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -25,13 +26,16 @@ export class ReadOnlyGitBaseline {
     candidateRoot: string,
     gitExecutable = "git",
   ): Promise<{ git: ReadOnlyGitBaseline; baseline: GitBaseline } | null> {
-    const resolvedCandidate = path.resolve(candidateRoot);
+    let resolvedCandidate: string;
     let repositoryRoot: string;
     try {
-      repositoryRoot = path.resolve(
-        (
-          await runGit(gitExecutable, resolvedCandidate, ["rev-parse", "--show-toplevel"])
-        ).trim(),
+      resolvedCandidate = await realpath(path.resolve(candidateRoot));
+      repositoryRoot = await realpath(
+        path.resolve(
+          (
+            await runGit(gitExecutable, resolvedCandidate, ["rev-parse", "--show-toplevel"])
+          ).trim(),
+        ),
       );
     } catch {
       return null;

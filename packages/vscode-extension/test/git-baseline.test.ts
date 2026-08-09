@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -22,6 +22,7 @@ describe("read-only Git baseline", () => {
     await writeFile(path.join(root, "untracked.txt"), "new\n", "utf8");
     const inspected = await ReadOnlyGitBaseline.inspect(root);
     expect(inspected).not.toBeNull();
+    expect(inspected?.baseline.repositoryRoot).toBe(await realpath(root));
     expect(inspected?.baseline.branch).toBe("main");
     expect(inspected?.baseline.head).toMatch(/^[0-9a-f]{40}$/u);
     expect(inspected?.baseline.dirtyPaths).toEqual(["tracked.txt", "untracked.txt"]);

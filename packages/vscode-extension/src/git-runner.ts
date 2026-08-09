@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { stat } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -48,9 +48,11 @@ export class GitRunner {
   }
 
   async inspectRepository(candidate: string): Promise<GitRepositoryState> {
-    const resolvedCandidate = path.resolve(candidate);
-    const repositoryRoot = path.resolve(
-      (await this.#read(resolvedCandidate, ["rev-parse", "--show-toplevel"])).trim(),
+    const resolvedCandidate = await realpath(path.resolve(candidate));
+    const repositoryRoot = await realpath(
+      path.resolve(
+        (await this.#read(resolvedCandidate, ["rev-parse", "--show-toplevel"])).trim(),
+      ),
     );
     const [head, branch, statusOutput, bareOutput, operation, hasSubmodules] = await Promise.all([
       this.#read(repositoryRoot, ["rev-parse", "--verify", "HEAD"]),

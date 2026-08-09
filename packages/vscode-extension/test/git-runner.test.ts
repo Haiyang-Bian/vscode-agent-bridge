@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -21,7 +21,7 @@ describe("fixed Git runner", () => {
     const runner = new GitRunner();
     const inspected = await runner.inspectRepository(repository);
     expect(inspected).toMatchObject({
-      repositoryRoot: path.resolve(repository),
+      repositoryRoot: await realpath(repository),
       branch: "main",
       head: baseHead,
       clean: true,
