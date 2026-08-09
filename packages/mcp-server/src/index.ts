@@ -29,7 +29,7 @@ import {
   type InstanceDescriptor,
 } from "@vscode-agent-bridge/protocol";
 
-import { discoverInstances, selectInstance, toPublicInstance } from "./instances.js";
+import { discoverLiveInstances, selectInstance, toPublicInstance } from "./instances.js";
 import { requestBridgeResult, requestEditorContext } from "./rpc-client.js";
 
 const ListInstancesInputSchema = z.object({}).strict();
@@ -74,7 +74,7 @@ server.registerTool(
   },
   async () => {
     try {
-      const instances = (await discoverInstances()).map(toPublicInstance);
+      const instances = (await discoverLiveInstances()).map(toPublicInstance);
       return toolSuccess(
         instances.length === 0
           ? "No registered VS Code instances were found."
@@ -283,7 +283,7 @@ function registerLocationsTool(
 }
 
 async function resolveInstance(instanceId?: string): Promise<InstanceDescriptor> {
-  return selectInstance(await discoverInstances(), instanceId);
+  return selectInstance(await discoverLiveInstances(), instanceId);
 }
 
 function toolSuccess<StructuredContent extends Record<string, unknown>>(

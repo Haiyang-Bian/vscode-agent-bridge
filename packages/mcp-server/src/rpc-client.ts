@@ -189,3 +189,11 @@ export async function requestBridgeResult<Result>(
     client.close();
   }
 }
+
+export async function probeBridge(
+  descriptor: InstanceDescriptor,
+  timeoutMilliseconds = 750,
+): Promise<void> {
+  const client = await BridgeRpcClient.connect(descriptor, timeoutMilliseconds);
+  client.close();
+}

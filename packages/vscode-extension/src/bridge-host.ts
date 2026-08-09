@@ -1,8 +1,9 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import net, { type Server, type Socket } from "node:net";
 
 import * as vscode from "vscode";
+import { z } from "zod";
 
 import {
   BRIDGE_CAPABILITIES,
@@ -21,7 +22,8 @@ import {
   type JsonRpcId,
 } from "@vscode-agent-bridge/protocol";
 
-import { getEditorContext, getWorkspaceFolders } from "./editor-context.js";
+import { getWorkspaceFolders } from "./editor-context.js";
+import { createRequestHandlers, type BridgeRequestHandler } from "./request-handlers.js";
 
 interface ConnectionState {
   authenticated: boolean;
@@ -37,6 +39,7 @@ export class BridgeHost {
   readonly #transport = resolveTransportDescriptor(this.instanceId, this.#directories);
   readonly #descriptorPath = resolveInstanceDescriptorPath(this.instanceId, this.#directories);
   readonly #output: vscode.LogOutputChannel;
+  readonly #requestHandlers: ReadonlyMap<string, BridgeRequestHandler>;
   readonly #server: Server;
   readonly #sockets = new Set<Socket>();
   #refreshQueue = Promise.resolve();
@@ -45,6 +48,7 @@ export class BridgeHost {
 
   constructor(output: vscode.LogOutputChannel) {
     this.#output = output;
+    this.#requestHandlers = createRequestHandlers(this.instanceId);
     this.#server = net.createServer((socket) => this.#acceptConnection(socket));
   }
 
@@ -197,8 +201,13 @@ export class BridgeHost {
       return;
     }
 
-    if (request.method === BRIDGE_METHODS.getEditorContext) {
-      this.#sendResult(socket, request.id, getEditorContext(this.instanceId));
+    const handler = this.#requestHandlers.get(request.method);
+    if (handler) {
+      try {
+        this.#sendResult(socket, request.id, await handler(request.params ?? {}));
+      } catch (error) {
+        this.#sendError(socket, request.id, toBridgeError(error));
+      }
       return;
     }
 
@@ -263,10 +272,16 @@ export class BridgeHost {
       authToken: this.#authToken,
     };
 
-    await writeFile(this.#descriptorPath, `${JSON.stringify(descriptor, null, 2)}\n`, {
-      encoding: "utf8",
-      mode: 0o600,
-    });
+    const temporaryPath = `${this.#descriptorPath}.${process.pid}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporaryPath, `${JSON.stringify(descriptor, null, 2)}\n`, {
+        encoding: "utf8",
+        mode: 0o600,
+      });
+      await rename(temporaryPath, this.#descriptorPath);
+    } finally {
+      await rm(temporaryPath, { force: true }).catch(() => undefined);
+    }
   }
 }
 
@@ -283,8 +298,11 @@ function toBridgeError(error: unknown): BridgeError {
     return error;
   }
 
-  return new BridgeError(
-    "INTERNAL_ERROR",
-    error instanceof Error ? error.message : "Unexpected bridge host error.",
-  );
+  if (error instanceof z.ZodError) {
+    return new BridgeError("INVALID_REQUEST", "Bridge request parameters are invalid.", {
+      issues: error.issues.map((issue) => ({ path: issue.path, message: issue.message })),
+    });
+  }
+
+  return new BridgeError("INTERNAL_ERROR", "Unexpected bridge host error.");
 }

@@ -33,6 +33,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@vscode-agent-bridge/protocol": "workspace:*",
+        "zod": "4.4.3",
       },
       "devDependencies": {
         "@types/vscode": "1.95.0",

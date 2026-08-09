@@ -1,13 +1,16 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 
 import {
   BridgeError,
   InstanceDescriptorSchema,
+  asBridgeError,
   resolveRegistryDirectories,
   type InstanceDescriptor,
   type PublicInstance,
 } from "@vscode-agent-bridge/protocol";
+
+import { probeBridge } from "./rpc-client.js";
 
 export async function discoverInstances(
   instancesDirectory = resolveRegistryDirectories().instances,
@@ -39,6 +42,32 @@ export async function discoverInstances(
   return descriptors
     .filter((descriptor): descriptor is InstanceDescriptor => descriptor !== null)
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+}
+
+export async function discoverLiveInstances(
+  instancesDirectory = resolveRegistryDirectories().instances,
+): Promise<InstanceDescriptor[]> {
+  const descriptors = await discoverInstances(instancesDirectory);
+  const probes = await Promise.all(
+    descriptors.map(async (descriptor) => {
+      try {
+        await probeBridge(descriptor);
+        return descriptor;
+      } catch (error) {
+        const bridgeError = asBridgeError(error);
+        if (
+          bridgeError.code === "INSTANCE_UNAVAILABLE" ||
+          bridgeError.code === "AUTHENTICATION_FAILED"
+        ) {
+          await rm(path.join(instancesDirectory, `${descriptor.instanceId}.json`), {
+            force: true,
+          }).catch(() => undefined);
+        }
+        return null;
+      }
+    }),
+  );
+  return probes.filter((descriptor): descriptor is InstanceDescriptor => descriptor !== null);
 }
 
 export function selectInstance(
