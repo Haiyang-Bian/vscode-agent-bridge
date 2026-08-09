@@ -22,9 +22,9 @@ afterEach(async () => {
 });
 
 describe("STDIO MCP server", () => {
-  bunTest("advertises the read-only tools and lists an empty registry", async () => {
+  bunTest("advertises bounded read and experiment tools", async () => {
     const client = new Client(
-      { name: "vscode-agent-bridge-test", version: "0.2.0" },
+      { name: "vscode-agent-bridge-test", version: "0.3.0" },
       { capabilities: {} },
     );
     const compiledExecutable = process.env.VSCODE_AGENT_BRIDGE_TEST_EXE;
@@ -43,20 +43,49 @@ describe("STDIO MCP server", () => {
     try {
       const tools = await client.listTools();
       expect(tools.tools.map((tool) => tool.name).sort()).toEqual([
+        "vscode_apply_change_set",
         "vscode_get_definitions",
         "vscode_get_diagnostics",
         "vscode_get_document_symbols",
         "vscode_get_editor_context",
+        "vscode_get_experiment",
         "vscode_get_hover",
         "vscode_get_references",
+        "vscode_list_experiment_checkpoints",
         "vscode_list_instances",
+        "vscode_prepare_rename",
+        "vscode_prepare_text_edits",
         "vscode_read_document",
+        "vscode_record_experiment_evidence",
       ]);
-      for (const tool of tools.tools) {
+      for (const tool of tools.tools.filter((item) =>
+        ![
+          "vscode_prepare_text_edits",
+          "vscode_prepare_rename",
+          "vscode_apply_change_set",
+          "vscode_record_experiment_evidence",
+        ].includes(item.name),
+      )) {
         expect(tool.annotations).toEqual({
           readOnlyHint: true,
           destructiveHint: false,
           idempotentHint: true,
+          openWorldHint: false,
+        });
+      }
+      for (const name of ["vscode_prepare_text_edits", "vscode_prepare_rename"]) {
+        expect(tools.tools.find((tool) => tool.name === name)?.annotations).toEqual({
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: false,
+        });
+      }
+      for (const name of ["vscode_apply_change_set", "vscode_record_experiment_evidence"]) {
+        expect(tools.tools.find((tool) => tool.name === name)?.annotations).toEqual({
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
           openWorldHint: false,
         });
       }

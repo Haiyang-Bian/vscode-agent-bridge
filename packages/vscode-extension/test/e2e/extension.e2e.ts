@@ -1,20 +1,31 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { once } from "node:events";
 import { readdir, readFile } from "node:fs/promises";
 import net, { type Socket } from "node:net";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import * as vscode from "vscode";
 
 import {
   BRIDGE_METHODS,
   BRIDGE_PROTOCOL_VERSION,
+  BRIDGE_RELEASE_VERSION,
   InstanceDescriptorSchema,
   resolveRegistryDirectories,
+  type AppliedChangeSet,
+  type DocumentSnapshot,
+  type ExperimentCheckpointsResult,
+  type ExperimentInfo,
   type InstanceDescriptor,
+  type PreparedChangeSet,
 } from "@vscode-agent-bridge/protocol";
 
 const UNSAVED_MARKER = "UNSAVED_VSCODE_AGENT_BRIDGE_E2E";
+const AGENT_MARKER = "AGENT_CHANGE_SET_E2E";
+const STALE_MARKER = "STALE_CHANGE_SET_MUST_NOT_APPLY";
+const execFileAsync = promisify(execFile);
 
 suite("VS Code Agent Bridge Extension Host", function () {
   this.timeout(90_000);
@@ -26,7 +37,7 @@ suite("VS Code Agent Bridge Extension Host", function () {
     assert.ok(extension, "the extension under development should be installed");
     if (process.env.VSCODE_AGENT_BRIDGE_EXPECT_PACKAGED === "1") {
       assert.match(extension.extensionPath.replaceAll("\\", "/"), /\.vscode-test\/extensions\//iu);
-      assert.equal(extension.packageJSON.version, "0.2.0");
+      assert.equal(extension.packageJSON.version, BRIDGE_RELEASE_VERSION);
     }
     await extension.activate();
 
@@ -58,7 +69,7 @@ suite("VS Code Agent Bridge Extension Host", function () {
       await client.request(BRIDGE_METHODS.initialize, {
         protocolVersion: BRIDGE_PROTOCOL_VERSION,
         authToken: descriptor.authToken,
-        client: { name: "extension-host-e2e", version: "0.2.0" },
+        client: { name: "extension-host-e2e", version: BRIDGE_RELEASE_VERSION },
       });
 
       const snapshot = await client.request<Record<string, unknown>>(BRIDGE_METHODS.readDocument, {});
@@ -120,6 +131,8 @@ suite("VS Code Agent Bridge Extension Host", function () {
       assert.ok(hover.contents.join("\n").includes("bridgeGreeting"));
       assert.ok(!hover.contents.join("\n").match(/command:(?!\[redacted\])/iu));
 
+      await exerciseExperimentWorkflow(client, descriptor, workspaceFolder.uri, document);
+
       const plainDocument = await vscode.workspace.openTextDocument({
         language: "plaintext",
         content: "plain text has no definition provider",
@@ -161,12 +174,198 @@ async function assertAuthenticationBoundary(descriptor: InstanceDescriptor): Pro
       wrongToken.request(BRIDGE_METHODS.initialize, {
         protocolVersion: BRIDGE_PROTOCOL_VERSION,
         authToken: "x".repeat(43),
-        client: { name: "extension-host-e2e", version: "0.2.0" },
+        client: { name: "extension-host-e2e", version: BRIDGE_RELEASE_VERSION },
       }),
     (error: unknown) =>
       error instanceof BridgeRpcError && error.bridgeCode === "AUTHENTICATION_FAILED",
   );
   wrongToken.close();
+}
+
+async function exerciseExperimentWorkflow(
+  client: BridgeRpcClient,
+  descriptor: InstanceDescriptor,
+  workspaceUri: vscode.Uri,
+  document: vscode.TextDocument,
+): Promise<void> {
+  const initialHead = await readGitHead(workspaceUri.fsPath);
+  const started = await vscode.commands.executeCommand<ExperimentInfo>(
+    "vscodeAgentBridge.e2eStartExperiment",
+    "E2E recoverable experiment",
+  );
+  assert.ok(started);
+  assert.equal(started.instanceId, descriptor.instanceId);
+  assert.equal(started.lifecycle, "active");
+  assert.equal(started.health, "complete");
+
+  const active = await client.request<ExperimentInfo>(BRIDGE_METHODS.getExperiment, {});
+  assert.equal(active.sessionId, started.sessionId);
+  assert.ok(active.currentCheckpointId, "the experiment should create a baseline checkpoint");
+
+  const beforeApply = await client.request<DocumentSnapshot>(BRIDGE_METHODS.readDocument, {
+    uri: document.uri.toString(true),
+  });
+  const prepared = await client.request<PreparedChangeSet>(BRIDGE_METHODS.prepareTextEdits, {
+    sessionId: active.sessionId,
+    title: "Insert an agent marker",
+    rationale: "Exercise guarded dirty-buffer edits",
+    documents: [
+      {
+        uri: document.uri.toString(true),
+        expectedSha256: beforeApply.contentSha256,
+        expectedVersion: beforeApply.documentVersion,
+        edits: [
+          {
+            range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+            newText: `// ${AGENT_MARKER}\n`,
+          },
+        ],
+      },
+    ],
+  });
+  const applied = await client.request<AppliedChangeSet>(BRIDGE_METHODS.applyChangeSet, {
+    sessionId: active.sessionId,
+    changeSetId: prepared.changeSetId,
+  });
+  assert.ok(document.getText().includes(AGENT_MARKER));
+  assert.equal(document.isDirty, true, "agent apply must not save the document");
+  assert.ok(applied.documents.every((item) => item.isDirty));
+
+  const tsconfigUri = vscode.Uri.joinPath(workspaceUri, "tsconfig.json");
+  const tsconfigDocument = await vscode.workspace.openTextDocument(tsconfigUri);
+  const tsconfigEditor = await vscode.window.showTextDocument(tsconfigDocument, { preview: false });
+  const [bridgeSnapshot, tsconfigSnapshot] = await Promise.all([
+    client.request<DocumentSnapshot>(BRIDGE_METHODS.readDocument, {
+      uri: document.uri.toString(true),
+    }),
+    client.request<DocumentSnapshot>(BRIDGE_METHODS.readDocument, {
+      uri: tsconfigUri.toString(true),
+    }),
+  ]);
+  const stale = await client.request<PreparedChangeSet>(BRIDGE_METHODS.prepareTextEdits, {
+    sessionId: active.sessionId,
+    title: "Atomic stale edit",
+    documents: [
+      {
+        uri: document.uri.toString(true),
+        expectedSha256: bridgeSnapshot.contentSha256,
+        expectedVersion: bridgeSnapshot.documentVersion,
+        edits: [
+          {
+            range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+            newText: `// ${STALE_MARKER}\n`,
+          },
+        ],
+      },
+      {
+        uri: tsconfigUri.toString(true),
+        expectedSha256: tsconfigSnapshot.contentSha256,
+        expectedVersion: tsconfigSnapshot.documentVersion,
+        edits: [
+          {
+            range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+            newText: " ",
+          },
+        ],
+      },
+    ],
+  });
+  assert.equal(
+    await tsconfigEditor.edit((builder) => builder.insert(new vscode.Position(0, 0), " ")),
+    true,
+  );
+  await assert.rejects(
+    () =>
+      client.request(BRIDGE_METHODS.applyChangeSet, {
+        sessionId: active.sessionId,
+        changeSetId: stale.changeSetId,
+      }),
+    (error: unknown) => error instanceof BridgeRpcError && error.bridgeCode === "STALE_CHANGE_SET",
+  );
+  assert.ok(!document.getText().includes(STALE_MARKER), "no document may be partially edited");
+  assert.equal(tsconfigDocument.getText().startsWith("  "), false);
+  assert.equal(
+    await tsconfigEditor.edit((builder) =>
+      builder.delete(new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 1))),
+    ),
+    true,
+  );
+
+  const bridgeEditor = await vscode.window.showTextDocument(document, { preview: false });
+  const beforeRename = await client.request<DocumentSnapshot>(BRIDGE_METHODS.readDocument, {
+    uri: document.uri.toString(true),
+  });
+  const symbolOffset = document.getText().indexOf("bridgeGreeting");
+  assert.ok(symbolOffset >= 0);
+  const renamePosition = document.positionAt(symbolOffset + 2);
+  const rename = await client.request<PreparedChangeSet>(BRIDGE_METHODS.prepareRename, {
+    sessionId: active.sessionId,
+    title: "Rename bridge greeting",
+    uri: document.uri.toString(true),
+    position: { line: renamePosition.line, character: renamePosition.character },
+    newName: "renamedBridgeGreeting",
+    expectedSha256: beforeRename.contentSha256,
+    expectedVersion: beforeRename.documentVersion,
+  });
+  const renamed = await client.request<AppliedChangeSet>(BRIDGE_METHODS.applyChangeSet, {
+    sessionId: active.sessionId,
+    changeSetId: rename.changeSetId,
+  });
+  assert.ok(document.getText().includes("renamedBridgeGreeting"));
+
+  const evidence = await client.request<{ source: string; summary: string }>(
+    BRIDGE_METHODS.recordExperimentEvidence,
+    {
+      sessionId: active.sessionId,
+      checkpointId: renamed.checkpointId,
+      kind: "test",
+      status: "passed",
+      summary: "Extension Host guarded edit workflow passed",
+    },
+  );
+  assert.equal(evidence.source, "client-reported");
+
+  const checkpoints = await client.request<ExperimentCheckpointsResult>(
+    BRIDGE_METHODS.listExperimentCheckpoints,
+    { sessionId: active.sessionId, offset: 0, limit: 100 },
+  );
+  assert.ok(checkpoints.checkpoints.some((checkpoint) => checkpoint.source === "baseline"));
+  assert.ok(checkpoints.checkpoints.filter((checkpoint) => checkpoint.source === "agentApply").length >= 2);
+
+  await vscode.commands.executeCommand(
+    "vscodeAgentBridge.e2eMarkCheckpointAccepted",
+    renamed.checkpointId,
+  );
+  assert.equal(
+    await bridgeEditor.edit((builder) =>
+      builder.insert(new vscode.Position(0, 0), "// temporary\n"),
+    ),
+    true,
+  );
+  await vscode.commands.executeCommand("vscodeAgentBridge.e2eRestoreAccepted");
+  assert.ok(!document.getText().includes("// temporary"));
+  assert.ok(document.getText().includes("renamedBridgeGreeting"));
+  assert.equal(document.isDirty, true, "restore must leave editor buffers dirty");
+
+  assert.equal(await tsconfigDocument.save(), true);
+  assert.equal(await document.save(), true);
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  await vscode.commands.executeCommand("vscodeAgentBridge.e2eFinalizeExperiment");
+  assert.equal(await readGitHead(workspaceUri.fsPath), initialHead, "v0.3 must not create Git commits");
+  await assert.rejects(
+    () => client.request(BRIDGE_METHODS.getExperiment, {}),
+    (error: unknown) =>
+      error instanceof BridgeRpcError && error.bridgeCode === "NO_ACTIVE_EXPERIMENT",
+  );
+}
+
+async function readGitHead(cwd: string): Promise<string> {
+  const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], {
+    cwd,
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  return stdout.trim();
 }
 
 async function waitForDescriptor(): Promise<InstanceDescriptor> {

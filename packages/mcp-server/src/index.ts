@@ -9,6 +9,9 @@ import {
   BRIDGE_NAME,
   BRIDGE_PROTOCOL_VERSION,
   BRIDGE_RELEASE_VERSION,
+  AppliedChangeSetSchema,
+  ApplyChangeSetInputSchema,
+  ApplyChangeSetParamsSchema,
   DiagnosticsInputSchema,
   DiagnosticsParamsSchema,
   DiagnosticsResultSchema,
@@ -17,15 +20,28 @@ import {
   DocumentSymbolsParamsSchema,
   DocumentSymbolsResultSchema,
   EditorContextSchema,
+  ExperimentCheckpointsResultSchema,
+  ExperimentEvidenceSchema,
+  ExperimentInfoSchema,
+  GetExperimentInputSchema,
   HoverInputSchema,
   HoverParamsSchema,
   HoverResultSchema,
   LocationsResultSchema,
+  ListExperimentCheckpointsInputSchema,
+  ListExperimentCheckpointsParamsSchema,
   PositionedDocumentInputSchema,
   PositionedDocumentParamsSchema,
   PublicInstanceSchema,
+  PreparedChangeSetSchema,
+  PrepareRenameInputSchema,
+  PrepareRenameParamsSchema,
+  PrepareTextEditsInputSchema,
+  PrepareTextEditsParamsSchema,
   ReadDocumentInputSchema,
   ReadDocumentParamsSchema,
+  RecordExperimentEvidenceInputSchema,
+  RecordExperimentEvidenceParamsSchema,
   asBridgeError,
   type BridgeError,
   type InstanceDescriptor,
@@ -71,7 +87,7 @@ const server = new McpServer(
   },
   {
     instructions:
-      "Use this server only for IDE-native VS Code state, unsaved buffers, diagnostics, and language services. Use filesystem and shell tools for ordinary file operations. Call vscode_list_instances before targeting a window when multiple VS Code instances may be open. All current tools are read-only. Remote VS Code extension hosts are not supported.",
+      "Use this server for IDE-native VS Code state, unsaved buffers, language services, and guarded text edits inside a user-started experiment. Use filesystem and shell tools for ordinary file operations. Call vscode_list_instances before targeting a window when multiple VS Code instances may be open. Mutating tools require explicit instance and session IDs, never save, and remain subject to Codex write approval. Remote VS Code extension hosts are not supported.",
   },
 );
 
@@ -79,6 +95,20 @@ const readOnlyAnnotations = {
   readOnlyHint: true,
   destructiveHint: false,
   idempotentHint: true,
+  openWorldHint: false,
+} as const;
+
+const prepareAnnotations = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: false,
+} as const;
+
+const guardedWriteAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
   openWorldHint: false,
 } as const;
 
@@ -261,6 +291,182 @@ server.registerTool(
         result.contents.length === 0
           ? `No hover information was returned for ${result.uri}.`
           : `Returned ${result.returnedCharacters} hover character(s) for ${result.uri}.`,
+        result,
+      );
+    } catch (error) {
+      return toolError(asBridgeError(error));
+    }
+  },
+);
+
+server.registerTool(
+  "vscode_get_experiment",
+  {
+    title: "Get active VS Code experiment",
+    description:
+      "Return the user-started experiment active in one VS Code window, including health, accepted checkpoint, and local storage status.",
+    inputSchema: GetExperimentInputSchema,
+    outputSchema: ExperimentInfoSchema,
+    annotations: readOnlyAnnotations,
+  },
+  async ({ instanceId }) => {
+    try {
+      const descriptor = await resolveInstance(instanceId);
+      const result = await requestBridgeResult(
+        descriptor,
+        BRIDGE_METHODS.getExperiment,
+        {},
+        (value) => ExperimentInfoSchema.parse(value),
+      );
+      return toolSuccess(`Active experiment: ${result.title} (${result.sessionId}).`, result);
+    } catch (error) {
+      return toolError(asBridgeError(error));
+    }
+  },
+);
+
+server.registerTool(
+  "vscode_list_experiment_checkpoints",
+  {
+    title: "List VS Code experiment checkpoints",
+    description:
+      "Return a bounded page of recovery checkpoints and validation evidence for an active experiment.",
+    inputSchema: ListExperimentCheckpointsInputSchema,
+    outputSchema: ExperimentCheckpointsResultSchema,
+    annotations: readOnlyAnnotations,
+  },
+  async ({ instanceId, ...rawParams }) => {
+    try {
+      const descriptor = await resolveInstance(instanceId);
+      const params = ListExperimentCheckpointsParamsSchema.parse(rawParams);
+      const result = await requestBridgeResult(
+        descriptor,
+        BRIDGE_METHODS.listExperimentCheckpoints,
+        params,
+        (value) => ExperimentCheckpointsResultSchema.parse(value),
+      );
+      return toolSuccess(
+        `Returned ${result.returnedCount} of ${result.totalCount} experiment checkpoint(s).`,
+        result,
+      );
+    } catch (error) {
+      return toolError(asBridgeError(error));
+    }
+  },
+);
+
+server.registerTool(
+  "vscode_prepare_text_edits",
+  {
+    title: "Prepare guarded VS Code text edits",
+    description:
+      "Validate bounded text edits against explicit document versions and SHA-256 hashes, then return a ten-minute one-time change set without modifying documents.",
+    inputSchema: PrepareTextEditsInputSchema,
+    outputSchema: PreparedChangeSetSchema,
+    annotations: prepareAnnotations,
+  },
+  async ({ instanceId, ...rawParams }) => {
+    try {
+      const descriptor = await resolveInstance(instanceId);
+      const params = PrepareTextEditsParamsSchema.parse(rawParams);
+      const result = await requestBridgeResult(
+        descriptor,
+        BRIDGE_METHODS.prepareTextEdits,
+        params,
+        (value) => PreparedChangeSetSchema.parse(value),
+      );
+      return toolSuccess(
+        `Prepared ${result.editCount} edit(s) across ${result.documents.length} document(s); no document was changed.`,
+        result,
+      );
+    } catch (error) {
+      return toolError(asBridgeError(error));
+    }
+  },
+);
+
+server.registerTool(
+  "vscode_prepare_rename",
+  {
+    title: "Prepare guarded VS Code rename",
+    description:
+      "Ask the VS Code rename provider for text-only edits, validate their scope and hashes, and return a one-time change set without applying it.",
+    inputSchema: PrepareRenameInputSchema,
+    outputSchema: PreparedChangeSetSchema,
+    annotations: prepareAnnotations,
+  },
+  async ({ instanceId, ...rawParams }) => {
+    try {
+      const descriptor = await resolveInstance(instanceId);
+      const params = PrepareRenameParamsSchema.parse(rawParams);
+      const result = await requestBridgeResult(
+        descriptor,
+        BRIDGE_METHODS.prepareRename,
+        params,
+        (value) => PreparedChangeSetSchema.parse(value),
+      );
+      return toolSuccess(
+        `Prepared rename with ${result.editCount} edit(s) across ${result.documents.length} document(s); no document was changed.`,
+        result,
+      );
+    } catch (error) {
+      return toolError(asBridgeError(error));
+    }
+  },
+);
+
+server.registerTool(
+  "vscode_apply_change_set",
+  {
+    title: "Apply guarded VS Code change set",
+    description:
+      "Consume one prepared change set after revalidating every document, apply text edits to VS Code buffers, leave them unsaved, and create an experiment checkpoint.",
+    inputSchema: ApplyChangeSetInputSchema,
+    outputSchema: AppliedChangeSetSchema,
+    annotations: guardedWriteAnnotations,
+  },
+  async ({ instanceId, ...rawParams }) => {
+    try {
+      const descriptor = await resolveInstance(instanceId);
+      const params = ApplyChangeSetParamsSchema.parse(rawParams);
+      const result = await requestBridgeResult(
+        descriptor,
+        BRIDGE_METHODS.applyChangeSet,
+        params,
+        (value) => AppliedChangeSetSchema.parse(value),
+      );
+      return toolSuccess(
+        `Applied change set to ${result.documents.length} dirty VS Code buffer(s) and created checkpoint ${result.checkpointId}.`,
+        result,
+      );
+    } catch (error) {
+      return toolError(asBridgeError(error));
+    }
+  },
+);
+
+server.registerTool(
+  "vscode_record_experiment_evidence",
+  {
+    title: "Record VS Code experiment evidence",
+    description:
+      "Attach a bounded client-reported test, build, or lint result to one experiment checkpoint. This tool records metadata and never executes a command.",
+    inputSchema: RecordExperimentEvidenceInputSchema,
+    outputSchema: ExperimentEvidenceSchema,
+    annotations: guardedWriteAnnotations,
+  },
+  async ({ instanceId, ...rawParams }) => {
+    try {
+      const descriptor = await resolveInstance(instanceId);
+      const params = RecordExperimentEvidenceParamsSchema.parse(rawParams);
+      const result = await requestBridgeResult(
+        descriptor,
+        BRIDGE_METHODS.recordExperimentEvidence,
+        params,
+        (value) => ExperimentEvidenceSchema.parse(value),
+      );
+      return toolSuccess(
+        `Recorded client-reported ${result.kind} evidence with status ${result.status}.`,
         result,
       );
     } catch (error) {

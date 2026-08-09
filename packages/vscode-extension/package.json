@@ -41,8 +41,8 @@
   ],
   "capabilities": {
     "untrustedWorkspaces": {
-      "supported": true,
-      "description": "This release exposes read-only editor and language-service context. It does not provide editor mutations."
+      "supported": "limited",
+      "description": "Read-only editor context remains available. Experiment sessions, guarded edits, restore, and Git inspection require a trusted workspace."
     },
     "virtualWorkspaces": false
   },
@@ -67,8 +67,107 @@
       {
         "command": "vscodeAgentBridge.runDoctor",
         "title": "VS Code Agent Bridge: Run Doctor"
+      },
+      {
+        "command": "vscodeAgentBridge.startExperiment",
+        "title": "VS Code Agent Bridge: Start Agent Experiment",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.reviewExperiment",
+        "title": "VS Code Agent Bridge: Review Agent Experiment"
+      },
+      {
+        "command": "vscodeAgentBridge.createCheckpoint",
+        "title": "VS Code Agent Bridge: Create Experiment Checkpoint",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.markCheckpointAccepted",
+        "title": "VS Code Agent Bridge: Mark Checkpoint as Accepted",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.reviewCheckpoint",
+        "title": "VS Code Agent Bridge: Review Checkpoint"
+      },
+      {
+        "command": "vscodeAgentBridge.restoreAccepted",
+        "title": "VS Code Agent Bridge: Restore Accepted Candidate",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.finalizeExperiment",
+        "title": "VS Code Agent Bridge: Finalize Agent Experiment",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.abandonExperiment",
+        "title": "VS Code Agent Bridge: Abandon Agent Experiment",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.toggleExperimentPinned",
+        "title": "VS Code Agent Bridge: Pin or Unpin Experiment"
+      },
+      {
+        "command": "vscodeAgentBridge.deleteExperiment",
+        "title": "VS Code Agent Bridge: Delete Experiment Data"
       }
-    ]
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "vscodeAgentBridgeExperiments",
+          "title": "Agent Experiments",
+          "icon": "resources/experiment.svg"
+        }
+      ]
+    },
+    "views": {
+      "vscodeAgentBridgeExperiments": [
+        {
+          "id": "vscodeAgentBridge.experimentsView",
+          "name": "Experiments"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "vscodeAgentBridge.startExperiment",
+          "when": "view == vscodeAgentBridge.experimentsView && isWorkspaceTrusted",
+          "group": "navigation"
+        },
+        {
+          "command": "vscodeAgentBridge.createCheckpoint",
+          "when": "view == vscodeAgentBridge.experimentsView && isWorkspaceTrusted",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "vscodeAgentBridge.markCheckpointAccepted",
+          "when": "view == vscodeAgentBridge.experimentsView && viewItem == experimentCheckpoint",
+          "group": "inline"
+        },
+        {
+          "command": "vscodeAgentBridge.reviewCheckpoint",
+          "when": "view == vscodeAgentBridge.experimentsView && viewItem == experimentCheckpoint",
+          "group": "navigation"
+        },
+        {
+          "command": "vscodeAgentBridge.toggleExperimentPinned",
+          "when": "view == vscodeAgentBridge.experimentsView && (viewItem == experiment || viewItem == activeExperiment)",
+          "group": "navigation"
+        },
+        {
+          "command": "vscodeAgentBridge.deleteExperiment",
+          "when": "view == vscodeAgentBridge.experimentsView && viewItem == experiment",
+          "group": "navigation@2"
+        }
+      ]
+    }
   },
   "scripts": {
     "build": "bun build src/extension.ts --outdir dist --target node --format cjs --external vscode --sourcemap=external",

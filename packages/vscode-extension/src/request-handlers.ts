@@ -12,10 +12,22 @@ import {
   HoverResultSchema,
   LocationsResultSchema,
   PositionedDocumentParamsSchema,
+  AppliedChangeSetSchema,
+  ApplyChangeSetParamsSchema,
+  ExperimentCheckpointsResultSchema,
+  ExperimentEvidenceSchema,
+  ExperimentInfoSchema,
+  ListExperimentCheckpointsParamsSchema,
+  PreparedChangeSetSchema,
+  PrepareRenameParamsSchema,
+  PrepareTextEditsParamsSchema,
   ReadDocumentParamsSchema,
+  RecordExperimentEvidenceParamsSchema,
 } from "@vscode-agent-bridge/protocol";
 
+import { ChangeSetManager } from "./change-set-manager.js";
 import { getEditorContext } from "./editor-context.js";
+import { ExperimentManager } from "./experiment-manager.js";
 import {
   getDefinitions,
   getDiagnostics,
@@ -77,6 +89,59 @@ export function createRequestHandlers(instanceId: string): ReadonlyMap<string, B
       BRIDGE_METHODS.getHover,
       async (params) =>
         HoverResultSchema.parse(await getHover(instanceId, HoverParamsSchema.parse(params))),
+    ],
+  ]);
+}
+
+export function createExperimentRequestHandlers(
+  instanceId: string,
+  experiments: ExperimentManager,
+  changeSets: ChangeSetManager,
+): ReadonlyMap<string, BridgeRequestHandler> {
+  return new Map<string, BridgeRequestHandler>([
+    [
+      BRIDGE_METHODS.getExperiment,
+      async (params) => {
+        EmptyParamsSchema.parse(params);
+        return ExperimentInfoSchema.parse(await experiments.getActiveExperiment());
+      },
+    ],
+    [
+      BRIDGE_METHODS.listExperimentCheckpoints,
+      async (params) =>
+        ExperimentCheckpointsResultSchema.parse(
+          await experiments.listCheckpoints(ListExperimentCheckpointsParamsSchema.parse(params)),
+        ),
+    ],
+    [
+      BRIDGE_METHODS.prepareTextEdits,
+      async (params) =>
+        PreparedChangeSetSchema.parse(
+          await changeSets.prepareTextEdits(PrepareTextEditsParamsSchema.parse(params)),
+        ),
+    ],
+    [
+      BRIDGE_METHODS.prepareRename,
+      async (params) =>
+        PreparedChangeSetSchema.parse(
+          await changeSets.prepareRename(PrepareRenameParamsSchema.parse(params)),
+        ),
+    ],
+    [
+      BRIDGE_METHODS.applyChangeSet,
+      async (params) =>
+        AppliedChangeSetSchema.parse(
+          await changeSets.apply(ApplyChangeSetParamsSchema.parse(params)),
+        ),
+    ],
+    [
+      BRIDGE_METHODS.recordExperimentEvidence,
+      async (params) =>
+        ExperimentEvidenceSchema.parse(
+          await experiments.recordClientEvidence(
+            RecordExperimentEvidenceParamsSchema.parse(params),
+          ),
+        ),
     ],
   ]);
 }

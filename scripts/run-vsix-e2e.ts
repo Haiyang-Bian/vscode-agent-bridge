@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -12,6 +12,7 @@ const vsixPath = path.join(
   `vscode-agent-bridge-${BRIDGE_RELEASE_VERSION}-win32-x64.vsix`,
 );
 const registryDirectory = await mkdtemp(path.join(os.tmpdir(), "vscode-agent-bridge-vsix-e2e-"));
+const workspaceDirectory = path.join(registryDirectory, "workspace");
 const testCacheDirectory = path.resolve(extensionRoot, ".vscode-test");
 const isolatedProfilePaths = [
   path.join(testCacheDirectory, "extensions"),
@@ -19,6 +20,7 @@ const isolatedProfilePaths = [
 ];
 
 try {
+  await prepareWorkspace(workspaceDirectory);
   await resetIsolatedProfile();
   await run(["bun", "run", "build:test:e2e"], extensionRoot);
   await run(
@@ -36,6 +38,7 @@ try {
       VSCODE_AGENT_BRIDGE_REGISTRY_DIR: registryDirectory,
       VSCODE_AGENT_BRIDGE_E2E: "1",
       VSCODE_AGENT_BRIDGE_EXPECT_PACKAGED: "1",
+      VSCODE_AGENT_BRIDGE_E2E_WORKSPACE: workspaceDirectory,
     },
   );
 } finally {
@@ -43,6 +46,18 @@ try {
     rm(registryDirectory, { recursive: true, force: true }),
     resetIsolatedProfile(),
   ]);
+}
+
+async function prepareWorkspace(target: string): Promise<void> {
+  await mkdir(target, { recursive: true });
+  await cp(path.join(extensionRoot, "test", "fixtures", "typescript-workspace"), target, {
+    recursive: true,
+  });
+  await run(["git", "init", "--initial-branch=main"], target);
+  await run(["git", "config", "user.name", "VS Code Agent Bridge E2E"], target);
+  await run(["git", "config", "user.email", "bridge-e2e@example.invalid"], target);
+  await run(["git", "add", "."], target);
+  await run(["git", "commit", "-m", "fixture baseline"], target);
 }
 
 async function resetIsolatedProfile(): Promise<void> {

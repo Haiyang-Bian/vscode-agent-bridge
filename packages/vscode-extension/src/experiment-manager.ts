@@ -34,6 +34,11 @@ interface ActiveExperiment {
   gitHead: string | null;
 }
 
+interface ResolvedCheckpointDocument {
+  readonly state: StoredDocument;
+  readonly baselineText: string | null;
+}
+
 export interface StartExperimentOptions {
   readonly title: string;
   readonly root: vscode.Uri;
@@ -184,6 +189,17 @@ export class ExperimentManager implements vscode.Disposable {
     });
   }
 
+  async applyGuardedWorkspaceEdit(edit: vscode.WorkspaceEdit): Promise<boolean> {
+    this.#assertMutationAllowed();
+    this.#requireActive();
+    this.#suppressAutomaticCapture += 1;
+    try {
+      return await vscode.workspace.applyEdit(edit);
+    } finally {
+      this.#suppressAutomaticCapture -= 1;
+    }
+  }
+
   async recordClientEvidence(params: RecordExperimentEvidenceParams): Promise<ExperimentEvidence> {
     const active = this.#requireActive(params.sessionId);
     const evidence: ExperimentEvidence = {
@@ -219,7 +235,9 @@ export class ExperimentManager implements vscode.Disposable {
       throw new BridgeError("INVALID_REQUEST", "No experiment checkpoint has been accepted.");
     }
     const accepted = await this.#store.readCheckpoint(active.manifest.sessionId, acceptedId);
-    if (accepted.documents.some((document) => !document.exists || !document.blobSha256)) {
+    await this.#reconcileGitDocuments(active);
+    const resolvedAccepted = await this.#resolveCheckpointDocuments(active, accepted.documents);
+    if (resolvedAccepted.some(({ state }) => !state.exists || (!state.blobSha256 && !state.contentSha256))) {
       throw new BridgeError(
         "SESSION_COVERAGE_INCOMPLETE",
         "The accepted checkpoint contains resource-level changes that v0.3 cannot restore safely.",
@@ -228,7 +246,7 @@ export class ExperimentManager implements vscode.Disposable {
 
     await this.createExplicitCheckpoint("Safety checkpoint before restoring accepted candidate");
     const edit = new vscode.WorkspaceEdit();
-    for (const state of accepted.documents) {
+    for (const { state, baselineText } of resolvedAccepted) {
       const uri = vscode.Uri.parse(state.uri, true);
       if (uri.scheme !== "file" && uri.scheme !== "untitled") {
         throw new BridgeError(
@@ -237,7 +255,7 @@ export class ExperimentManager implements vscode.Disposable {
         );
       }
       const document = await resolveExistingDocument(uri);
-      const text = await this.#store.readBlob(state.blobSha256!);
+      const text = baselineText ?? await this.#store.readBlob(state.blobSha256!);
       edit.replace(uri, fullDocumentRange(document), text);
     }
 
@@ -251,7 +269,7 @@ export class ExperimentManager implements vscode.Disposable {
     }
     await this.#captureUris(
       active,
-      accepted.documents.map((document) => vscode.Uri.parse(document.uri, true)),
+      resolvedAccepted.map(({ state }) => vscode.Uri.parse(state.uri, true)),
     );
     await this.#appendCheckpoint(active, "restore", "Restored accepted candidate", true);
   }
@@ -266,7 +284,8 @@ export class ExperimentManager implements vscode.Disposable {
     }
     const accepted = await this.#store.readCheckpoint(active.manifest.sessionId, acceptedId);
     await this.#refreshCurrentDocuments(active);
-    if (!sameDocumentContent(accepted.documents, active.documents.values())) {
+    const resolvedAccepted = await this.#resolveCheckpointDocuments(active, accepted.documents);
+    if (!sameDocumentContent(resolvedAccepted.map(({ state }) => state), active.documents.values())) {
       throw new BridgeError(
         "STALE_CHANGE_SET",
         "The current workspace no longer matches the accepted checkpoint. Restore it explicitly first.",
@@ -318,6 +337,10 @@ export class ExperimentManager implements vscode.Disposable {
 
   async readCheckpoint(sessionId: string, checkpointId: string): Promise<StoredCheckpoint> {
     return this.#store.readCheckpoint(sessionId, checkpointId);
+  }
+
+  async readCheckpointList(sessionId: string): Promise<StoredCheckpoint[]> {
+    return this.#store.listCheckpoints(sessionId);
   }
 
   async readSnapshotText(
@@ -786,6 +809,49 @@ export class ExperimentManager implements vscode.Disposable {
       active,
       [...active.documents.values()].map((document) => vscode.Uri.parse(document.uri, true)),
     );
+  }
+
+  async #resolveCheckpointDocuments(
+    active: ActiveExperiment,
+    checkpointDocuments: readonly StoredDocument[],
+  ): Promise<ResolvedCheckpointDocument[]> {
+    const resolved = new Map<string, ResolvedCheckpointDocument>(
+      checkpointDocuments.map((state) => [state.uri, { state, baselineText: null }]),
+    );
+    for (const current of active.documents.values()) {
+      if (resolved.has(current.uri)) {
+        continue;
+      }
+      const uri = vscode.Uri.parse(current.uri, true);
+      const relativePath = uri.scheme === "file" ? active.git?.relativePath(uri.fsPath) : null;
+      if (!active.git || !active.manifest.baseRevision || !relativePath || !current.exists) {
+        throw new BridgeError(
+          "SESSION_COVERAGE_INCOMPLETE",
+          "The accepted checkpoint cannot reconstruct a resource-level or non-Git change.",
+        );
+      }
+      const baselineText = await active.git.readHeadText(relativePath, active.manifest.baseRevision);
+      if (baselineText === null || Buffer.byteLength(baselineText, "utf8") > MAX_EXPERIMENT_BLOB_BYTES) {
+        throw new BridgeError(
+          "SESSION_COVERAGE_INCOMPLETE",
+          "The accepted checkpoint cannot reconstruct a document from the fixed Git baseline.",
+        );
+      }
+      const contentSha256 = createHash("sha256").update(baselineText).digest("hex");
+      resolved.set(current.uri, {
+        state: {
+          uri: current.uri,
+          languageId: current.languageId,
+          documentVersion: null,
+          isDirty: false,
+          exists: true,
+          blobSha256: null,
+          contentSha256,
+        },
+        baselineText,
+      });
+    }
+    return [...resolved.values()].sort((left, right) => left.state.uri.localeCompare(right.state.uri));
   }
 
   #requireActive(sessionId?: string): ActiveExperiment {

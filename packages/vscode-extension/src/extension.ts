@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { BRIDGE_RELEASE_VERSION } from "@vscode-agent-bridge/protocol";
 
 import { BridgeHost } from "./bridge-host.js";
+import { ChangeSetManager } from "./change-set-manager.js";
 import { CodexConfigConflictError, createManagedConfigBlock } from "./codex-config.js";
 import {
   configureCodexIntegration,
@@ -11,18 +12,32 @@ import {
   resolveCodexConfigPath,
   resolveInstalledExecutablePath,
 } from "./installation.js";
+import { ExperimentManager } from "./experiment-manager.js";
+import { registerExperimentUi } from "./experiment-ui.js";
+import { createExperimentRequestHandlers } from "./request-handlers.js";
 
 let activeHost: BridgeHost | undefined;
+let activeExperimentManager: ExperimentManager | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const output = vscode.window.createOutputChannel("VS Code Agent Bridge", { log: true });
   const host = new BridgeHost(output);
+  const experiments = new ExperimentManager(context, host.instanceId, output);
+  const changeSets = new ChangeSetManager(host.instanceId, experiments);
+  host.registerRequestHandlers(
+    createExperimentRequestHandlers(host.instanceId, experiments, changeSets),
+  );
+  await experiments.initialize();
   activeHost = host;
+  activeExperimentManager = experiments;
+  registerExperimentUi(context, experiments, output);
+  registerE2ECommands(context, experiments);
 
   await host.start();
 
   context.subscriptions.push(
     output,
+    experiments,
     vscode.commands.registerCommand("vscodeAgentBridge.showStatus", async () => {
       const remoteLabel = vscode.env.remoteName ? `, remote=${vscode.env.remoteName}` : "";
       await vscode.window.showInformationMessage(
@@ -40,7 +55,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await removeCodexCommand(output);
     }),
     vscode.commands.registerCommand("vscodeAgentBridge.runDoctor", async () => {
-      await runDoctorCommand(context, host, output);
+      await runDoctorCommand(context, host, experiments, output);
     }),
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       void host.refreshDescriptor();
@@ -64,9 +79,43 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   void maybeOfferCodexSetup(context, output);
 }
 
+function registerE2ECommands(
+  context: vscode.ExtensionContext,
+  experiments: ExperimentManager,
+): void {
+  if (process.env.VSCODE_AGENT_BRIDGE_E2E !== "1") {
+    return;
+  }
+  context.subscriptions.push(
+    vscode.commands.registerCommand("vscodeAgentBridge.e2eStartExperiment", async (title: string) => {
+      const root = vscode.workspace.workspaceFolders?.[0]?.uri;
+      if (!root) {
+        throw new Error("The E2E workspace root is unavailable.");
+      }
+      return experiments.startWorkspaceExperiment({ title, root });
+    }),
+    vscode.commands.registerCommand(
+      "vscodeAgentBridge.e2eMarkCheckpointAccepted",
+      (checkpointId: string) => experiments.markAccepted(checkpointId),
+    ),
+    vscode.commands.registerCommand("vscodeAgentBridge.e2eRestoreAccepted", () =>
+      experiments.restoreAccepted(),
+    ),
+    vscode.commands.registerCommand("vscodeAgentBridge.e2eFinalizeExperiment", () =>
+      experiments.finalize(),
+    ),
+    vscode.commands.registerCommand("vscodeAgentBridge.e2eAbandonExperiment", () =>
+      experiments.abandon(),
+    ),
+  );
+}
+
 export async function deactivate(): Promise<void> {
   const host = activeHost;
+  const experiments = activeExperimentManager;
   activeHost = undefined;
+  activeExperimentManager = undefined;
+  await experiments?.disposeAsync();
   await host?.stop();
 }
 
@@ -132,9 +181,13 @@ async function removeCodexCommand(output: vscode.LogOutputChannel): Promise<void
 async function runDoctorCommand(
   context: vscode.ExtensionContext,
   host: BridgeHost,
+  experiments: ExperimentManager,
   output: vscode.LogOutputChannel,
 ): Promise<void> {
-  const report = await inspectInstallation(context);
+  const [report, experimentStats] = await Promise.all([
+    inspectInstallation(context),
+    experiments.getStoreStats(),
+  ]);
   const lines = [
     `releaseVersion=${report.releaseVersion}`,
     `extensionVersion=${report.extensionVersion}`,
@@ -146,6 +199,10 @@ async function runDoctorCommand(
     `installedExecutable=${report.installedExecutable}`,
     `codexConfig=${report.codexConfig}`,
     `remoteContext=${vscode.env.remoteName ? "unsupported" : "local"}`,
+    `experimentSessions=${experimentStats.sessionCount}`,
+    `activeExperiments=${experimentStats.activeCount}`,
+    `corruptExperiments=${experimentStats.corruptCount}`,
+    `experimentStorageBytes=${experimentStats.storageBytes}`,
   ];
   output.info(`Doctor report:\n${lines.join("\n")}`);
   output.show(true);

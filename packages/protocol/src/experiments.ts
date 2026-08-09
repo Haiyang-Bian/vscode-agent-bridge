@@ -293,6 +293,7 @@ export type ListExperimentCheckpointsParams = z.infer<
   typeof ListExperimentCheckpointsParamsSchema
 >;
 export type PreparedChangeSet = z.infer<typeof PreparedChangeSetSchema>;
+export type PreparedDocumentChange = z.infer<typeof PreparedDocumentChangeSchema>;
 export type PrepareRenameParams = z.infer<typeof PrepareRenameParamsSchema>;
 export type PrepareTextEditsParams = z.infer<typeof PrepareTextEditsParamsSchema>;
 export type RecordExperimentEvidenceParams = z.infer<

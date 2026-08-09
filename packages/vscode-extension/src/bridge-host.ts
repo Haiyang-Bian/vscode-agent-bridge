@@ -39,7 +39,7 @@ export class BridgeHost {
   readonly #transport = resolveTransportDescriptor(this.instanceId, this.#directories);
   readonly #descriptorPath = resolveInstanceDescriptorPath(this.instanceId, this.#directories);
   readonly #output: vscode.LogOutputChannel;
-  readonly #requestHandlers: ReadonlyMap<string, BridgeRequestHandler>;
+  readonly #requestHandlers: Map<string, BridgeRequestHandler>;
   readonly #server: Server;
   readonly #sockets = new Set<Socket>();
   #refreshQueue = Promise.resolve();
@@ -52,8 +52,20 @@ export class BridgeHost {
 
   constructor(output: vscode.LogOutputChannel) {
     this.#output = output;
-    this.#requestHandlers = createRequestHandlers(this.instanceId);
+    this.#requestHandlers = new Map(createRequestHandlers(this.instanceId));
     this.#server = net.createServer((socket) => this.#acceptConnection(socket));
+  }
+
+  registerRequestHandlers(handlers: ReadonlyMap<string, BridgeRequestHandler>): void {
+    if (this.#started) {
+      throw new Error("Bridge request handlers must be registered before the host starts.");
+    }
+    for (const [method, handler] of handlers) {
+      if (this.#requestHandlers.has(method)) {
+        throw new Error(`Bridge request handler is already registered: ${method}`);
+      }
+      this.#requestHandlers.set(method, handler);
+    }
   }
 
   async start(): Promise<void> {
