@@ -1,0 +1,656 @@
+import { createHash, randomUUID } from "node:crypto";
+import { gzip, gunzip } from "node:zlib";
+import { promisify } from "node:util";
+import {
+  mkdir,
+  open,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
+import path from "node:path";
+
+import { z } from "zod";
+
+import {
+  CheckpointIdSchema,
+  ContentSha256Schema,
+  ExperimentCheckpointSchema,
+  ExperimentHealthSchema,
+  ExperimentIdSchema,
+  ExperimentInfoSchema,
+  ExperimentLifecycleSchema,
+  ExperimentModeSchema,
+  GitObjectIdSchema,
+  type ExperimentCheckpoint,
+  type ExperimentEvidence,
+  type ExperimentInfo,
+} from "@vscode-agent-bridge/protocol";
+
+const gzipAsync = promisify(gzip);
+const gunzipAsync = promisify(gunzip);
+
+export const EXPERIMENT_STORAGE_SCHEMA_VERSION = 1;
+export const DEFAULT_EXPERIMENT_RETENTION_DAYS = 30;
+export const DEFAULT_EXPERIMENT_STORAGE_LIMIT_BYTES = 500 * 1024 * 1024;
+export const MAX_EXPERIMENT_BLOB_BYTES = 2 * 1024 * 1024;
+export const EXPERIMENT_LEASE_STALE_MS = 30_000;
+
+const StoredDocumentSchema = z
+  .object({
+    uri: z.string().min(1),
+    languageId: z.string(),
+    documentVersion: z.number().int().nonnegative().nullable(),
+    isDirty: z.boolean(),
+    exists: z.boolean(),
+    blobSha256: ContentSha256Schema.nullable(),
+    contentSha256: ContentSha256Schema.nullable(),
+  })
+  .strict();
+
+const StoredCheckpointSchema = ExperimentCheckpointSchema.extend({
+  documents: z.array(StoredDocumentSchema),
+}).strict();
+
+const ExperimentManifestSchema = z
+  .object({
+    schemaVersion: z.literal(EXPERIMENT_STORAGE_SCHEMA_VERSION),
+    sessionId: ExperimentIdSchema,
+    mode: ExperimentModeSchema,
+    lifecycle: ExperimentLifecycleSchema,
+    health: ExperimentHealthSchema,
+    title: z.string().min(1),
+    rootUri: z.string().min(1),
+    workspaceIdentity: z.string().min(1),
+    baseRevision: GitObjectIdSchema.nullable(),
+    branch: z.string().min(1).nullable(),
+    createdAt: z.string().min(1),
+    updatedAt: z.string().min(1),
+    currentCheckpointId: CheckpointIdSchema.nullable(),
+    acceptedCheckpointId: CheckpointIdSchema.nullable(),
+    checkpointIds: z.array(CheckpointIdSchema),
+    nextSequence: z.number().int().nonnegative(),
+    pinned: z.boolean(),
+    storageBytes: z.number().int().nonnegative(),
+    warnings: z.array(z.string()),
+  })
+  .strict();
+
+const LeaseSchema = z
+  .object({
+    sessionId: ExperimentIdSchema,
+    ownerInstanceId: z.uuid(),
+    updatedAt: z.string().min(1),
+  })
+  .strict();
+
+export type StoredDocument = z.infer<typeof StoredDocumentSchema>;
+export type StoredCheckpoint = z.infer<typeof StoredCheckpointSchema>;
+export type ExperimentManifest = z.infer<typeof ExperimentManifestSchema>;
+
+export interface CreateExperimentInput {
+  readonly mode: "workspace" | "worktree";
+  readonly title: string;
+  readonly rootUri: string;
+  readonly workspaceIdentity: string;
+  readonly baseRevision: string | null;
+  readonly branch: string | null;
+  readonly health: "complete" | "partial";
+  readonly warnings?: readonly string[];
+  readonly baselineDocuments?: readonly StoredDocument[];
+}
+
+export interface AppendCheckpointInput {
+  readonly source: ExperimentCheckpoint["source"];
+  readonly summary: string;
+  readonly documents: readonly StoredDocument[];
+  readonly coverageComplete: boolean;
+  readonly gitCommit?: string | null;
+  readonly evidence?: readonly ExperimentEvidence[];
+}
+
+export interface ExperimentStoreOptions {
+  readonly now?: () => Date;
+  readonly retentionDays?: number;
+  readonly storageLimitBytes?: number;
+}
+
+export interface ExperimentStoreStats {
+  readonly sessionCount: number;
+  readonly activeCount: number;
+  readonly corruptCount: number;
+  readonly storageBytes: number;
+}
+
+export class ExperimentStore {
+  readonly #rootDirectory: string;
+  readonly #sessionsDirectory: string;
+  readonly #blobsDirectory: string;
+  readonly #leasesDirectory: string;
+  readonly #instanceId: string;
+  readonly #now: () => Date;
+  readonly #retentionDays: number;
+  readonly #storageLimitBytes: number;
+
+  constructor(
+    rootDirectory: string,
+    instanceId: string,
+    options: ExperimentStoreOptions = {},
+  ) {
+    this.#rootDirectory = path.resolve(rootDirectory);
+    this.#sessionsDirectory = path.join(this.#rootDirectory, "sessions");
+    this.#blobsDirectory = path.join(this.#rootDirectory, "blobs", "sha256");
+    this.#leasesDirectory = path.join(this.#rootDirectory, "leases");
+    this.#instanceId = instanceId;
+    this.#now = options.now ?? (() => new Date());
+    this.#retentionDays = options.retentionDays ?? DEFAULT_EXPERIMENT_RETENTION_DAYS;
+    this.#storageLimitBytes =
+      options.storageLimitBytes ?? DEFAULT_EXPERIMENT_STORAGE_LIMIT_BYTES;
+  }
+
+  async initialize(): Promise<void> {
+    await Promise.all([
+      mkdir(this.#sessionsDirectory, { recursive: true }),
+      mkdir(this.#blobsDirectory, { recursive: true }),
+      mkdir(this.#leasesDirectory, { recursive: true }),
+    ]);
+  }
+
+  async createExperiment(input: CreateExperimentInput): Promise<ExperimentManifest> {
+    await this.initialize();
+    const sessionId = randomUUID();
+    const now = this.#now().toISOString();
+    const manifest: ExperimentManifest = {
+      schemaVersion: EXPERIMENT_STORAGE_SCHEMA_VERSION,
+      sessionId,
+      mode: input.mode,
+      lifecycle: "active",
+      health: input.health,
+      title: input.title,
+      rootUri: input.rootUri,
+      workspaceIdentity: input.workspaceIdentity,
+      baseRevision: input.baseRevision,
+      branch: input.branch,
+      createdAt: now,
+      updatedAt: now,
+      currentCheckpointId: null,
+      acceptedCheckpointId: null,
+      checkpointIds: [],
+      nextSequence: 0,
+      pinned: false,
+      storageBytes: 0,
+      warnings: [...(input.warnings ?? [])],
+    };
+
+    await mkdir(this.#eventsDirectory(sessionId), { recursive: true });
+    await this.#writeManifest(manifest);
+    await this.acquireLease(sessionId);
+    return this.appendCheckpoint(sessionId, {
+      source: "baseline",
+      summary: "Experiment baseline",
+      documents: input.baselineDocuments ?? [],
+      coverageComplete: input.health === "complete",
+      gitCommit: input.baseRevision,
+    });
+  }
+
+  async readManifest(sessionId: string): Promise<ExperimentManifest> {
+    assertUuid(sessionId);
+    const value = JSON.parse(await readFile(this.#manifestPath(sessionId), "utf8"));
+    return ExperimentManifestSchema.parse(value);
+  }
+
+  async listManifests(): Promise<ExperimentManifest[]> {
+    await this.initialize();
+    const entries = await readdir(this.#sessionsDirectory, { withFileTypes: true });
+    const manifests: ExperimentManifest[] = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !ExperimentIdSchema.safeParse(entry.name).success) {
+        continue;
+      }
+      try {
+        manifests.push(await this.readManifest(entry.name));
+      } catch {
+        // A corrupt session is kept on disk for explicit recovery or deletion.
+      }
+    }
+    return manifests.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
+  async appendCheckpoint(
+    sessionId: string,
+    input: AppendCheckpointInput,
+  ): Promise<ExperimentManifest> {
+    await this.assertLease(sessionId);
+    const manifest = await this.readManifest(sessionId);
+    if (manifest.lifecycle !== "active") {
+      throw new Error("Cannot append a checkpoint to a completed experiment.");
+    }
+    const checkpointId = randomUUID();
+    const createdAt = this.#now().toISOString();
+    const checkpoint: StoredCheckpoint = {
+      checkpointId,
+      parentCheckpointId: manifest.currentCheckpointId,
+      sequence: manifest.nextSequence,
+      createdAt,
+      source: input.source,
+      summary: input.summary,
+      documentCount: input.documents.length,
+      coverageComplete: input.coverageComplete,
+      gitCommit: input.gitCommit ?? null,
+      evidence: [...(input.evidence ?? [])],
+      documents: [...input.documents],
+    };
+    StoredCheckpointSchema.parse(checkpoint);
+    await writeAtomic(
+      this.#eventPath(sessionId, checkpoint.sequence, checkpointId),
+      `${JSON.stringify(checkpoint, null, 2)}\n`,
+    );
+
+    const updated: ExperimentManifest = {
+      ...manifest,
+      health: input.coverageComplete ? manifest.health : "partial",
+      currentCheckpointId: checkpointId,
+      checkpointIds: [...manifest.checkpointIds, checkpointId],
+      nextSequence: manifest.nextSequence + 1,
+      updatedAt: createdAt,
+    };
+    await this.#writeManifest(updated);
+    return updated;
+  }
+
+  async readCheckpoint(sessionId: string, checkpointId: string): Promise<StoredCheckpoint> {
+    const manifest = await this.readManifest(sessionId);
+    const index = manifest.checkpointIds.indexOf(checkpointId);
+    if (index === -1) {
+      throw new Error("Experiment checkpoint was not found.");
+    }
+    const files = await readdir(this.#eventsDirectory(sessionId));
+    const suffix = `-${checkpointId}.json`;
+    const eventFile = files.find((file) => file.endsWith(suffix));
+    if (!eventFile) {
+      throw new Error("Experiment checkpoint event is missing.");
+    }
+    const value = JSON.parse(
+      await readFile(path.join(this.#eventsDirectory(sessionId), eventFile), "utf8"),
+    );
+    return StoredCheckpointSchema.parse(value);
+  }
+
+  async listCheckpoints(sessionId: string): Promise<StoredCheckpoint[]> {
+    const manifest = await this.readManifest(sessionId);
+    return Promise.all(
+      manifest.checkpointIds.map((checkpointId) =>
+        this.readCheckpoint(sessionId, checkpointId),
+      ),
+    );
+  }
+
+  async addEvidence(
+    sessionId: string,
+    checkpointId: string,
+    evidence: ExperimentEvidence,
+  ): Promise<StoredCheckpoint> {
+    await this.assertLease(sessionId);
+    const checkpoint = await this.readCheckpoint(sessionId, checkpointId);
+    const updated = StoredCheckpointSchema.parse({
+      ...checkpoint,
+      evidence: [...checkpoint.evidence, evidence],
+    });
+    await writeAtomic(
+      this.#eventPath(sessionId, checkpoint.sequence, checkpoint.checkpointId),
+      `${JSON.stringify(updated, null, 2)}\n`,
+    );
+    const manifest = await this.readManifest(sessionId);
+    await this.#writeManifest({ ...manifest, updatedAt: this.#now().toISOString() });
+    return updated;
+  }
+
+  async setAcceptedCheckpoint(
+    sessionId: string,
+    checkpointId: string,
+  ): Promise<ExperimentManifest> {
+    await this.assertLease(sessionId);
+    const manifest = await this.readManifest(sessionId);
+    if (!manifest.checkpointIds.includes(checkpointId)) {
+      throw new Error("Accepted checkpoint must belong to the experiment.");
+    }
+    const updated = {
+      ...manifest,
+      acceptedCheckpointId: checkpointId,
+      updatedAt: this.#now().toISOString(),
+    };
+    await this.#writeManifest(updated);
+    return updated;
+  }
+
+  async setLifecycle(
+    sessionId: string,
+    lifecycle: "finalized" | "abandoned",
+  ): Promise<ExperimentManifest> {
+    await this.assertLease(sessionId);
+    const manifest = await this.readManifest(sessionId);
+    const updated = {
+      ...manifest,
+      lifecycle,
+      updatedAt: this.#now().toISOString(),
+    };
+    await this.#writeManifest(updated);
+    await this.releaseLease(sessionId);
+    return updated;
+  }
+
+  async setPinned(sessionId: string, pinned: boolean): Promise<ExperimentManifest> {
+    const manifest = await this.readManifest(sessionId);
+    const updated = {
+      ...manifest,
+      pinned,
+      updatedAt: this.#now().toISOString(),
+    };
+    await this.#writeManifest(updated);
+    return updated;
+  }
+
+  async addWarning(sessionId: string, warning: string): Promise<ExperimentManifest> {
+    await this.assertLease(sessionId);
+    const manifest = await this.readManifest(sessionId);
+    if (manifest.warnings.includes(warning)) {
+      return manifest;
+    }
+    const updated: ExperimentManifest = {
+      ...manifest,
+      health: "partial",
+      warnings: [...manifest.warnings, warning],
+      updatedAt: this.#now().toISOString(),
+    };
+    await this.#writeManifest(updated);
+    return updated;
+  }
+
+  async putBlob(text: string): Promise<{ sha256: string; storedBytes: number; created: boolean }> {
+    const bytes = Buffer.from(text, "utf8");
+    if (bytes.length > MAX_EXPERIMENT_BLOB_BYTES) {
+      throw new Error("Experiment document exceeds the snapshot size limit.");
+    }
+    if (bytes.includes(0)) {
+      throw new Error("Binary documents cannot be stored in experiment history.");
+    }
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    const blobPath = this.#blobPath(sha256);
+    try {
+      await stat(blobPath);
+      return { sha256, storedBytes: 0, created: false };
+    } catch {
+      // Continue with immutable blob creation.
+    }
+    const compressed = await gzipAsync(bytes);
+    await mkdir(path.dirname(blobPath), { recursive: true });
+    try {
+      const handle = await open(blobPath, "wx", 0o600);
+      try {
+        await handle.writeFile(compressed);
+      } finally {
+        await handle.close();
+      }
+      return { sha256, storedBytes: compressed.length, created: true };
+    } catch (error) {
+      if (isAlreadyExistsError(error)) {
+        return { sha256, storedBytes: 0, created: false };
+      }
+      throw error;
+    }
+  }
+
+  async readBlob(sha256: string): Promise<string> {
+    ContentSha256Schema.parse(sha256);
+    return Buffer.from(await gunzipAsync(await readFile(this.#blobPath(sha256)))).toString("utf8");
+  }
+
+  async addStorageBytes(sessionId: string, addedBytes: number): Promise<void> {
+    if (addedBytes === 0) {
+      return;
+    }
+    const manifest = await this.readManifest(sessionId);
+    await this.#writeManifest({
+      ...manifest,
+      storageBytes: manifest.storageBytes + addedBytes,
+      updatedAt: this.#now().toISOString(),
+    });
+  }
+
+  async acquireLease(sessionId: string): Promise<void> {
+    assertUuid(sessionId);
+    await mkdir(this.#leasesDirectory, { recursive: true });
+    const leasePath = this.#leasePath(sessionId);
+    const lease = {
+      sessionId,
+      ownerInstanceId: this.#instanceId,
+      updatedAt: this.#now().toISOString(),
+    };
+    try {
+      const handle = await open(leasePath, "wx", 0o600);
+      try {
+        await handle.writeFile(`${JSON.stringify(lease, null, 2)}\n`);
+      } finally {
+        await handle.close();
+      }
+      return;
+    } catch (error) {
+      if (!isAlreadyExistsError(error)) {
+        throw error;
+      }
+    }
+
+    const existing = await this.#readLease(sessionId);
+    const stale = this.#now().getTime() - Date.parse(existing.updatedAt) > EXPERIMENT_LEASE_STALE_MS;
+    if (existing.ownerInstanceId !== this.#instanceId && !stale) {
+      throw new Error("Experiment is owned by another live VS Code instance.");
+    }
+    await writeAtomic(leasePath, `${JSON.stringify(lease, null, 2)}\n`);
+  }
+
+  async refreshLease(sessionId: string): Promise<void> {
+    await this.assertLease(sessionId);
+    const lease = {
+      sessionId,
+      ownerInstanceId: this.#instanceId,
+      updatedAt: this.#now().toISOString(),
+    };
+    await writeAtomic(this.#leasePath(sessionId), `${JSON.stringify(lease, null, 2)}\n`);
+  }
+
+  async assertLease(sessionId: string): Promise<void> {
+    const lease = await this.#readLease(sessionId);
+    if (lease.ownerInstanceId !== this.#instanceId) {
+      throw new Error("Experiment is owned by another VS Code instance.");
+    }
+    if (this.#now().getTime() - Date.parse(lease.updatedAt) > EXPERIMENT_LEASE_STALE_MS) {
+      throw new Error("Experiment lease has expired.");
+    }
+  }
+
+  async releaseLease(sessionId: string): Promise<void> {
+    try {
+      const lease = await this.#readLease(sessionId);
+      if (lease.ownerInstanceId === this.#instanceId) {
+        await rm(this.#leasePath(sessionId), { force: true });
+      }
+    } catch {
+      // Releasing an already absent or corrupt lease is harmless.
+    }
+  }
+
+  async deleteExperiment(sessionId: string): Promise<void> {
+    assertUuid(sessionId);
+    await this.releaseLease(sessionId);
+    await rm(this.#sessionDirectory(sessionId), { recursive: true, force: true });
+    await this.collectUnreferencedBlobs();
+  }
+
+  async collectUnreferencedBlobs(): Promise<void> {
+    const referenced = new Set<string>();
+    for (const manifest of await this.listManifests()) {
+      try {
+        for (const checkpoint of await this.listCheckpoints(manifest.sessionId)) {
+          for (const document of checkpoint.documents) {
+            if (document.blobSha256) {
+              referenced.add(document.blobSha256);
+            }
+          }
+        }
+      } catch {
+        // Preserve all blobs when any session cannot be read safely.
+        return;
+      }
+    }
+
+    for (const prefix of await safeReadDirectories(this.#blobsDirectory)) {
+      const prefixDirectory = path.join(this.#blobsDirectory, prefix);
+      for (const file of await safeReadFiles(prefixDirectory)) {
+        const sha256 = file.endsWith(".gz") ? file.slice(0, -3) : "";
+        if (ContentSha256Schema.safeParse(sha256).success && !referenced.has(sha256)) {
+          await rm(path.join(prefixDirectory, file), { force: true });
+        }
+      }
+    }
+  }
+
+  async enforceRetention(): Promise<void> {
+    const manifests = await this.listManifests();
+    let totalBytes = manifests.reduce((total, manifest) => total + manifest.storageBytes, 0);
+    const cutoff = this.#now().getTime() - this.#retentionDays * 24 * 60 * 60 * 1_000;
+    const eligible = manifests
+      .filter(
+        (manifest) =>
+          manifest.lifecycle !== "active" &&
+          manifest.health !== "corrupt" &&
+          !manifest.pinned,
+      )
+      .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt));
+
+    for (const manifest of eligible) {
+      const expired = Date.parse(manifest.updatedAt) < cutoff;
+      if (!expired && totalBytes <= this.#storageLimitBytes) {
+        continue;
+      }
+      totalBytes -= manifest.storageBytes;
+      await this.deleteExperiment(manifest.sessionId);
+    }
+  }
+
+  async getStats(): Promise<ExperimentStoreStats> {
+    const manifests = await this.listManifests();
+    return {
+      sessionCount: manifests.length,
+      activeCount: manifests.filter((manifest) => manifest.lifecycle === "active").length,
+      corruptCount: manifests.filter((manifest) => manifest.health === "corrupt").length,
+      storageBytes: manifests.reduce((total, manifest) => total + manifest.storageBytes, 0),
+    };
+  }
+
+  toExperimentInfo(manifest: ExperimentManifest): ExperimentInfo {
+    return ExperimentInfoSchema.parse({
+      instanceId: this.#instanceId,
+      sessionId: manifest.sessionId,
+      mode: manifest.mode,
+      lifecycle: manifest.lifecycle,
+      health: manifest.health,
+      title: manifest.title,
+      rootUri: manifest.rootUri,
+      baseRevision: manifest.baseRevision,
+      branch: manifest.branch,
+      createdAt: manifest.createdAt,
+      updatedAt: manifest.updatedAt,
+      currentCheckpointId: manifest.currentCheckpointId,
+      acceptedCheckpointId: manifest.acceptedCheckpointId,
+      pinned: manifest.pinned,
+      storageBytes: manifest.storageBytes,
+      warnings: manifest.warnings,
+    });
+  }
+
+  async #readLease(sessionId: string): Promise<z.infer<typeof LeaseSchema>> {
+    const value = JSON.parse(await readFile(this.#leasePath(sessionId), "utf8"));
+    return LeaseSchema.parse(value);
+  }
+
+  async #writeManifest(manifest: ExperimentManifest): Promise<void> {
+    ExperimentManifestSchema.parse(manifest);
+    await mkdir(this.#sessionDirectory(manifest.sessionId), { recursive: true });
+    await writeAtomic(this.#manifestPath(manifest.sessionId), `${JSON.stringify(manifest, null, 2)}\n`);
+  }
+
+  #sessionDirectory(sessionId: string): string {
+    return path.join(this.#sessionsDirectory, sessionId);
+  }
+
+  #eventsDirectory(sessionId: string): string {
+    return path.join(this.#sessionDirectory(sessionId), "events");
+  }
+
+  #manifestPath(sessionId: string): string {
+    return path.join(this.#sessionDirectory(sessionId), "manifest.json");
+  }
+
+  #eventPath(sessionId: string, sequence: number, checkpointId: string): string {
+    return path.join(
+      this.#eventsDirectory(sessionId),
+      `${String(sequence).padStart(8, "0")}-${checkpointId}.json`,
+    );
+  }
+
+  #leasePath(sessionId: string): string {
+    return path.join(this.#leasesDirectory, `${sessionId}.json`);
+  }
+
+  #blobPath(sha256: string): string {
+    return path.join(this.#blobsDirectory, sha256.slice(0, 2), `${sha256}.gz`);
+  }
+}
+
+async function writeAtomic(filePath: string, contents: string): Promise<void> {
+  await mkdir(path.dirname(filePath), { recursive: true });
+  const temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporaryPath, contents, { encoding: "utf8", mode: 0o600 });
+    await rename(temporaryPath, filePath);
+  } finally {
+    await rm(temporaryPath, { force: true }).catch(() => undefined);
+  }
+}
+
+function assertUuid(value: string): void {
+  ExperimentIdSchema.parse(value);
+}
+
+function isAlreadyExistsError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as NodeJS.ErrnoException).code === "EEXIST"
+  );
+}
+
+async function safeReadDirectories(directory: string): Promise<string[]> {
+  try {
+    return (await readdir(directory, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+  } catch {
+    return [];
+  }
+}
+
+async function safeReadFiles(directory: string): Promise<string[]> {
+  try {
+    return (await readdir(directory, { withFileTypes: true }))
+      .filter((entry) => entry.isFile())
+      .map((entry) => entry.name);
+  } catch {
+    return [];
+  }
+}
