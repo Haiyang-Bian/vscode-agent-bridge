@@ -68,6 +68,17 @@ export class ReadOnlyGitBaseline {
     return (await this.tryRead(["rev-parse", "--verify", "HEAD"]))?.trim() || null;
   }
 
+  async changedPaths(fromRevision: string, toRevision: string): Promise<string[]> {
+    const revisions = [fromRevision, toRevision];
+    if (!revisions.every((revision) => /^[0-9a-f]{40,64}$/u.test(revision))) {
+      throw new Error("Git revisions must be full object IDs.");
+    }
+    return (await this.readNullSeparated(["diff", "--name-only", "-z", ...revisions, "--"]))
+      .map(normalizeGitPath)
+      .filter((relativePath) => isSafeRelativePath(relativePath))
+      .sort((left, right) => left.localeCompare(right));
+  }
+
   async readHeadText(relativePath: string, head = "HEAD"): Promise<string | null> {
     this.resolvePath(relativePath);
     try {

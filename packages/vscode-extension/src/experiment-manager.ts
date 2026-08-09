@@ -767,18 +767,45 @@ export class ExperimentManager implements vscode.Disposable {
     try {
       const head = await active.git.getHead();
       if (head && head !== active.gitHead) {
+        const previousHead = active.gitHead;
         active.gitHead = head;
+        let changedUris: vscode.Uri[] = [];
+        let resourceChange = false;
+        if (previousHead) {
+          const changedPaths = await active.git.changedPaths(previousHead, head);
+          changedUris = changedPaths
+            .map((relativePath) => vscode.Uri.file(active.git!.resolvePath(relativePath)))
+            .filter((uri) => isUriWithin(active.root, uri));
+          for (const relativePath of changedPaths) {
+            const [beforeText, afterText] = await Promise.all([
+              active.git.readHeadText(relativePath, previousHead),
+              active.git.readHeadText(relativePath, head),
+            ]);
+            resourceChange ||= beforeText === null || afterText === null;
+          }
+        }
         active.manifest = await this.#store.addWarning(
           active.manifest.sessionId,
           "Git HEAD changed during the experiment; formal repository history has changed.",
+          false,
+        );
+        if (resourceChange) {
+          active.manifest = await this.#store.addWarning(
+            active.manifest.sessionId,
+            "The Git commit includes a resource-level change; whole-session restore is limited.",
+          );
+        }
+        void vscode.window.showWarningMessage(
+          "Git HEAD changed during the active Agent experiment. Formal Git history is now separate from experiment checkpoints.",
         );
         await this.#enqueue(async () => {
+          await this.#captureUris(active, changedUris);
           await this.#reconcileGitDocuments(active);
           await this.#appendCheckpoint(
             active,
             "gitCommit",
             "Git HEAD changed during experiment",
-            true,
+            !resourceChange,
             head,
           );
         });

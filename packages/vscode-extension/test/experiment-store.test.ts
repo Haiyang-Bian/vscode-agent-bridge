@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -47,6 +47,9 @@ describe("experiment store", () => {
       sessionId: manifest.sessionId,
       lifecycle: "active",
     });
+    expect((await store.addWarning(manifest.sessionId, "Informational Git warning", false)).health).toBe(
+      "complete",
+    );
   });
 
   test("prevents two live instances from owning one experiment", async () => {
@@ -68,6 +71,34 @@ describe("experiment store", () => {
     now = new Date(now.getTime() + EXPERIMENT_LEASE_STALE_MS + 1);
     await storeB.acquireLease(manifest.sessionId);
     await expect(storeA.assertLease(manifest.sessionId)).rejects.toThrow();
+  });
+
+  test("appends evidence without rewriting the checkpoint event", async () => {
+    const directory = await temporaryDirectory();
+    const store = new ExperimentStore(directory, INSTANCE_A);
+    const manifest = await store.createExperiment({
+      mode: "workspace",
+      title: "Evidence test",
+      rootUri: "file:///workspace",
+      workspaceIdentity: "workspace",
+      baseRevision: null,
+      branch: null,
+      health: "partial",
+    });
+    const eventsDirectory = path.join(directory, "sessions", manifest.sessionId, "events");
+    const checkpointFile = (await readdir(eventsDirectory)).find((file) => !file.includes("-evidence-"))!;
+    const checkpointBefore = await readFile(path.join(eventsDirectory, checkpointFile), "utf8");
+    await store.addEvidence(manifest.sessionId, manifest.currentCheckpointId!, {
+      evidenceId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      kind: "test",
+      status: "passed",
+      source: "client-reported",
+      summary: "Test passed",
+      createdAt: "2026-08-09T00:00:00.000Z",
+    });
+    expect(await readFile(path.join(eventsDirectory, checkpointFile), "utf8")).toBe(checkpointBefore);
+    expect((await readdir(eventsDirectory)).filter((file) => file.includes("-evidence-"))).toHaveLength(1);
+    expect((await store.readCheckpoint(manifest.sessionId, manifest.currentCheckpointId!)).evidence).toHaveLength(1);
   });
 
   test("does not retention-delete active or pinned sessions", async () => {
@@ -122,9 +153,64 @@ describe("experiment store", () => {
     const eventsDirectory = path.join(directory, "sessions", manifest.sessionId, "events");
     const eventFile = (await import("node:fs/promises")).readdir(eventsDirectory).then((files) => files[0]!);
     await writeFile(path.join(eventsDirectory, await eventFile), "not json", "utf8");
-    await store.collectUnreferencedBlobs();
+    const recovered = new ExperimentStore(directory, INSTANCE_A);
+    await recovered.initialize();
+    expect((await recovered.readManifest(manifest.sessionId)).health).toBe("corrupt");
+    expect(await recovered.getStats()).toMatchObject({ sessionCount: 1, corruptCount: 1 });
+    await recovered.collectUnreferencedBlobs();
     const blobPath = path.join(directory, "blobs", "sha256", blob.sha256.slice(0, 2), `${blob.sha256}.gz`);
     expect((await readFile(blobPath)).length).toBeGreaterThan(0);
+  });
+
+  test("deletes expired ended sessions and garbage-collects only unreferenced blobs", async () => {
+    const directory = await temporaryDirectory();
+    let now = new Date("2026-01-01T00:00:00.000Z");
+    const store = new ExperimentStore(directory, INSTANCE_A, {
+      now: () => now,
+      retentionDays: 1,
+    });
+    const removedBlob = await store.putBlob("remove me");
+    const retainedBlob = await store.putBlob("retain me");
+    const expired = await store.createExperiment({
+      mode: "workspace",
+      title: "Expired",
+      rootUri: "file:///expired",
+      workspaceIdentity: "expired",
+      baseRevision: null,
+      branch: null,
+      health: "partial",
+      baselineDocuments: [document(removedBlob.sha256)],
+    });
+    await store.addStorageBytes(expired.sessionId, removedBlob.storedBytes);
+    await store.setLifecycle(expired.sessionId, "abandoned");
+    const retained = await store.createExperiment({
+      mode: "workspace",
+      title: "Retained",
+      rootUri: "file:///retained",
+      workspaceIdentity: "retained",
+      baseRevision: null,
+      branch: null,
+      health: "partial",
+      baselineDocuments: [document(retainedBlob.sha256)],
+    });
+    await store.addStorageBytes(retained.sessionId, retainedBlob.storedBytes);
+    await store.setPinned(retained.sessionId, true);
+    await store.setLifecycle(retained.sessionId, "abandoned");
+
+    now = new Date("2026-02-01T00:00:00.000Z");
+    await store.enforceRetention();
+    expect((await store.listManifests()).map((item) => item.sessionId)).toEqual([retained.sessionId]);
+    await expect(stat(blobPath(directory, removedBlob.sha256))).rejects.toThrow();
+    expect((await stat(blobPath(directory, retainedBlob.sha256))).isFile()).toBe(true);
+  });
+
+  test("rejects oversized, binary, malformed hash and path-traversal inputs", async () => {
+    const directory = await temporaryDirectory();
+    const store = new ExperimentStore(directory, INSTANCE_A);
+    await expect(store.putBlob("x\0y")).rejects.toThrow("Binary");
+    await expect(store.putBlob("x".repeat(2 * 1024 * 1024 + 1))).rejects.toThrow("size limit");
+    await expect(store.readBlob("../outside")).rejects.toThrow();
+    await expect(store.readManifest("../../outside")).rejects.toThrow();
   });
 });
 
@@ -144,4 +230,8 @@ async function temporaryDirectory(): Promise<string> {
   const directory = await mkdtemp(path.join(os.tmpdir(), "vscode-agent-bridge-store-"));
   directories.push(directory);
   return directory;
+}
+
+function blobPath(directory: string, sha256: string): string {
+  return path.join(directory, "blobs", "sha256", sha256.slice(0, 2), `${sha256}.gz`);
 }

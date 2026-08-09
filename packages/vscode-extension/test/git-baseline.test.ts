@@ -35,6 +35,19 @@ describe("read-only Git baseline", () => {
     const inspected = await ReadOnlyGitBaseline.inspect(root);
     expect(() => inspected?.git.resolvePath("../outside.txt")).toThrow();
   });
+
+  test("lists paths changed between full revisions", async () => {
+    const repository = await createRepository();
+    const inspected = await ReadOnlyGitBaseline.inspect(repository);
+    expect(inspected).not.toBeNull();
+    const before = (await inspected!.git.getHead())!;
+    await writeFile(path.join(repository, "tracked.ts"), "export const value = 2;\n", "utf8");
+    await git(repository, ["add", "tracked.ts"]);
+    await git(repository, ["commit", "-m", "change tracked file"]);
+    const after = (await inspected!.git.getHead())!;
+    expect(await inspected!.git.changedPaths(before, after)).toEqual(["tracked.ts"]);
+    await expect(inspected!.git.changedPaths("HEAD", after)).rejects.toThrow("full object IDs");
+  });
 });
 
 async function createRepository(): Promise<string> {

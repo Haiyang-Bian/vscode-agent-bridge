@@ -55,6 +55,14 @@ const StoredCheckpointSchema = ExperimentCheckpointSchema.extend({
   documents: z.array(StoredDocumentSchema),
 }).strict();
 
+const StoredEvidenceEventSchema = z
+  .object({
+    type: z.literal("evidence"),
+    checkpointId: CheckpointIdSchema,
+    evidence: ExperimentCheckpointSchema.shape.evidence.element,
+  })
+  .strict();
+
 const ExperimentManifestSchema = z
   .object({
     schemaVersion: z.literal(EXPERIMENT_STORAGE_SCHEMA_VERSION),
@@ -134,6 +142,7 @@ export class ExperimentStore {
   readonly #now: () => Date;
   readonly #retentionDays: number;
   readonly #storageLimitBytes: number;
+  #initializePromise: Promise<void> | undefined;
 
   constructor(
     rootDirectory: string,
@@ -152,11 +161,15 @@ export class ExperimentStore {
   }
 
   async initialize(): Promise<void> {
-    await Promise.all([
-      mkdir(this.#sessionsDirectory, { recursive: true }),
-      mkdir(this.#blobsDirectory, { recursive: true }),
-      mkdir(this.#leasesDirectory, { recursive: true }),
-    ]);
+    this.#initializePromise ??= (async () => {
+      await Promise.all([
+        mkdir(this.#sessionsDirectory, { recursive: true }),
+        mkdir(this.#blobsDirectory, { recursive: true }),
+        mkdir(this.#leasesDirectory, { recursive: true }),
+      ]);
+      await this.#recoverSessions();
+    })();
+    await this.#initializePromise;
   }
 
   async createExperiment(input: CreateExperimentInput): Promise<ExperimentManifest> {
@@ -277,7 +290,21 @@ export class ExperimentStore {
     const value = JSON.parse(
       await readFile(path.join(this.#eventsDirectory(sessionId), eventFile), "utf8"),
     );
-    return StoredCheckpointSchema.parse(value);
+    const checkpoint = StoredCheckpointSchema.parse(value);
+    const evidenceEvents = await Promise.all(
+      files
+        .filter((file) => file.includes(`-${checkpointId}-evidence-`) && file.endsWith(".json"))
+        .sort((left, right) => left.localeCompare(right))
+        .map(async (file) =>
+          StoredEvidenceEventSchema.parse(
+            JSON.parse(await readFile(path.join(this.#eventsDirectory(sessionId), file), "utf8")),
+          ),
+        ),
+    );
+    return StoredCheckpointSchema.parse({
+      ...checkpoint,
+      evidence: [...checkpoint.evidence, ...evidenceEvents.map((event) => event.evidence)],
+    });
   }
 
   async listCheckpoints(sessionId: string): Promise<StoredCheckpoint[]> {
@@ -301,8 +328,8 @@ export class ExperimentStore {
       evidence: [...checkpoint.evidence, evidence],
     });
     await writeAtomic(
-      this.#eventPath(sessionId, checkpoint.sequence, checkpoint.checkpointId),
-      `${JSON.stringify(updated, null, 2)}\n`,
+      this.#evidenceEventPath(sessionId, checkpoint.sequence, checkpoint.checkpointId, evidence.evidenceId),
+      `${JSON.stringify({ type: "evidence", checkpointId, evidence }, null, 2)}\n`,
     );
     const manifest = await this.readManifest(sessionId);
     await this.#writeManifest({ ...manifest, updatedAt: this.#now().toISOString() });
@@ -354,7 +381,11 @@ export class ExperimentStore {
     return updated;
   }
 
-  async addWarning(sessionId: string, warning: string): Promise<ExperimentManifest> {
+  async addWarning(
+    sessionId: string,
+    warning: string,
+    markCoveragePartial = true,
+  ): Promise<ExperimentManifest> {
     await this.assertLease(sessionId);
     const manifest = await this.readManifest(sessionId);
     if (manifest.warnings.includes(warning)) {
@@ -362,7 +393,7 @@ export class ExperimentStore {
     }
     const updated: ExperimentManifest = {
       ...manifest,
-      health: "partial",
+      health: markCoveragePartial ? "partial" : manifest.health,
       warnings: [...manifest.warnings, warning],
       updatedAt: this.#now().toISOString(),
     };
@@ -542,11 +573,17 @@ export class ExperimentStore {
   }
 
   async getStats(): Promise<ExperimentStoreStats> {
+    await this.#recoverSessions();
     const manifests = await this.listManifests();
+    const sessionDirectories = (await safeReadDirectories(this.#sessionsDirectory)).filter(
+      (name) => ExperimentIdSchema.safeParse(name).success,
+    );
+    const unreadableCount = Math.max(0, sessionDirectories.length - manifests.length);
     return {
-      sessionCount: manifests.length,
+      sessionCount: sessionDirectories.length,
       activeCount: manifests.filter((manifest) => manifest.lifecycle === "active").length,
-      corruptCount: manifests.filter((manifest) => manifest.health === "corrupt").length,
+      corruptCount:
+        manifests.filter((manifest) => manifest.health === "corrupt").length + unreadableCount,
       storageBytes: manifests.reduce((total, manifest) => total + manifest.storageBytes, 0),
     };
   }
@@ -602,12 +639,60 @@ export class ExperimentStore {
     );
   }
 
+  #evidenceEventPath(
+    sessionId: string,
+    sequence: number,
+    checkpointId: string,
+    evidenceId: string,
+  ): string {
+    return path.join(
+      this.#eventsDirectory(sessionId),
+      `${String(sequence).padStart(8, "0")}-${checkpointId}-evidence-${evidenceId}.json`,
+    );
+  }
+
   #leasePath(sessionId: string): string {
     return path.join(this.#leasesDirectory, `${sessionId}.json`);
   }
 
   #blobPath(sha256: string): string {
     return path.join(this.#blobsDirectory, sha256.slice(0, 2), `${sha256}.gz`);
+  }
+
+  async #recoverSessions(): Promise<void> {
+    for (const sessionId of await safeReadDirectories(this.#sessionsDirectory)) {
+      if (!ExperimentIdSchema.safeParse(sessionId).success) {
+        continue;
+      }
+      let manifest: ExperimentManifest;
+      try {
+        manifest = await this.readManifest(sessionId);
+      } catch {
+        continue;
+      }
+      try {
+        for (const checkpointId of manifest.checkpointIds) {
+          const checkpoint = await this.readCheckpoint(sessionId, checkpointId);
+          for (const document of checkpoint.documents) {
+            if (document.blobSha256) {
+              await this.readBlob(document.blobSha256);
+            }
+          }
+        }
+      } catch {
+        if (manifest.health !== "corrupt") {
+          const warning = "Experiment storage validation failed; the session requires explicit review.";
+          await this.#writeManifest({
+            ...manifest,
+            health: "corrupt",
+            warnings: manifest.warnings.includes(warning)
+              ? manifest.warnings
+              : [...manifest.warnings, warning],
+            updatedAt: this.#now().toISOString(),
+          });
+        }
+      }
+    }
   }
 }
 
