@@ -24,6 +24,7 @@ export const TerminalOutputCoverageSchema = z.enum([
   "complete",
   "partial-prefix-missing",
   "partial-dropped",
+  "started-before-activation",
   "unavailable",
   "redacted",
 ]);

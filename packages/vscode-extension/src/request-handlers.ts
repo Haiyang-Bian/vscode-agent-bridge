@@ -18,16 +18,24 @@ import {
   ExperimentEvidenceSchema,
   ExperimentInfoSchema,
   ListExperimentCheckpointsParamsSchema,
+  ListTerminalExecutionsParamsSchema,
+  ListTerminalExecutionsResultSchema,
+  ListTerminalsParamsSchema,
+  ListTerminalsResultSchema,
   PreparedChangeSetSchema,
   PrepareRenameParamsSchema,
   PrepareTextEditsParamsSchema,
   ReadDocumentParamsSchema,
+  ReadTerminalOutputParamsSchema,
+  ReadTerminalOutputResultSchema,
   RecordExperimentEvidenceParamsSchema,
 } from "@vscode-agent-bridge/protocol";
 
 import { ChangeSetManager } from "./change-set-manager.js";
 import { getEditorContext } from "./editor-context.js";
 import { ExperimentManager } from "./experiment-manager.js";
+import { assertTerminalExecutionAccess, assertTerminalMetadataAllowed } from "./policies.js";
+import { TerminalObserver } from "./terminal-observer.js";
 import {
   getDefinitions,
   getDiagnostics,
@@ -142,6 +150,38 @@ export function createExperimentRequestHandlers(
             RecordExperimentEvidenceParamsSchema.parse(params),
           ),
         ),
+    ],
+  ]);
+}
+
+export function createTerminalRequestHandlers(
+  observer: TerminalObserver,
+): ReadonlyMap<string, BridgeRequestHandler> {
+  return new Map<string, BridgeRequestHandler>([
+    [
+      BRIDGE_METHODS.listTerminals,
+      (params) => {
+        ListTerminalsParamsSchema.parse(params);
+        return ListTerminalsResultSchema.parse(observer.listTerminals(assertTerminalMetadataAllowed()));
+      },
+    ],
+    [
+      BRIDGE_METHODS.listTerminalExecutions,
+      (params) => {
+        assertTerminalExecutionAccess();
+        return ListTerminalExecutionsResultSchema.parse(
+          observer.listExecutions(ListTerminalExecutionsParamsSchema.parse(params)),
+        );
+      },
+    ],
+    [
+      BRIDGE_METHODS.readTerminalOutput,
+      (params) => {
+        assertTerminalExecutionAccess();
+        return ReadTerminalOutputResultSchema.parse(
+          observer.readOutput(ReadTerminalOutputParamsSchema.parse(params)),
+        );
+      },
     ],
   ]);
 }

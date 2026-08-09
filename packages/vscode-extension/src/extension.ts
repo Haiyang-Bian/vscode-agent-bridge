@@ -16,10 +16,15 @@ import { ExperimentManager } from "./experiment-manager.js";
 import { registerExperimentUi } from "./experiment-ui.js";
 import { ManagedWorktreeManager } from "./managed-worktree-manager.js";
 import { registerManagedWorktreeUi } from "./managed-worktree-ui.js";
-import { createExperimentRequestHandlers } from "./request-handlers.js";
+import {
+  createExperimentRequestHandlers,
+  createTerminalRequestHandlers,
+} from "./request-handlers.js";
+import { TerminalObserver } from "./terminal-observer.js";
 
 let activeHost: BridgeHost | undefined;
 let activeExperimentManager: ExperimentManager | undefined;
+let activeTerminalObserver: TerminalObserver | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const output = vscode.window.createOutputChannel("VS Code Agent Bridge", { log: true });
@@ -27,12 +32,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const experiments = new ExperimentManager(context, host.instanceId, output);
   const changeSets = new ChangeSetManager(host.instanceId, experiments);
   const managed = new ManagedWorktreeManager(experiments);
+  const terminals = new TerminalObserver(host.instanceId);
   host.registerRequestHandlers(
     createExperimentRequestHandlers(host.instanceId, experiments, changeSets),
   );
+  host.registerRequestHandlers(createTerminalRequestHandlers(terminals));
   await experiments.initialize();
+  terminals.start();
   activeHost = host;
   activeExperimentManager = experiments;
+  activeTerminalObserver = terminals;
   registerExperimentUi(context, experiments, output);
   registerManagedWorktreeUi(context, managed, output);
   registerE2ECommands(context, experiments, managed);
@@ -42,6 +51,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     output,
     experiments,
+    terminals,
     vscode.commands.registerCommand("vscodeAgentBridge.showStatus", async () => {
       const remoteLabel = vscode.env.remoteName ? `, remote=${vscode.env.remoteName}` : "";
       await vscode.window.showInformationMessage(
@@ -143,8 +153,11 @@ function registerE2ECommands(
 export async function deactivate(): Promise<void> {
   const host = activeHost;
   const experiments = activeExperimentManager;
+  const terminals = activeTerminalObserver;
   activeHost = undefined;
   activeExperimentManager = undefined;
+  activeTerminalObserver = undefined;
+  terminals?.dispose();
   await experiments?.disposeAsync();
   await host?.stop();
 }
