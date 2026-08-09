@@ -38,7 +38,7 @@ describe("fixed Git runner", () => {
     expect(await runner.listWorktrees(repository)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          path: path.resolve(worktreePath),
+          path: await realpath(worktreePath),
           branch: experimentBranch,
           locked: true,
         }),
