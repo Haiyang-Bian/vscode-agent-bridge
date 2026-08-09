@@ -31,6 +31,17 @@ export const BRIDGE_CAPABILITIES = [
   "languages.getHover",
 ] as const;
 
+export const MCP_TOOL_NAMES = [
+  "vscode_list_instances",
+  "vscode_get_editor_context",
+  "vscode_read_document",
+  "vscode_get_diagnostics",
+  "vscode_get_document_symbols",
+  "vscode_get_definitions",
+  "vscode_get_references",
+  "vscode_get_hover",
+] as const;
+
 export const BRIDGE_ERROR_CODES = [
   "NO_VSCODE_INSTANCE",
   "AMBIGUOUS_INSTANCE",

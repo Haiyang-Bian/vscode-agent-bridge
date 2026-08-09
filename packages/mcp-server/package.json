@@ -1,6 +1,6 @@
 {
   "name": "@vscode-agent-bridge/mcp-server",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "bin": {
@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target node --format esm --sourcemap=external",
+    "build:exe": "bun run --cwd ../.. build:mcp:exe",
     "start": "bun run src/index.ts",
     "typecheck": "tsc --project tsconfig.json"
   },

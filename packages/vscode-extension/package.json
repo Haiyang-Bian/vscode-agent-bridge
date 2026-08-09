@@ -2,10 +2,26 @@
   "name": "vscode-agent-bridge",
   "displayName": "VS Code Agent Bridge",
   "description": "Expose IDE-native VS Code context to local MCP clients through an authenticated bridge.",
-  "version": "0.1.0",
-  "publisher": "local",
-  "private": true,
-  "license": "UNLICENSED",
+  "version": "0.2.0",
+  "publisher": "Haiyang-Bian",
+  "license": "MIT",
+  "icon": "resources/icon.png",
+  "pricing": "Free",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Haiyang-Bian/vscode-agent-bridge.git"
+  },
+  "homepage": "https://github.com/Haiyang-Bian/vscode-agent-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/Haiyang-Bian/vscode-agent-bridge/issues"
+  },
+  "keywords": [
+    "mcp",
+    "codex",
+    "agent",
+    "language-service",
+    "developer-tools"
+  ],
   "engines": {
     "vscode": "^1.95.0"
   },
@@ -16,6 +32,16 @@
     "onStartupFinished"
   ],
   "main": "./dist/extension.js",
+  "extensionKind": [
+    "ui"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true,
+      "description": "This release exposes read-only editor and language-service context. It does not provide editor mutations."
+    },
+    "virtualWorkspaces": false
+  },
   "contributes": {
     "commands": [
       {
@@ -25,6 +51,18 @@
       {
         "command": "vscodeAgentBridge.copyInstanceId",
         "title": "VS Code Agent Bridge: Copy Instance ID"
+      },
+      {
+        "command": "vscodeAgentBridge.configureCodex",
+        "title": "VS Code Agent Bridge: Configure Codex"
+      },
+      {
+        "command": "vscodeAgentBridge.removeCodexConfiguration",
+        "title": "VS Code Agent Bridge: Remove Codex Configuration"
+      },
+      {
+        "command": "vscodeAgentBridge.runDoctor",
+        "title": "VS Code Agent Bridge: Run Doctor"
       }
     ]
   },
@@ -34,6 +72,7 @@
   },
   "dependencies": {
     "@vscode-agent-bridge/protocol": "workspace:*",
+    "smol-toml": "1.6.1",
     "zod": "4.4.3"
   },
   "devDependencies": {

@@ -4,6 +4,9 @@ coverage/
 *.vsix
 *.log
 .DS_Store
+artifacts/
+packages/vscode-extension/resources/bin/*.exe
+packages/vscode-extension/resources/bin/*.sha256
 
 # Local bridge discovery state. Runtime state must never be committed.
 .vscode-agent-bridge/

@@ -46,6 +46,10 @@ export class BridgeHost {
   #started = false;
   #stopped = false;
 
+  get isListening(): boolean {
+    return this.#started && !this.#stopped;
+  }
+
   constructor(output: vscode.LogOutputChannel) {
     this.#output = output;
     this.#requestHandlers = createRequestHandlers(this.instanceId);

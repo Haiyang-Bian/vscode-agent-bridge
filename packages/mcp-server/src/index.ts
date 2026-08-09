@@ -6,6 +6,8 @@ import { z } from "zod";
 
 import {
   BRIDGE_METHODS,
+  BRIDGE_NAME,
+  BRIDGE_PROTOCOL_VERSION,
   BRIDGE_RELEASE_VERSION,
   DiagnosticsInputSchema,
   DiagnosticsParamsSchema,
@@ -31,6 +33,24 @@ import {
 
 import { discoverLiveInstances, selectInstance, toPublicInstance } from "./instances.js";
 import { requestBridgeResult, requestEditorContext } from "./rpc-client.js";
+
+if (process.argv.includes("--version")) {
+  process.stdout.write(`${BRIDGE_RELEASE_VERSION}\n`);
+  process.exit(0);
+}
+
+if (process.argv.includes("--self-test")) {
+  process.stdout.write(
+    `${JSON.stringify({
+      name: BRIDGE_NAME,
+      version: BRIDGE_RELEASE_VERSION,
+      protocolVersion: BRIDGE_PROTOCOL_VERSION,
+      platform: process.platform,
+      architecture: process.arch,
+    })}\n`,
+  );
+  process.exit(0);
+}
 
 const ListInstancesInputSchema = z.object({}).strict();
 const ListInstancesOutputSchema = z
