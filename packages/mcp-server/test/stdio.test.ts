@@ -7,7 +7,7 @@ import {
   StdioClientTransport,
   getDefaultEnvironment,
 } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test as bunTest } from "bun:test";
 
 import { REGISTRY_DIRECTORY_ENV } from "@vscode-agent-bridge/protocol";
 
@@ -22,15 +22,16 @@ afterEach(async () => {
 });
 
 describe("STDIO MCP server", () => {
-  test("advertises the read-only tools and lists an empty registry", async () => {
+  bunTest("advertises the read-only tools and lists an empty registry", async () => {
     const client = new Client(
-      { name: "vscode-agent-bridge-test", version: "0.1.0" },
+      { name: "vscode-agent-bridge-test", version: "0.2.0" },
       { capabilities: {} },
     );
+    const compiledExecutable = process.env.VSCODE_AGENT_BRIDGE_TEST_EXE;
     const transport = new StdioClientTransport({
-      command: "bun",
-      args: ["run", "src/index.ts"],
-      cwd: path.resolve(import.meta.dir, ".."),
+      command: compiledExecutable ?? "bun",
+      args: compiledExecutable ? [] : ["run", "src/index.ts"],
+      ...(compiledExecutable ? {} : { cwd: path.resolve(import.meta.dir, "..") }),
       env: {
         ...getDefaultEnvironment(),
         [REGISTRY_DIRECTORY_ENV]: temporaryRegistry,
@@ -51,6 +52,14 @@ describe("STDIO MCP server", () => {
         "vscode_list_instances",
         "vscode_read_document",
       ]);
+      for (const tool of tools.tools) {
+        expect(tool.annotations).toEqual({
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        });
+      }
 
       const result = await client.callTool({
         name: "vscode_list_instances",

@@ -28,6 +28,10 @@
   "categories": [
     "Other"
   ],
+  "galleryBanner": {
+    "color": "#071B33",
+    "theme": "dark"
+  },
   "activationEvents": [
     "onStartupFinished"
   ],

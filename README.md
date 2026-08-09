@@ -1,60 +1,58 @@
 # VS Code Agent Bridge
 
-VS Code Agent Bridge 是一个面向本地编码代理的 IDE 能力桥。项目通过 MCP Server 向 Codex 暴露稳定、可审计的工具，再由 VS Code Extension 调用编辑器和语言服务 API。
+VS Code Agent Bridge connects local MCP clients such as Codex to IDE-native, read-only VS Code state. It is intentionally split into two runtime layers: a standalone STDIO MCP server and a VS Code desktop extension. `packages/protocol` contains their shared RPC contracts and is not a third service.
 
-当前阶段提供一个只读纵向切片：
+The `0.2.0` release targets Windows x64. Marketplace users do not need Bun, Node.js, or this repository: the platform-specific VSIX contains a Bun-compiled MCP executable and the extension installs a versioned copy on explicit request.
 
-- 发现已连接的 VS Code 实例；
-- 获取活动编辑器、选区、可见范围、脏状态和工作区信息；
-- 通过随机实例标识、随机令牌和本地 IPC 完成握手；
-- 明确拒绝未认证请求和不兼容的协议版本。
+## Read-only tools
 
-## Workspace
+| Tool | Purpose |
+| --- | --- |
+| `vscode_list_instances` | Discover live local VS Code windows without exposing credentials or IPC endpoints. |
+| `vscode_get_editor_context` | Read active/visible editor, selection, dirty state, document version, trust and workspace context. |
+| `vscode_read_document` | Read a VS Code buffer, including unsaved content, with bounded range and truncation metadata. |
+| `vscode_get_diagnostics` | Read normalized active-document, document or workspace diagnostics. |
+| `vscode_get_document_symbols` | Read a flattened symbol tree with stable hierarchy fields. |
+| `vscode_get_definitions` | Resolve definitions for an explicit URI and zero-based position. |
+| `vscode_get_references` | Resolve sorted, deduplicated references. |
+| `vscode_get_hover` | Read bounded hover text with command links redacted. |
 
-项目使用 Bun workspaces，共享一份 `bun.lock`：
+There is no generic VS Code command tool, terminal tool, filesystem wrapper or editor mutation in this release. Remote SSH, WSL, Dev Containers, Codespaces and non-Windows platforms are not supported by `0.2.0`.
+
+## Repository layout
 
 ```text
 packages/
-  protocol/          内部 RPC Schema、错误码和注册表约定
-  mcp-server/        Codex 启动的 STDIO MCP Server
-  vscode-extension/  运行在 VS Code Extension Host 中的能力提供方
+  protocol/          RPC schemas, error codes and discovery contracts
+  mcp-server/        standalone STDIO MCP server launched by Codex
+  vscode-extension/  VS Code desktop UI extension and installer
+scripts/             Bun build, test, package and release verification
+docs/adr/            architecture and security decisions
+docs/acceptance/     clean-machine Windows acceptance procedure
 ```
 
-`protocol` 是共享代码，不是第三个运行时服务。
+## Development
 
-## 开发
-
-需要 Bun 1.3 或更高版本。
+Install Bun 1.3.11 and Node.js 22 or newer. Node is used only by Microsoft's official `vsce`; Bun owns dependency installation, workspace builds and tests.
 
 ```powershell
-bun install
+bun install --frozen-lockfile
 bun run check
+bun run test:e2e
+bun run package:vsix
+bun run test:artifact
 ```
 
-单独运行 MCP Server：
+`bun run check` performs type checking, Bun unit/contract tests and workspace builds. `test:e2e` runs the extension inside an isolated real VS Code Extension Host. `package:vsix` compiles the Windows x64 baseline EXE, packages a platform-specific VSIX and audits its contents. Generated release files are written to `artifacts/`.
 
-```powershell
-bun run --cwd packages/mcp-server start
-```
+## Release
 
-构建产物位于各 workspace 的 `dist/`。
+Pull requests and `master` run [CI](.github/workflows/ci.yml). A `v0.2.0` tag runs [the release workflow](.github/workflows/release.yml), creates SHA-256 checksums and provenance, publishes a GitHub Release, and publishes to Marketplace through `vsce --oidc` after approval of the `marketplace` environment.
 
-用 VS Code 打开仓库根目录后，可以直接按 `F5` 启动预配置的 Extension Development Host；启动前会自动执行 Bun workspace 构建。
+Publisher creation and the Marketplace Trusted Publishing policy are one-time account operations; no PAT is stored in this repository. See [the release checklist](docs/releases/v0.2.0.md) and [cross-machine acceptance prompt](docs/acceptance/windows-x64-cross-machine.md).
 
-## 连接 Codex
+## Security and license
 
-1. 构建并将 `packages/vscode-extension` 安装或以 Extension Development Host 运行。
-2. 将 `examples/codex.config.toml` 中的路径替换为本仓库绝对路径。
-3. 将配置复制到项目级 `.codex/config.toml` 或合并到用户级 `~/.codex/config.toml`。
-4. 重启 Codex 客户端或扩展，使 MCP Server 配置生效。
+The extension uses a per-window random identifier and token over local IPC. Descriptor files are atomically replaced, live-probed and never returned through MCP with authentication material. Codex configuration changes are marker-scoped, TOML-validated, backed up and atomically replaced.
 
-项目不会默认写入活动的 `.codex/config.toml`，以免尚未安装 VS Code Extension 时让 Codex 启动一个不可用的工具服务器。
-
-## 设计约束
-
-- 普通文件读写和 Shell 命令继续由编码代理自身完成。
-- MCP 工具只覆盖未保存缓冲区、诊断、语言服务、导航和受保护的编辑操作。
-- 不提供任意 VS Code Command 或终端执行入口。
-- 写操作将在后续阶段通过文档版本或内容哈希处理并发冲突。
-
-架构决策见 [`docs/adr`](docs/adr)。
+Report vulnerabilities according to [SECURITY.md](SECURITY.md). This project is licensed under the [MIT License](LICENSE).

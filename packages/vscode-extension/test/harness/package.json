@@ -1,0 +1,9 @@
+{
+  "name": "vscode-agent-bridge-artifact-test-harness",
+  "displayName": "VS Code Agent Bridge Artifact Test Harness",
+  "version": "0.0.0",
+  "publisher": "vscode-agent-bridge-tests",
+  "engines": {
+    "vscode": "^1.95.0"
+  }
+}

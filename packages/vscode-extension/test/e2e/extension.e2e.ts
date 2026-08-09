@@ -24,6 +24,10 @@ suite("VS Code Agent Bridge Extension Host", function () {
       (candidate) => candidate.id.toLowerCase() === "haiyang-bian.vscode-agent-bridge",
     );
     assert.ok(extension, "the extension under development should be installed");
+    if (process.env.VSCODE_AGENT_BRIDGE_EXPECT_PACKAGED === "1") {
+      assert.match(extension.extensionPath.replaceAll("\\", "/"), /\.vscode-test\/extensions\//iu);
+      assert.equal(extension.packageJSON.version, "0.2.0");
+    }
     await extension.activate();
 
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
