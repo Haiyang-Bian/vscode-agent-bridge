@@ -8,6 +8,7 @@ import {
   MCP_TOOL_NAMES,
 } from "@vscode-agent-bridge/protocol";
 import { sha256File } from "./lib/hash.ts";
+import { resolveReleaseTag } from "./lib/release-environment.ts";
 
 const repositoryRoot = path.resolve(import.meta.dir, "..");
 const extensionRoot = path.join(repositoryRoot, "packages", "vscode-extension");
@@ -75,7 +76,7 @@ assert(
   "The v0.2.0 MCP surface must remain read-only and IDE-native.",
 );
 
-const releaseTag = process.env.RELEASE_TAG ?? process.env.GITHUB_REF_NAME;
+const releaseTag = resolveReleaseTag(process.env);
 if (releaseTag) {
   assert(releaseTag === `v${BRIDGE_RELEASE_VERSION}`, `Tag ${releaseTag} does not match the release.`);
 }
