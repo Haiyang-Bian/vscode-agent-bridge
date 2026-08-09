@@ -168,6 +168,9 @@ async function maybeOfferCodexSetup(
   context: vscode.ExtensionContext,
   output: vscode.LogOutputChannel,
 ): Promise<void> {
+  if (process.env.VSCODE_AGENT_BRIDGE_E2E === "1") {
+    return;
+  }
   if (process.platform !== "win32" || process.arch !== "x64") {
     return;
   }

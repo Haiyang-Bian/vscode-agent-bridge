@@ -68,6 +68,7 @@
   },
   "scripts": {
     "build": "bun build src/extension.ts --outdir dist --target node --format cjs --external vscode --sourcemap=external",
+    "build:test:e2e": "bun build ./test/e2e/extension.e2e.ts --outdir=dist-test/e2e --target=node --format=cjs --external=vscode",
     "typecheck": "tsc --project tsconfig.json"
   },
   "dependencies": {
