@@ -16,7 +16,7 @@ const acceptanceSource = path.join(
   repositoryRoot,
   "docs",
   "acceptance",
-  "windows-x64-cross-machine.md",
+  `v${BRIDGE_RELEASE_VERSION}-windows-x64.md`,
 );
 const acceptanceDestination = path.join(bundleDirectory, "ACCEPTANCE.md");
 

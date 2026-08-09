@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Security fixes are provided for the latest Marketplace release. During the initial release cycle, `0.2.x` is the supported line.
+Security fixes are provided for the latest side-loaded candidate while Marketplace publication remains disabled. During this cycle, `0.3.x` is the supported line.
 
 ## Reporting a vulnerability
 
@@ -12,4 +12,6 @@ Include the extension version, Windows and VS Code versions, reproduction steps,
 
 ## Security boundary
 
-Version `0.2.0` is local-only and read-only. It does not expose terminal execution, generic VS Code commands, filesystem mutation or editor mutation. Remote extension hosts are rejected. Authentication tokens and IPC endpoints remain in local descriptor files and are excluded from public MCP results and Doctor output.
+Version `0.3.0` is local-only. It does not expose terminal execution, generic VS Code commands, filesystem APIs, Git commands or file resource operations. Text mutation requires a trusted workspace, a user-started experiment, explicit instance and session IDs, Codex write approval, and fresh version plus content-hash preconditions. Authentication material, IPC endpoints, experiment content and absolute paths are excluded from public results, errors and Doctor output.
+
+Experiment snapshots can contain source code and remain only in VS Code `globalStorageUri`; they are not synchronized or uploaded by this extension. Restore and Finalize refuse incomplete resource-level coverage. Remote extension hosts are rejected.

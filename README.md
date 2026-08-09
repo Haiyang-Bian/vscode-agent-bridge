@@ -1,23 +1,40 @@
 # VS Code Agent Bridge
 
-VS Code Agent Bridge connects local MCP clients such as Codex to IDE-native, read-only VS Code state. It is intentionally split into two runtime layers: a standalone STDIO MCP server and a VS Code desktop extension. `packages/protocol` contains their shared RPC contracts and is not a third service.
+VS Code Agent Bridge connects local MCP clients such as Codex to IDE-native VS Code state. It has two runtime layers: a standalone STDIO MCP server and a VS Code desktop extension. `packages/protocol` contains their shared RPC contracts and is not a third service.
 
-The `0.2.0` release targets Windows x64. VSIX and future Marketplace users do not need Bun, Node.js, or this repository: the platform-specific package contains a Bun-compiled MCP executable and the extension installs a versioned copy on explicit request.
+The unpublished `0.3.0` candidate targets Windows x64 and is distributed as a side-loaded VSIX. Testers do not need Bun, Node.js or this repository: the package contains a Bun-compiled MCP executable and installs a versioned copy only after explicit confirmation.
 
-## Read-only tools
+## MCP tools
 
 | Tool | Purpose |
 | --- | --- |
 | `vscode_list_instances` | Discover live local VS Code windows without exposing credentials or IPC endpoints. |
-| `vscode_get_editor_context` | Read active/visible editor, selection, dirty state, document version, trust and workspace context. |
-| `vscode_read_document` | Read a VS Code buffer, including unsaved content, with bounded range and truncation metadata. |
+| `vscode_get_editor_context` | Read editor, selection, dirty state, document version, trust and workspace context. |
+| `vscode_read_document` | Read a VS Code buffer, including unsaved content, with bounds and truncation metadata. |
 | `vscode_get_diagnostics` | Read normalized active-document, document or workspace diagnostics. |
 | `vscode_get_document_symbols` | Read a flattened symbol tree with stable hierarchy fields. |
 | `vscode_get_definitions` | Resolve definitions for an explicit URI and zero-based position. |
 | `vscode_get_references` | Resolve sorted, deduplicated references. |
 | `vscode_get_hover` | Read bounded hover text with command links redacted. |
+| `vscode_get_experiment` | Read active experiment lifecycle, health and accepted candidate. |
+| `vscode_list_experiment_checkpoints` | Read bounded checkpoint history and verification evidence. |
+| `vscode_prepare_text_edits` | Validate an expiring, one-use multi-document text Change Set without changing buffers. |
+| `vscode_prepare_rename` | Ask the fixed VS Code rename provider for a text-only Change Set. |
+| `vscode_apply_change_set` | Revalidate versions and hashes, then atomically apply text edits to dirty buffers. |
+| `vscode_record_experiment_evidence` | Attach explicitly client-reported test, build or lint evidence. |
 
-There is no generic VS Code command tool, terminal tool, filesystem wrapper or editor mutation in this release. Remote SSH, WSL, Dev Containers, Codespaces and non-Windows platforms are not supported by `0.2.0`.
+The original read tools and experiment-history tools are read-only. Preparing a Change Set is side-effect-free but non-idempotent because it issues a short-lived capability. Applying and recording evidence require Codex write approval plus explicit `instanceId` and `sessionId`. There is no generic VS Code command, terminal, filesystem or Git tool.
+
+## Recoverable experiments
+
+Run **VS Code Agent Bridge: Start Agent Experiment** in a trusted local workspace before asking an Agent to edit. Experiments keep content-addressed, gzip-compressed text snapshots in VS Code extension storage, separate from the repository and Settings Sync. Agent Apply, manual edits, saves, external changes, explicit checkpoints and Git HEAD changes remain distinct events.
+
+- Saving is not acceptance; a checkpoint is not a Git commit.
+- Agent changes remain dirty until the user saves them.
+- Restore creates a safety checkpoint and restores only editor buffers; it never saves.
+- Finalize requires saved current content to match the accepted checkpoint and never stages or commits.
+- Resource creation, deletion and rename are observed, but v0.3 whole-session restore refuses those cases.
+- Retention defaults to 30 days or 500 MB. Active, pinned and corrupt sessions are not auto-deleted.
 
 ## Repository layout
 
@@ -28,7 +45,7 @@ packages/
   vscode-extension/  VS Code desktop UI extension and installer
 scripts/             Bun build, test, package and release verification
 docs/adr/            architecture and security decisions
-docs/acceptance/     clean-machine Windows acceptance procedure
+docs/acceptance/     clean-machine Windows acceptance procedures
 ```
 
 ## Development
@@ -45,16 +62,16 @@ bun run package:test-bundle
 bun run test:artifact
 ```
 
-`bun run check` performs type checking, Bun unit/contract tests and workspace builds. `test:e2e` runs the extension inside an isolated real VS Code Extension Host. `package:vsix` compiles the Windows x64 baseline EXE, packages a platform-specific VSIX and audits its contents. `package:test-bundle` creates a checksum-protected archive for a different Windows x64 computer. Generated release files are written to `artifacts/`.
+`bun run check` performs type checking, Bun unit/contract tests and workspace builds. `test:e2e` runs an isolated real VS Code Extension Host. `package:vsix` compiles the Windows x64 baseline EXE, packages a platform VSIX and audits its contents. Generated release files are written to `artifacts/`.
 
 ## Release
 
-Pull requests and `master` run [CI](.github/workflows/ci.yml). A `v0.2.0` tag runs [the release workflow](.github/workflows/release.yml), creates SHA-256 checksums, a cross-machine test bundle and provenance, and publishes a GitHub Release. Marketplace publishing is disabled by default and runs through `vsce --oidc` only when the repository variable `MARKETPLACE_TRUSTED_PUBLISHING_ENABLED` is explicitly set to `true`.
+Pull requests and `master` run [CI](.github/workflows/ci.yml). A version tag runs [the release workflow](.github/workflows/release.yml), creates checksums, a version-specific cross-machine test bundle and provenance, and publishes a GitHub Release. Marketplace publishing remains disabled and runs through `vsce --oidc` only if `MARKETPLACE_TRUSTED_PUBLISHING_ENABLED` is explicitly set to `true`.
 
-Publisher creation and the Marketplace Trusted Publishing policy are one-time account operations; no PAT is stored in this repository. See [the release checklist](docs/releases/v0.2.0.md) and [cross-machine acceptance prompt](docs/acceptance/windows-x64-cross-machine.md).
+No PAT is stored in this repository. See the [v0.3 release checklist](docs/releases/v0.3.0.md) and [v0.3 cross-machine acceptance prompt](docs/acceptance/v0.3.0-windows-x64.md).
 
 ## Security and license
 
-The extension uses a per-window random identifier and token over local IPC. Descriptor files are atomically replaced, live-probed and never returned through MCP with authentication material. Codex configuration changes are marker-scoped, TOML-validated, backed up and atomically replaced.
+The extension uses a per-window random identifier and token over local IPC. Descriptor files are atomically replaced and live-probed. Codex configuration changes are marker-scoped, TOML-validated, backed up and atomically replaced. Experiment content never appears in Doctor output.
 
 Report vulnerabilities according to [SECURITY.md](SECURITY.md). This project is licensed under the [MIT License](LICENSE).

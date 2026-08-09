@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { BRIDGE_RELEASE_VERSION } from "@vscode-agent-bridge/protocol";
+
 const repositoryRoot = path.resolve(import.meta.dir, "..");
 const outputDirectory = path.join(
   repositoryRoot,
@@ -25,7 +27,7 @@ const result = await Bun.build({
       title: "VS Code Agent Bridge MCP",
       description: "Authenticated local MCP bridge for VS Code",
       publisher: "Alice Lin",
-      version: "0.2.0.0",
+      version: `${BRIDGE_RELEASE_VERSION}.0`,
     },
   },
   minify: true,

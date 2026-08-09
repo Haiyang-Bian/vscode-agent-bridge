@@ -102,10 +102,13 @@ jobs:
           path: artifacts
 
       - name: Publish VSIX to Marketplace with OIDC
-        run: >-
-          node node_modules/@vscode/vsce/vsce publish
-          --packagePath artifacts/vscode-agent-bridge-0.2.0-win32-x64.vsix
-          --oidc
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          RELEASE_VERSION="${RELEASE_TAG#v}"
+          node node_modules/@vscode/vsce/vsce publish \
+            --packagePath "artifacts/vscode-agent-bridge-${RELEASE_VERSION}-win32-x64.vsix" \
+            --oidc
 
   github-release:
     needs: build
@@ -129,5 +132,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
+          $releaseVersion = $env:GITHUB_REF_NAME.TrimStart('v')
           $releaseFiles = Get-ChildItem -LiteralPath artifacts -File | ForEach-Object { $_.FullName }
-          gh release create $env:GITHUB_REF_NAME @releaseFiles --verify-tag --title "VS Code Agent Bridge 0.2.0" --notes-file docs/releases/v0.2.0.md
+          gh release create $env:GITHUB_REF_NAME @releaseFiles --verify-tag --title "VS Code Agent Bridge $releaseVersion" --notes-file "docs/releases/v$releaseVersion.md"

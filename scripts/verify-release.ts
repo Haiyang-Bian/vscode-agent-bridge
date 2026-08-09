@@ -60,7 +60,7 @@ assert(
   Array.isArray(extensionManifest.extensionKind) && extensionManifest.extensionKind.includes("ui"),
   "Extension must run as a desktop UI extension.",
 );
-assert(MCP_TOOL_NAMES.length === 8, "The release must expose exactly eight MCP tools.");
+assert(MCP_TOOL_NAMES.length === 14, "The v0.3 release must expose exactly fourteen MCP tools.");
 assert(
   rootDevDependencies["@vscode/vsce"] === "3.9.3-4",
   "The release must pin the verified OIDC-capable vsce build exactly.",
@@ -70,10 +70,18 @@ assert(
   "The installed vsce does not implement trusted publishing with --oidc.",
 );
 assert(
-  MCP_TOOL_NAMES.every(
-    (name) => !/(^|_)(write|edit|rename|command|terminal|shell|execute)(_|$)/iu.test(name),
-  ),
-  "The v0.2.0 MCP surface must remain read-only and IDE-native.",
+  MCP_TOOL_NAMES.every((name) => name.startsWith("vscode_")) &&
+    MCP_TOOL_NAMES.every((name) => !/(terminal|shell|execute_command|filesystem|git_)/iu.test(name)),
+  "The MCP surface must remain IDE-native and must not expose shell, filesystem or Git commands.",
+);
+assert(
+  [
+    "vscode_prepare_text_edits",
+    "vscode_prepare_rename",
+    "vscode_apply_change_set",
+    "vscode_record_experiment_evidence",
+  ].every((name) => MCP_TOOL_NAMES.includes(name)),
+  "The guarded mutation surface is not the expected prepare/apply workflow.",
 );
 
 const releaseTag = resolveReleaseTag(process.env);
@@ -102,7 +110,7 @@ if (requireArtifacts) {
 }
 
 console.log(
-  `Release ${BRIDGE_RELEASE_VERSION} verified (${MCP_TOOL_NAMES.length} read-only tools, protocol v${BRIDGE_PROTOCOL_VERSION}).`,
+  `Release ${BRIDGE_RELEASE_VERSION} verified (${MCP_TOOL_NAMES.length} bounded IDE tools, protocol v${BRIDGE_PROTOCOL_VERSION}).`,
 );
 
 async function auditVsix(archivePath: string): Promise<void> {
@@ -114,6 +122,7 @@ async function auditVsix(archivePath: string): Promise<void> {
     "extension/package.json",
     "extension/dist/extension.js",
     "extension/resources/icon.png",
+    "extension/resources/experiment.svg",
     "extension/resources/bin/vscode-agent-bridge-mcp.exe",
     "extension/resources/bin/vscode-agent-bridge-mcp.exe.sha256",
     "extension/readme.md",

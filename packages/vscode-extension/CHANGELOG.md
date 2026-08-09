@@ -1,5 +1,15 @@
 # Change Log
 
+## 0.3.0 - 2026-08-09
+
+- Added recoverable local Agent experiments with content-addressed snapshots, immutable events, leases, retention and crash recovery.
+- Added native history, evidence, snapshot diffs, accepted candidates, guarded restore, pinning, deletion and Finalize without Git commits.
+- Added expiring, one-use text Change Sets with version plus SHA-256 preconditions and atomic multi-document application.
+- Added text-only rename through the fixed VS Code provider; resource operations remain forbidden.
+- Added six MCP tools for experiments, Change Sets and explicitly client-reported evidence.
+- Added protocol v3 hashes/timestamps, stable experiment errors, Doctor storage summaries and trusted-workspace enforcement.
+- Extended real Extension Host tests through stale all-or-nothing rejection, rename, evidence, restore and Finalize while verifying Git HEAD is unchanged.
+
 ## 0.2.0 - 2026-08-09
 
 - Added a Bun-compiled Windows x64 baseline MCP executable bundled in the platform VSIX.
