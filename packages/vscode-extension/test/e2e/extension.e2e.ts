@@ -21,7 +21,7 @@ suite("VS Code Agent Bridge Extension Host", function () {
 
   test("serves unsaved text, diagnostics, symbols, navigation, and hover", async () => {
     const extension = vscode.extensions.all.find(
-      (candidate) => candidate.id.toLowerCase() === "haiyang-bian.vscode-agent-bridge",
+      (candidate) => candidate.id.toLowerCase() === "alicelin.vscode-agent-bridge",
     );
     assert.ok(extension, "the extension under development should be installed");
     if (process.env.VSCODE_AGENT_BRIDGE_EXPECT_PACKAGED === "1") {

@@ -24,7 +24,7 @@ const result = await Bun.build({
     windows: {
       title: "VS Code Agent Bridge MCP",
       description: "Authenticated local MCP bridge for VS Code",
-      publisher: "Haiyang-Bian",
+      publisher: "Alice Lin",
       version: "0.2.0.0",
     },
   },

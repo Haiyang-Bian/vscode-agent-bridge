@@ -53,7 +53,7 @@ for (const { relativePath, manifest } of manifests) {
 
 const extensionManifest = manifests.at(-1)!.manifest;
 const rootDevDependencies = manifests[0]!.manifest.devDependencies as Record<string, unknown>;
-assert(extensionManifest.publisher === "Haiyang-Bian", "Extension publisher is not Haiyang-Bian.");
+assert(extensionManifest.publisher === "AliceLin", "Extension publisher is not AliceLin.");
 assert(extensionManifest.license === "MIT", "Extension license is not MIT.");
 assert(extensionManifest.private === undefined, "Published extension must not be private.");
 assert(

@@ -6,7 +6,7 @@ Connect Codex to the IDE-native, read-only state of your local VS Code windows.
 
 ## Setup
 
-1. Install `Haiyang-Bian.vscode-agent-bridge` from the VS Code Marketplace.
+1. Install `AliceLin.vscode-agent-bridge` from the VS Code Marketplace.
 2. Run **VS Code Agent Bridge: Configure Codex** from the Command Palette.
 3. Review and confirm the exact operation. The extension installs its versioned MCP executable and updates only its marked block in `~/.codex/config.toml`.
 4. Restart Codex, then ask it to call `vscode_list_instances`.

@@ -3,7 +3,7 @@
   "displayName": "VS Code Agent Bridge",
   "description": "Expose IDE-native VS Code context to local MCP clients through an authenticated bridge.",
   "version": "0.2.0",
-  "publisher": "Haiyang-Bian",
+  "publisher": "AliceLin",
   "license": "MIT",
   "icon": "resources/icon.png",
   "pricing": "Free",

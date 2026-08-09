@@ -12,8 +12,14 @@ const vsixPath = path.join(
   `vscode-agent-bridge-${BRIDGE_RELEASE_VERSION}-win32-x64.vsix`,
 );
 const registryDirectory = await mkdtemp(path.join(os.tmpdir(), "vscode-agent-bridge-vsix-e2e-"));
+const testCacheDirectory = path.resolve(extensionRoot, ".vscode-test");
+const isolatedProfilePaths = [
+  path.join(testCacheDirectory, "extensions"),
+  path.join(testCacheDirectory, "user-data"),
+];
 
 try {
+  await resetIsolatedProfile();
   await run(["bun", "run", "build:test:e2e"], extensionRoot);
   await run(
     [
@@ -33,7 +39,19 @@ try {
     },
   );
 } finally {
-  await rm(registryDirectory, { recursive: true, force: true });
+  await Promise.all([
+    rm(registryDirectory, { recursive: true, force: true }),
+    resetIsolatedProfile(),
+  ]);
+}
+
+async function resetIsolatedProfile(): Promise<void> {
+  for (const candidate of isolatedProfilePaths) {
+    if (path.dirname(path.resolve(candidate)) !== testCacheDirectory) {
+      throw new Error(`Refusing to remove a VS Code test profile outside ${testCacheDirectory}.`);
+    }
+    await rm(candidate, { recursive: true, force: true });
+  }
 }
 
 async function run(

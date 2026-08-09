@@ -4,7 +4,7 @@ Run this only after `0.2.0` is visible in the VS Code Marketplace. Use a differe
 
 ## Human setup
 
-1. Install publisher `Haiyang-Bian` extension `vscode-agent-bridge` from Marketplace.
+1. Install publisher `AliceLin` (`Alice Lin`) extension `vscode-agent-bridge` from Marketplace.
 2. Open an ordinary project unrelated to VS Code Agent Bridge.
 3. Run **VS Code Agent Bridge: Configure Codex**, confirm, and restart Codex.
 4. Start a new Codex task on that computer and paste the prompt below.
