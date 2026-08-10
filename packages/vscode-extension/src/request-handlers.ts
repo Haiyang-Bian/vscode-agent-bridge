@@ -21,6 +21,7 @@ import {
   ExperimentInfoSchema,
   FormatDocumentParamsSchema,
   FormatDocumentResultSchema,
+  GetWorkspaceSetupParamsSchema,
   ListExperimentCheckpointsParamsSchema,
   ListCodeActionsParamsSchema,
   ListCodeActionsResultSchema,
@@ -37,6 +38,7 @@ import {
   RecordExperimentEvidenceParamsSchema,
   SaveDocumentParamsSchema,
   SaveDocumentResultSchema,
+  WorkspaceSetupResultSchema,
 } from "@vscode-agent-bridge/protocol";
 
 import { ChangeSetManager } from "./change-set-manager.js";
@@ -49,6 +51,7 @@ import {
   assertTerminalMetadataAllowed,
 } from "./policies.js";
 import { TerminalObserver } from "./terminal-observer.js";
+import { WorkspaceOnboardingService } from "./workspace-onboarding.js";
 import {
   getDefinitions,
   getDiagnostics,
@@ -110,6 +113,20 @@ export function createRequestHandlers(instanceId: string): ReadonlyMap<string, B
       BRIDGE_METHODS.getHover,
       async (params) =>
         HoverResultSchema.parse(await getHover(instanceId, HoverParamsSchema.parse(params))),
+    ],
+  ]);
+}
+
+export function createWorkspaceRequestHandlers(
+  onboarding: WorkspaceOnboardingService,
+): ReadonlyMap<string, BridgeRequestHandler> {
+  return new Map<string, BridgeRequestHandler>([
+    [
+      BRIDGE_METHODS.getWorkspaceSetup,
+      async (params) =>
+        WorkspaceSetupResultSchema.parse(
+          await onboarding.getSetup(GetWorkspaceSetupParamsSchema.parse(params)),
+        ),
     ],
   ]);
 }

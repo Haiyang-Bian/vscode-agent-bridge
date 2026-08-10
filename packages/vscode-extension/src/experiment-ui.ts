@@ -1,10 +1,15 @@
 import * as vscode from "vscode";
 
-import { BridgeError, type ExperimentCheckpoint } from "@vscode-agent-bridge/protocol";
+import {
+  BridgeError,
+  MAX_AGENT_EXPERIMENT_TITLE_CHARACTERS,
+  type ExperimentCheckpoint,
+} from "@vscode-agent-bridge/protocol";
 
 import { ExperimentManager } from "./experiment-manager.js";
 import type { ExperimentManifest, StoredCheckpoint } from "./experiment-store.js";
 import { getAutonomyProfile } from "./policies.js";
+import { WorkspaceOnboardingService } from "./workspace-onboarding.js";
 
 const SNAPSHOT_SCHEME = "vscode-agent-bridge-snapshot";
 const VIEW_ID = "vscodeAgentBridge.experimentsView";
@@ -36,6 +41,7 @@ interface MessageNode {
 export function registerExperimentUi(
   context: vscode.ExtensionContext,
   experiments: ExperimentManager,
+  onboarding: WorkspaceOnboardingService,
   output: vscode.LogOutputChannel,
 ): void {
   const provider = new ExperimentTreeProvider(experiments);
@@ -90,20 +96,23 @@ export function registerExperimentUi(
           validateInput: (value) =>
             value.trim().length === 0
               ? "Experiment title is required."
-              : value.length > 120
-                ? "Experiment title must be at most 120 characters."
+              : value.length > MAX_AGENT_EXPERIMENT_TITLE_CHARACTERS
+                ? `Experiment title must be at most ${MAX_AGENT_EXPERIMENT_TITLE_CHARACTERS} characters.`
                 : undefined,
         });
         if (!title) {
           return;
         }
-        const confirmation = await vscode.window.showWarningMessage(
-          `Start a local recovery journal for ${folder.name}? Snapshots can contain source code and are retained locally for up to 30 days or 500 MB.`,
-          { modal: true },
-          "Start Experiment",
-        );
-        if (confirmation !== "Start Experiment") {
-          return;
+        const enabledNow = await onboarding.ensureEnabled(folder, title.trim(), "user");
+        if (!enabledNow) {
+          const confirmation = await vscode.window.showWarningMessage(
+            `Start a local recovery journal for ${folder.name}? Snapshots can contain source code and are retained locally for up to 30 days or 500 MB.`,
+            { modal: true },
+            "Start Experiment",
+          );
+          if (confirmation !== "Start Experiment") {
+            return;
+          }
         }
         const experiment = await experiments.startWorkspaceExperiment({
           title: title.trim(),

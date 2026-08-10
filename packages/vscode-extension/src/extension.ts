@@ -26,8 +26,10 @@ import {
   createExperimentRequestHandlers,
   createIdeAutonomyRequestHandlers,
   createTerminalRequestHandlers,
+  createWorkspaceRequestHandlers,
 } from "./request-handlers.js";
 import { TerminalObserver } from "./terminal-observer.js";
+import { WorkspaceOnboardingService } from "./workspace-onboarding.js";
 
 let activeHost: BridgeHost | undefined;
 let activeExperimentManager: ExperimentManager | undefined;
@@ -39,6 +41,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const output = vscode.window.createOutputChannel("VS Code Agent Bridge", { log: true });
   const host = new BridgeHost(output);
   const experiments = new ExperimentManager(context, host.instanceId, output);
+  const onboarding = new WorkspaceOnboardingService(host.instanceId);
   const changeSets = new ChangeSetManager(host.instanceId, experiments);
   const managed = new ManagedWorktreeManager(experiments);
   const terminals = new TerminalObserver(host.instanceId);
@@ -46,6 +49,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   host.registerRequestHandlers(
     createExperimentRequestHandlers(host.instanceId, experiments, changeSets),
   );
+  host.registerRequestHandlers(createWorkspaceRequestHandlers(onboarding));
   host.registerRequestHandlers(createTerminalRequestHandlers(terminals));
   host.registerRequestHandlers(createIdeAutonomyRequestHandlers(ideAutonomy));
   await experiments.initialize();
@@ -53,7 +57,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   activeHost = host;
   activeExperimentManager = experiments;
   activeTerminalObserver = terminals;
-  registerExperimentUi(context, experiments, output);
+  registerExperimentUi(context, experiments, onboarding, output);
   registerManagedWorktreeUi(context, managed, output);
   registerAcceptanceFixtureProvider(context);
   registerE2ECommands(context, experiments, managed);
@@ -79,6 +83,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("vscodeAgentBridge.configureAgentPolicies", async () => {
       await configureAgentPoliciesCommand();
+    }),
+    vscode.commands.registerCommand("vscodeAgentBridge.configureWorkspaceExperiment", async () => {
+      await onboarding.configureInteractively();
     }),
     vscode.commands.registerCommand("vscodeAgentBridge.removeCodexConfiguration", async () => {
       await removeCodexCommand(output);
