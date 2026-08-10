@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { BRIDGE_RELEASE_VERSION } from "@vscode-agent-bridge/protocol";
 
 import { BridgeHost } from "./bridge-host.js";
+import { registerBridgeHubUi } from "./bridge-hub-ui.js";
 import { AgentActivityTracker } from "./agent-activity.js";
 import { registerAgentActivityUi } from "./agent-activity-ui.js";
 import { AgentEditorVisibility } from "./agent-editor-visibility.js";
@@ -104,6 +105,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   registerExperimentUi(context, experiments, onboarding, output);
   registerAgentActivityUi(context, activity);
   registerManagedWorktreeUi(context, managed, output);
+  registerBridgeHubUi(context, { host, experiments, terminals, tasks, debug });
   registerAcceptanceFixtureProvider(context);
   registerE2ECommands(context, experiments, managed, onboarding, activity);
 
