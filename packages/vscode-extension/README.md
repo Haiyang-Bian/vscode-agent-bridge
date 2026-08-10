@@ -2,7 +2,7 @@
 
 Connect Codex to guarded IDE workflow autonomy, recoverable Agent experiments, VS Code Tasks, bounded debugging and read-only terminal observation in local VS Code windows.
 
-`0.8.0` is an unpublished Windows x64 desktop candidate distributed by side-loaded VSIX and upgrades directly over `0.7.0`. The package contains a standalone MCP server, so testers do not need Bun, Node.js or the source repository.
+`0.9.0` is an unpublished Windows x64 desktop candidate distributed by side-loaded VSIX and upgrades directly over `0.8.0`. The package contains a standalone MCP server, so testers do not need Bun, Node.js or the source repository.
 
 ## Setup
 
@@ -15,9 +15,11 @@ Configuration creates a timestamped backup when the file exists, refuses malform
 
 ## Bridge and experiment workflow
 
-The bridge exposes 44 bounded IDE tools. v0.8 adds an authoritative classified capability catalog and privacy-preserving local usage insights on top of the v0.7 JSONC/resource, Task and fixed-whitelist Debug workflows. Starting an experiment still triggers first-use workspace onboarding. Agent acceptance, restore, Finalize, abandon, deletion and all Managed Worktree actions remain unavailable through MCP.
+The bridge exposes 53 bounded IDE tools. v0.9 adds read-only extension reflection, Problems-event summaries, coverage-aware Output discovery and captured Debug Console output on top of the v0.8 Hub and privacy-preserving insights. Starting an experiment still triggers first-use workspace onboarding. Agent acceptance, restore, Finalize, abandon, deletion and all Managed Worktree actions remain unavailable through MCP.
 
 The Activity Bar container is named **VS Code Agent Bridge** and presents Overview, Experiments, Agent Activity, Capabilities and Usage Insights as native views. Local insight events contain only tool/category, outcome, timing and size buckets, truncation and stable error codes. They never contain parameters, results, paths, source, hashes, terminal output, debug expressions/values, environment variables or credentials; they remain local for 30 days with a 20 MiB cap and can be cleared or exported as aggregates.
+
+Installed extensions and manifest contributions can be inspected without activating the extension, reading exports or executing contributed commands. Profile name/ID are reported as unavailable because stable VS Code APIs do not expose them. Problems events are summary-only and memory-bound. Output reads require an already opened Output document; the Bridge never forces channel selection or reads private logs. Debug Console capture starts with Bridge activation, discards telemetry and variable/evaluate data, sanitizes controls and reports bounded-loss coverage.
 
 - The machine master switch stops RPC and removes the instance descriptor when disabled.
 - `explicit` rejects delayed execution such as folder-open Tasks.
@@ -55,9 +57,9 @@ Source, issues, checksums and release artifacts are available at [GitHub](https:
 
 # 中文说明
 
-VS Code Agent Bridge 将 Codex 连接到本机 VS Code 的 IDE 原生状态，提供受实验保护的配置/资源修改、VS Code Tasks、受限调试和终端只读观测。`0.8.0` 是暂未发布 Marketplace 的 Windows x64 候选版本，可直接覆盖升级 `0.7.0`；旁加载测试不需要 Bun、Node.js 或源码。
+VS Code Agent Bridge 将 Codex 连接到本机 VS Code 的 IDE 原生状态，提供受实验保护的配置/资源修改、VS Code Tasks、受限调试和终端只读观测。`0.9.0` 是暂未发布 Marketplace 的 Windows x64 候选版本，可直接覆盖升级 `0.8.0`；旁加载测试不需要 Bun、Node.js 或源码。
 
-侧栏现在以插件全名 **VS Code Agent Bridge** 展示 Overview、Experiments、Agent Activity、Capabilities 和 Usage Insights。44 个工具的名称、分类、注解、恢复边界和敏感级别来自同一权威目录。使用洞察只在本机保存工具名/类别、结果状态、粗粒度延迟与消息大小、截断和稳定错误码，绝不记录参数、结果、路径、源码、哈希、终端内容、调试值、环境变量或凭据；默认保留 30 天且总量不超过 20 MiB，可由用户清除或导出聚合报告。
+侧栏以插件全名 **VS Code Agent Bridge** 展示 Overview、Experiments、Agent Activity、Capabilities 和 Usage Insights。53 个工具的名称、分类、注解、恢复边界和敏感级别来自同一权威目录。v0.9 可以在不激活插件、不访问 exports、不执行贡献命令的前提下盘点已安装插件及其 manifest 能力；Problems 变化只保留内存摘要；Output 只读取用户已经打开的文档；Debug Console 只捕获激活后的净化输出并丢弃 telemetry、表达式和变量数据。稳定 API 无法提供的 Profile 名称/ID 会明确返回不可用。
 
 安装后先运行 **Configure Bridge**。机器总开关默认启用；`explicit`（默认）只允许运行 MCP 当前明确请求的工作流，`aggressive` 才允许 folder-open Task 等延迟效果。工具审批由 Codex、用户配置或监督 Agent 根据 MCP 注解决定，**Configure Codex** 不再写审批档位。旧版显式限制策略不会被静默扩权，升级后必须由用户选择。
 

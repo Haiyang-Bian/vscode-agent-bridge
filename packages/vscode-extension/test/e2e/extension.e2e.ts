@@ -1387,6 +1387,14 @@ async function exerciseExtensionAwareness(
         extension.extensionId.toLowerCase() === "alicelin.vscode-agent-bridge" && extension.active,
     ),
   );
+  const inactive = extensions.extensions.find((extension) => !extension.active);
+  if (inactive) {
+    assert.equal(vscode.extensions.getExtension(inactive.extensionId)?.isActive, false);
+    await client.request(BRIDGE_METHODS.getExtensionDetails, {
+      extensionId: inactive.extensionId,
+    });
+    assert.equal(vscode.extensions.getExtension(inactive.extensionId)?.isActive, false);
+  }
   const details = await client.request<{
     extension: { extensionId: string; active: boolean };
     commands: Array<{ command: string }>;
@@ -1428,6 +1436,7 @@ async function exerciseExtensionAwareness(
   assert.equal(diagnosticEvents.coverage, "sinceActivation");
 
   const output = vscode.window.createOutputChannel("VS Code Agent Bridge visible E2E output");
+  let visibleSourceId: string | undefined;
   try {
     output.appendLine(VISIBLE_OUTPUT_MARKER);
     output.show(true);
@@ -1446,7 +1455,10 @@ async function exerciseExtensionAwareness(
           BRIDGE_METHODS.readVisibleOutput,
           { sourceId: source.sourceId, cursor: 0, maxChars: 65_536 },
         );
-        if (page.text.includes(VISIBLE_OUTPUT_MARKER)) return page;
+        if (page.text.includes(VISIBLE_OUTPUT_MARKER)) {
+          visibleSourceId = source.sourceId;
+          return page;
+        }
       }
       return undefined;
     }, "visible Output document discovery");
@@ -1454,6 +1466,20 @@ async function exerciseExtensionAwareness(
     assert.equal(visible.coverage, "visible");
   } finally {
     output.dispose();
+  }
+  if (visibleSourceId) {
+    await waitFor(async () => {
+      try {
+        await client.request(BRIDGE_METHODS.readVisibleOutput, {
+          sourceId: visibleSourceId,
+          cursor: 0,
+          maxChars: 65_536,
+        });
+        return undefined;
+      } catch (error) {
+        return isBridgeError("OUTPUT_NOT_VISIBLE")(error) ? true : undefined;
+      }
+    }, "closed Output document refusal");
   }
 }
 

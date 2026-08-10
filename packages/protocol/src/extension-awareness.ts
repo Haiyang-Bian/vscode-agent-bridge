@@ -191,7 +191,7 @@ export const ReadVisibleOutputParamsSchema = z
   .object({
     sourceId: z.string().min(1).max(500),
     cursor: CursorSchema.default(0),
-    maxChars: z.number().int().positive().max(MAX_TERMINAL_OUTPUT_CHARACTERS).default(65_536),
+    maxChars: z.number().int().min(1_024).max(MAX_TERMINAL_OUTPUT_CHARACTERS).default(65_536),
   })
   .strict();
 export const ReadVisibleOutputInputSchema = ReadVisibleOutputParamsSchema.extend({
@@ -285,7 +285,7 @@ export const ReadDebugOutputParamsSchema = z
   .object({
     debugSessionId: z.string().min(1).max(500),
     cursor: CursorSchema.default(0),
-    maxChars: z.number().int().positive().max(MAX_TERMINAL_OUTPUT_CHARACTERS).default(65_536),
+    maxChars: z.number().int().min(1_024).max(MAX_TERMINAL_OUTPUT_CHARACTERS).default(65_536),
     categories: z.array(DebugOutputCategorySchema).max(4).optional(),
   })
   .strict();

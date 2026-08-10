@@ -46,4 +46,33 @@ describe("Debug Console output capture", () => {
     now += 1_001;
     expect(store.list({ offset: 0, limit: 20, includeTerminated: true }).sessions).toEqual([]);
   });
+
+  test("preserves large output across cursor pages", () => {
+    const store = new DebugOutputCaptureStore(INSTANCE_ID);
+    const output = "x".repeat(2_400);
+    store.start("debug-pages", "Paged debug", null);
+    store.append("debug-pages", "console", output, null, null, null);
+
+    const first = store.read({
+      debugSessionId: "debug-pages",
+      cursor: 0,
+      maxChars: 1_024,
+    });
+    const second = store.read({
+      debugSessionId: "debug-pages",
+      cursor: first.nextCursor,
+      maxChars: 1_024,
+    });
+    const third = store.read({
+      debugSessionId: "debug-pages",
+      cursor: second.nextCursor,
+      maxChars: 1_024,
+    });
+
+    expect(first.truncated).toBe(true);
+    expect(second.truncated).toBe(true);
+    expect(third.truncated).toBe(false);
+    expect([...first.events, ...second.events, ...third.events].map((event) => event.text).join(""))
+      .toBe(output);
+  });
 });

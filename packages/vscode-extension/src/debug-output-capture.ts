@@ -14,6 +14,7 @@ import { TerminalOutputSanitizer } from "./terminal-capture.js";
 const DEFAULT_SESSION_BYTES = 1_048_576;
 const DEFAULT_WINDOW_BYTES = 8 * 1_048_576;
 const DEFAULT_RETENTION_MS = 15 * 60 * 1_000;
+const MAX_EVENT_CHARACTERS = 1_024;
 
 interface DebugOutputEvent {
   cursor: number;
@@ -99,15 +100,17 @@ export class DebugOutputCaptureStore {
     if (!session) return;
     const text = session.sanitizer.push(rawText);
     if (!text) return;
-    session.events.push({
-      cursor: session.nextCursor++,
-      occurredAt: new Date(this.#now()).toISOString(),
-      category,
-      text,
-      sourcePath,
-      line,
-      character,
-    });
+    for (const chunk of textChunks(text, MAX_EVENT_CHARACTERS)) {
+      session.events.push({
+        cursor: session.nextCursor++,
+        occurredAt: new Date(this.#now()).toISOString(),
+        category,
+        text: chunk,
+        sourcePath,
+        line,
+        character,
+      });
+    }
     this.#trimSession(session, this.#sessionBytes);
     this.#enforceWindowLimit(session);
   }
@@ -151,11 +154,8 @@ export class DebugOutputCaptureStore {
     let characters = 0;
     for (const event of candidates) {
       if (selected.length > 0 && characters + event.text.length > params.maxChars) break;
-      const remaining = params.maxChars - characters;
-      selected.push(
-        event.text.length <= remaining ? event : { ...event, text: event.text.slice(0, remaining) },
-      );
-      characters += selected.at(-1)!.text.length;
+      selected.push(event);
+      characters += event.text.length;
       if (characters >= params.maxChars) break;
     }
     return {
@@ -165,7 +165,7 @@ export class DebugOutputCaptureStore {
       nextCursor: selected.at(-1)?.cursor ?? params.cursor,
       returnedCharacters: characters,
       totalEvents: session.events.length,
-      truncated: selected.length < candidates.length || selected.some((event, index) => event.text.length < candidates[index]!.text.length),
+      truncated: selected.length < candidates.length,
       droppedCharacters: session.droppedCharacters,
       coverage: "sinceActivation",
     };
@@ -231,4 +231,17 @@ function utf8PrefixForBytes(value: string, targetBytes: number): number {
     if (bytesSeen >= targetBytes) break;
   }
   return characters;
+}
+
+function textChunks(value: string, maxCharacters: number): string[] {
+  const chunks: string[] = [];
+  let offset = 0;
+  while (offset < value.length) {
+    let end = Math.min(value.length, offset + maxCharacters);
+    const last = value.charCodeAt(end - 1);
+    if (end < value.length && last >= 0xd800 && last <= 0xdbff) end -= 1;
+    chunks.push(value.slice(offset, end));
+    offset = end;
+  }
+  return chunks;
 }

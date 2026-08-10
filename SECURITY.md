@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Security fixes are provided for the latest side-loaded candidate while Marketplace publication remains disabled. During this cycle, `0.8.x` is the supported line.
+Security fixes are provided for the latest side-loaded candidate while Marketplace publication remains disabled. During this cycle, `0.9.x` is the supported line.
 
 ## Reporting a vulnerability
 
@@ -31,3 +31,5 @@ Tasks can only be executed after workspace enumeration and fingerprint validatio
 Terminal access is observation-only. The MCP surface cannot create, focus, close or write to a terminal and cannot execute a command. Command lines and sanitized output depend on Shell Integration, remain in memory only, are bounded and report incomplete coverage. Untrusted or remote workspaces do not publish the bridge. Raw command lines/output never enter logs, Doctor, experiment snapshots or crash reports.
 
 Version `0.8.0` adds no new workspace mutation. The authoritative catalog is public metadata. Local insight events are written per MCP process and contain only tool/category, timestamps, outcome, coarse latency and message-size buckets, truncation and stable error codes. They never retain parameters, results, paths, source, hashes, terminal content, debug expressions/values, environment variables or credentials; they remain local for at most 30 days and 20 MiB and are never uploaded.
+
+Version `0.9.0` adds read-only extension and IDE-signal awareness. Extension inspection never activates an extension, reads exports or executes contributed commands. The Bridge does not read private Profile storage or private log directories and cannot switch Output Channels. Problems history is a bounded in-memory summary without diagnostic bodies. Debug Console capture accepts only user-visible DAP output categories, sanitizes controls, stores workspace-relative locations, rejects telemetry and never retains raw DAP messages, evaluate expressions or variable values. All Output and Debug results declare visible, captured or since-activation coverage rather than claiming unavailable history.

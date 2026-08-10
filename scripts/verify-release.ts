@@ -162,8 +162,10 @@ assert(
       "vscode_update_breakpoints",
       "vscode_evaluate_debug_expression",
       "vscode_set_debug_variable",
+      "vscode_list_debug_output",
+      "vscode_read_debug_output",
     ].join(","),
-  "The Debug surface must remain the nine bounded launch, state, control and breakpoint tools.",
+  "The Debug surface must remain the eleven bounded launch, state, control, breakpoint and output tools.",
 );
 
 const releaseTag = resolveReleaseTag(process.env);
@@ -235,6 +237,12 @@ async function auditVsix(archivePath: string): Promise<void> {
         !searchable.includes("vscode-agent-bridge-e2e") &&
           !searchable.includes("bridgee2edebugadapter"),
         `Test-only Debug Adapter leaked into ${file}.`,
+      );
+      assert(
+        !/(?:gh[pousr]_[a-z0-9]{30,}|github_pat_[a-z0-9_]{30,}|bearer\s+[a-z0-9._~-]{20,}|"authtoken"\s*:\s*"[a-z0-9_-]{20,}")/iu.test(
+          searchable,
+        ),
+        `Credential-like literal leaked into ${file}.`,
       );
       for (const forbidden of forbiddenMachineStrings) {
         assert(!searchable.includes(forbidden), `Developer machine path leaked into ${file}.`);

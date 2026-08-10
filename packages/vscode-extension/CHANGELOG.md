@@ -1,5 +1,15 @@
 # Change Log
 
+## 0.9.0 - 2026-08-10
+
+- Added nine read-only extension and IDE-signal tools, raising the catalog to 53 tools on protocol v8.
+- Added installed-extension and manifest-contribution reflection without activation, exports access or contributed-command execution.
+- Added stable-API Profile coverage reporting without private Profile storage access.
+- Added a 15-minute, 2,000-event in-memory Problems summary timeline without diagnostic-body persistence.
+- Added coverage-aware Output source discovery and bounded reads of already opened Output documents without channel switching or private log access.
+- Added bounded, sanitized, since-activation Debug Console capture with telemetry filtering, relative source positions and explicit data-loss metadata.
+- Extended Overview and real Extension Host E2E with extension, Problems, visible Output and Debug Console evidence.
+
 ## 0.8.0 - 2026-08-10
 
 - Renamed the stable Activity Bar container to VS Code Agent Bridge and added native Overview, Capabilities and Usage Insights views alongside Experiments and Agent Activity.
