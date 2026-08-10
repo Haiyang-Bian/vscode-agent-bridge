@@ -8,6 +8,7 @@ import { BridgeError, type ExperimentInfo } from "@vscode-agent-bridge/protocol"
 
 import { ExperimentManager } from "./experiment-manager.js";
 import type { ExperimentManifest, ManagedExperimentMetadata } from "./experiment-store.js";
+import { samePath } from "./git-path.js";
 import {
   GitCommandError,
   GitRunner,
@@ -662,14 +663,6 @@ export class ManagedWorktreeManager {
 
 function compactDate(): string {
   return new Date().toISOString().slice(0, 10).replaceAll("-", "");
-}
-
-function samePath(left: string, right: string): boolean {
-  const normalizedLeft = path.resolve(left);
-  const normalizedRight = path.resolve(right);
-  return process.platform === "win32"
-    ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
-    : normalizedLeft === normalizedRight;
 }
 
 function toGitBridgeError(error: unknown, fallback: string): BridgeError {

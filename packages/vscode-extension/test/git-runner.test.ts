@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 
 import { afterEach, describe, expect, test } from "bun:test";
 
+import { samePath } from "../src/git-path.js";
 import { GitRunner, assertBranchName, isPathWithin } from "../src/git-runner.js";
 
 const execFileAsync = promisify(execFile);
@@ -20,6 +21,7 @@ describe("fixed Git runner", () => {
     const { repository, root, baseHead } = await createRepository();
     const runner = new GitRunner();
     const inspected = await runner.inspectRepository(repository);
+    expect(samePath(repository, inspected.repositoryRoot)).toBe(true);
     expect(inspected).toMatchObject({
       repositoryRoot: await realpath(repository),
       branch: "main",

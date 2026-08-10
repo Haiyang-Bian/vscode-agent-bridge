@@ -1,7 +1,8 @@
 import { execFile } from "node:child_process";
-import { realpath } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
+
+import { canonicalizeExistingPath, pathForComparison } from "./git-path.js";
 
 const execFileAsync = promisify(execFile);
 const MAX_GIT_OUTPUT_BYTES = 4 * 1024 * 1024;
@@ -29,13 +30,9 @@ export class ReadOnlyGitBaseline {
     let resolvedCandidate: string;
     let repositoryRoot: string;
     try {
-      resolvedCandidate = await realpath(path.resolve(candidateRoot));
-      repositoryRoot = await realpath(
-        path.resolve(
-          (
-            await runGit(gitExecutable, resolvedCandidate, ["rev-parse", "--show-toplevel"])
-          ).trim(),
-        ),
+      resolvedCandidate = await canonicalizeExistingPath(candidateRoot);
+      repositoryRoot = await canonicalizeExistingPath(
+        (await runGit(gitExecutable, resolvedCandidate, ["rev-parse", "--show-toplevel"])).trim(),
       );
     } catch {
       return null;
@@ -115,7 +112,10 @@ export class ReadOnlyGitBaseline {
   }
 
   relativePath(absolutePath: string): string | null {
-    const relative = path.relative(this.repositoryRoot, path.resolve(absolutePath));
+    const relative = path.relative(
+      pathForComparison(this.repositoryRoot),
+      pathForComparison(absolutePath),
+    );
     return isSafeRelativePath(relative) ? normalizeGitPath(relative) : null;
   }
 

@@ -23,6 +23,7 @@ describe("read-only Git baseline", () => {
     const inspected = await ReadOnlyGitBaseline.inspect(root);
     expect(inspected).not.toBeNull();
     expect(inspected?.baseline.repositoryRoot).toBe(await realpath(root));
+    expect(inspected?.git.relativePath(path.join(root, "tracked.txt"))).toBe("tracked.txt");
     expect(inspected?.baseline.branch).toBe("main");
     expect(inspected?.baseline.head).toMatch(/^[0-9a-f]{40}$/u);
     expect(inspected?.baseline.dirtyPaths).toEqual(["tracked.txt", "untracked.txt"]);
