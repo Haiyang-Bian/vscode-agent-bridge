@@ -202,6 +202,7 @@ export class ChangeSetManager {
       checkpointId,
       appliedAt: new Date().toISOString(),
       documents,
+      resources: [],
     };
   }
 
@@ -273,7 +274,9 @@ export class ChangeSetManager {
       createdAt: createdAt.toISOString(),
       expiresAt: new Date(createdAt.getTime() + CHANGE_SET_TTL_MS).toISOString(),
       documents: preparedDocuments,
+      resources: [],
       editCount,
+      resourceOperationCount: 0,
       replacementCharacters,
     };
     this.#changeSets.set(changeSetId, {

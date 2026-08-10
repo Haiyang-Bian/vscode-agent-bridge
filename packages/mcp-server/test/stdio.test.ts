@@ -9,7 +9,7 @@ import {
 } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { afterEach, beforeEach, describe, expect, test as bunTest } from "bun:test";
 
-import { BRIDGE_RELEASE_VERSION, REGISTRY_DIRECTORY_ENV } from "@vscode-agent-bridge/protocol";
+import { BRIDGE_RELEASE_VERSION, MCP_TOOL_NAMES, REGISTRY_DIRECTORY_ENV } from "@vscode-agent-bridge/protocol";
 
 let temporaryRegistry: string;
 
@@ -42,34 +42,7 @@ describe("STDIO MCP server", () => {
     await client.connect(transport);
     try {
       const tools = await client.listTools();
-      expect(tools.tools.map((tool) => tool.name).sort()).toEqual([
-        "vscode_apply_change_set",
-        "vscode_apply_code_action",
-        "vscode_create_experiment_checkpoint",
-        "vscode_format_document",
-        "vscode_get_definitions",
-        "vscode_get_diagnostics",
-        "vscode_get_document_symbols",
-        "vscode_get_editor_context",
-        "vscode_get_experiment",
-        "vscode_get_hover",
-        "vscode_get_references",
-        "vscode_get_workspace_setup",
-        "vscode_list_code_actions",
-        "vscode_list_experiment_checkpoints",
-        "vscode_list_experiments",
-        "vscode_list_instances",
-        "vscode_list_terminal_executions",
-        "vscode_list_terminals",
-        "vscode_prepare_rename",
-        "vscode_prepare_text_edits",
-        "vscode_read_document",
-        "vscode_read_terminal_output",
-        "vscode_record_experiment_evidence",
-        "vscode_rename_experiment",
-        "vscode_save_document",
-        "vscode_start_experiment",
-      ]);
+      expect(tools.tools.map((tool) => tool.name).sort()).toEqual([...MCP_TOOL_NAMES].sort());
       for (const tool of tools.tools.filter((item) =>
         ![
           "vscode_prepare_text_edits",
@@ -83,6 +56,15 @@ describe("STDIO MCP server", () => {
           "vscode_start_experiment",
           "vscode_rename_experiment",
           "vscode_create_experiment_checkpoint",
+          "vscode_prepare_resource_changes",
+          "vscode_update_workspace_configuration",
+          "vscode_run_task",
+          "vscode_terminate_task",
+          "vscode_start_debug_session",
+          "vscode_control_debug_session",
+          "vscode_update_breakpoints",
+          "vscode_evaluate_debug_expression",
+          "vscode_set_debug_variable",
         ].includes(item.name),
       )) {
         expect(tool.annotations).toEqual({
@@ -95,6 +77,7 @@ describe("STDIO MCP server", () => {
       for (const name of [
         "vscode_prepare_text_edits",
         "vscode_prepare_rename",
+        "vscode_prepare_resource_changes",
         "vscode_list_code_actions",
       ]) {
         expect(tools.tools.find((tool) => tool.name === name)?.annotations).toEqual({
@@ -105,7 +88,6 @@ describe("STDIO MCP server", () => {
         });
       }
       for (const name of [
-        "vscode_apply_change_set",
         "vscode_apply_code_action",
         "vscode_format_document",
         "vscode_record_experiment_evidence",
@@ -113,12 +95,35 @@ describe("STDIO MCP server", () => {
         "vscode_start_experiment",
         "vscode_rename_experiment",
         "vscode_create_experiment_checkpoint",
+        "vscode_update_workspace_configuration",
+        "vscode_update_breakpoints",
       ]) {
         expect(tools.tools.find((tool) => tool.name === name)?.annotations).toEqual({
           readOnlyHint: false,
           destructiveHint: false,
           idempotentHint: false,
           openWorldHint: false,
+        });
+      }
+      expect(tools.tools.find((tool) => tool.name === "vscode_apply_change_set")?.annotations).toEqual({
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      });
+      for (const name of [
+        "vscode_run_task",
+        "vscode_terminate_task",
+        "vscode_start_debug_session",
+        "vscode_control_debug_session",
+        "vscode_evaluate_debug_expression",
+        "vscode_set_debug_variable",
+      ]) {
+        expect(tools.tools.find((tool) => tool.name === name)?.annotations).toEqual({
+          readOnlyHint: false,
+          destructiveHint: true,
+          idempotentHint: false,
+          openWorldHint: true,
         });
       }
 
