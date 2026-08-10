@@ -2,7 +2,7 @@
 
 VS Code Agent Bridge connects local MCP clients such as Codex to IDE-native VS Code state. It has two runtime layers: a standalone STDIO MCP server and a VS Code desktop extension. `packages/protocol` contains their shared RPC contracts and is not a third service.
 
-The unpublished `0.8.0` candidate targets Windows x64 and is distributed as a side-loaded VSIX. It upgrades directly over `0.7.0`; testers do not need Bun, Node.js or this repository because the package contains a Bun-compiled MCP executable and installs a versioned copy only after explicit confirmation.
+The unpublished `0.9.0` candidate targets Windows x64 and is distributed as a side-loaded VSIX. It upgrades directly over `0.8.0`; testers do not need Bun, Node.js or this repository because the package contains a Bun-compiled MCP executable and installs a versioned copy only after explicit confirmation.
 
 ## MCP tools
 
@@ -19,6 +19,15 @@ The unpublished `0.8.0` candidate targets Windows x64 and is distributed as a si
 | `vscode_get_workspace_setup` | Inventory trust, onboarding and standard VS Code configuration-file presence without returning contents. |
 | `vscode_get_bridge_capabilities` | Read the authoritative classified tool catalog, side effects, recovery and sensitivity metadata. |
 | `vscode_get_usage_insights` | Read privacy-preserving local counts, friction evidence and deterministic workflow suggestions. |
+| `vscode_list_extensions` | List installed extension metadata and activation state without activating extensions. |
+| `vscode_get_extension_details` | Read bounded manifest contributions without calling exports or commands. |
+| `vscode_get_extension_configuration_schema` | Page through manifest-declared configuration properties. |
+| `vscode_get_profile_context` | Report only current-Profile capabilities exposed by stable VS Code APIs. |
+| `vscode_list_output_sources` | Discover coverage-aware visible, captured and metadata-only IDE signal sources. |
+| `vscode_read_visible_output` | Read a bounded page from an already opened Output document without switching channels. |
+| `vscode_list_diagnostic_events` | Read the bounded since-activation Problems summary timeline. |
+| `vscode_list_debug_output` | List captured Debug Console sessions and explicit coverage. |
+| `vscode_read_debug_output` | Read sanitized, paged Debug Console output captured since activation. |
 | `vscode_get_experiment` | Read active experiment lifecycle, health and accepted candidate. |
 | `vscode_list_experiments` | Page through ordinary and Managed experiment metadata for one workspace root. |
 | `vscode_start_experiment` | Propose and, after workspace onboarding, start an ordinary task-named experiment. |
@@ -66,9 +75,11 @@ Run **Configure Bridge** to choose the machine-level master switch and workflow 
 
 The managed Codex block no longer chooses approval modes. Codex, user configuration or a supervising Agent decides approval from the accurate MCP annotations.
 
-## Bridge Hub and local insights
+## Bridge Hub, extension awareness and local insights
 
-The stable Activity Bar container is presented as **VS Code Agent Bridge** and contains native Overview, Experiments, Agent Activity, Capabilities and Usage Insights views. Overview shows only bounded state such as version/protocol, publication, trust, active experiment, Problems and Task/Debug/Terminal counts. Capabilities is derived from the same catalog that defines MCP names, Codex configuration and annotations.
+The stable Activity Bar container is presented as **VS Code Agent Bridge** and contains native Overview, Experiments, Agent Activity, Capabilities and Usage Insights views. Overview shows only bounded state such as version/protocol, publication, trust, active experiment, Problems, installed/active extensions, visible signal sources and Task/Debug/Terminal counts. Capabilities is derived from the same catalog that defines MCP names, Codex configuration and annotations.
+
+Extension reflection uses `vscode.extensions.all` without activating inspected extensions, reading exports or executing contributed commands. Problems changes are summarized in a 15-minute in-memory ring without retaining diagnostic bodies. Output discovery is coverage-aware: only already opened Output documents or Bridge-captured Terminal/Task/Debug streams are readable. The Bridge never switches Output Channels or reads private log/Profile storage. Debug Console output is sanitized, memory-only, bounded and tagged `sinceActivation`; telemetry and evaluate/variable data are discarded.
 
 Every MCP process records a separate append-only local insight session with tool/category, outcome, timing and size buckets, truncation and stable error codes. Parameters, results, paths, source, hashes, terminal content, expressions, variables, environment variables and credentials are never recorded. Data stays on this computer for 30 days with a 20 MiB cap, can be cleared explicitly and can be exported only as a privacy-preserving aggregate report. Suggestions are deterministic rules backed by displayed counts, not claims about Agent personality or model learning.
 
@@ -133,7 +144,7 @@ bun run test:artifact
 
 Pull requests and `master` run [CI](.github/workflows/ci.yml). A version tag runs [the release workflow](.github/workflows/release.yml), creates checksums, a version-specific cross-machine test bundle and provenance, and publishes a GitHub Release. Marketplace publishing remains disabled and runs through `vsce --oidc` only if `MARKETPLACE_TRUSTED_PUBLISHING_ENABLED` is explicitly set to `true`.
 
-No PAT is stored in this repository. See the [v0.8.0 release checklist](docs/releases/v0.8.0.md) and [v0.8.0 cross-machine acceptance procedure](docs/acceptance/v0.8.0-windows-x64.md). Earlier self-bootstrap findings remain available under [docs/audits](docs/audits/README.md).
+No PAT is stored in this repository. See the [v0.9.0 release checklist](docs/releases/v0.9.0.md) and [v0.9.0 cross-machine acceptance procedure](docs/acceptance/v0.9.0-windows-x64.md). Earlier self-bootstrap findings remain available under [docs/audits](docs/audits/README.md).
 
 ## Security and license
 

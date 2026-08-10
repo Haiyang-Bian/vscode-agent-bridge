@@ -1,6 +1,7 @@
 export * from "./constants.js";
 export * from "./errors.js";
 export * from "./experiments.js";
+export * from "./extension-awareness.js";
 export * from "./ide.js";
 export * from "./insights.js";
 export * from "./registry.js";

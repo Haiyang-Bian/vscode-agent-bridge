@@ -14,6 +14,7 @@ import {
   BRIDGE_PROTOCOL_VERSION,
   BRIDGE_RELEASE_VERSION,
   InstanceDescriptorSchema,
+  MCP_TOOL_NAMES,
   resolveRegistryDirectories,
   type AppliedChangeSet,
   type ApplyCodeActionResult,
@@ -39,6 +40,8 @@ const AGENT_MARKER = "AGENT_CHANGE_SET_E2E";
 const STALE_MARKER = "STALE_CHANGE_SET_MUST_NOT_APPLY";
 const TERMINAL_MARKER = "TERMINAL_OUTPUT_VSCODE_AGENT_BRIDGE_E2E";
 const TASK_MARKER = "TASK_OUTPUT_VSCODE_AGENT_BRIDGE_E2E";
+const VISIBLE_OUTPUT_MARKER = "VISIBLE_OUTPUT_VSCODE_AGENT_BRIDGE_E2E";
+const DEBUG_OUTPUT_MARKER = "DEBUG_OUTPUT_VSCODE_AGENT_BRIDGE_E2E";
 const execFileAsync = promisify(execFile);
 
 suite("VS Code Agent Bridge Extension Host", function () {
@@ -183,6 +186,8 @@ suite("VS Code Agent Bridge Extension Host", function () {
       });
       assert.ok(hover.contents.join("\n").includes("bridgeGreeting"));
       assert.ok(!hover.contents.join("\n").match(/command:(?!\[redacted\])/iu));
+
+      await exerciseExtensionAwareness(client, workspaceFolder.uri);
 
       console.log("[v0.7-e2e] experiment workflow starting");
       await exerciseExperimentWorkflow(client, descriptor, workspaceFolder.uri, document);
@@ -1256,6 +1261,34 @@ async function exerciseDebugWorkflow(
     );
   }, "stopped inline E2E debug session");
 
+  const debugOutput = await waitFor(async () => {
+    const listed = await client.request<{
+      sessions: Array<{ debugSessionId: string; coverage: string; eventCount: number }>;
+    }>(BRIDGE_METHODS.listDebugOutput, {
+      rootUri,
+      includeTerminated: true,
+      offset: 0,
+      limit: 50,
+    });
+    const captured = listed.sessions.find(
+      (candidate) => candidate.debugSessionId === debugSession.debugSessionId && candidate.eventCount > 0,
+    );
+    if (!captured) return undefined;
+    return client.request<{
+      events: Array<{ text: string; category: string; sourcePath: string | null }>;
+      coverage: string;
+    }>(BRIDGE_METHODS.readDebugOutput, {
+      debugSessionId: debugSession.debugSessionId,
+      cursor: 0,
+      maxChars: 65_536,
+    });
+  }, "captured Debug Console output");
+  assert.equal(debugOutput.coverage, "sinceActivation");
+  assert.match(debugOutput.events.map((event) => event.text).join(""), new RegExp(DEBUG_OUTPUT_MARKER));
+  assert.ok(debugOutput.events.some((event) => event.sourcePath === "bridge.ts"));
+  assert.ok(!JSON.stringify(debugOutput).includes("TELEMETRY_MUST_NOT_BE_CAPTURED"));
+  assert.ok(!JSON.stringify(debugOutput).includes("\u001b"));
+
   const threads = await client.request<{ threads: Array<{ id: number }> }>(
     BRIDGE_METHODS.getDebugState,
     { debugSessionId: debugSession.debugSessionId, query: "threads", offset: 0, limit: 20 },
@@ -1339,6 +1372,117 @@ async function exerciseDebugWorkflow(
   }, "terminated inline E2E debug session");
 }
 
+async function exerciseExtensionAwareness(
+  client: BridgeRpcClient,
+  workspaceUri: vscode.Uri,
+): Promise<void> {
+  const extensions = await client.request<{
+    extensions: Array<{ extensionId: string; active: boolean }>;
+    totalCount: number;
+  }>(BRIDGE_METHODS.listExtensions, { offset: 0, limit: 1_000 });
+  assert.ok(extensions.totalCount > 0);
+  assert.ok(
+    extensions.extensions.some(
+      (extension) =>
+        extension.extensionId.toLowerCase() === "alicelin.vscode-agent-bridge" && extension.active,
+    ),
+  );
+  const inactive = extensions.extensions.find((extension) => !extension.active);
+  if (inactive) {
+    assert.equal(vscode.extensions.getExtension(inactive.extensionId)?.isActive, false);
+    await client.request(BRIDGE_METHODS.getExtensionDetails, {
+      extensionId: inactive.extensionId,
+    });
+    assert.equal(vscode.extensions.getExtension(inactive.extensionId)?.isActive, false);
+  }
+  const details = await client.request<{
+    extension: { extensionId: string; active: boolean };
+    commands: Array<{ command: string }>;
+    activatedByRequest: boolean;
+  }>(BRIDGE_METHODS.getExtensionDetails, { extensionId: "AliceLin.vscode-agent-bridge" });
+  assert.equal(details.extension.active, true);
+  assert.equal(details.activatedByRequest, false);
+  assert.ok(details.commands.some((command) => command.command === "vscodeAgentBridge.runDoctor"));
+
+  const configuration = await client.request<{
+    properties: Array<{ key: string }>;
+  }>(BRIDGE_METHODS.getExtensionConfigurationSchema, {
+    extensionId: "AliceLin.vscode-agent-bridge",
+    offset: 0,
+    limit: 1_000,
+  });
+  assert.ok(configuration.properties.some((property) => property.key === "vscodeAgentBridge.enabled"));
+
+  const profile = await client.request<{
+    profileName: string | null;
+    stableApiCoverage: string;
+    privateProfileDataAccessed: boolean;
+  }>(BRIDGE_METHODS.getProfileContext, {});
+  assert.equal(profile.profileName, null);
+  assert.equal(profile.stableApiCoverage, "unavailable");
+  assert.equal(profile.privateProfileDataAccessed, false);
+
+  const diagnosticEvents = await waitFor(async () => {
+    const result = await client.request<{
+      events: Array<{ uri: string; currentCount: number }>;
+      coverage: string;
+    }>(BRIDGE_METHODS.listDiagnosticEvents, {
+      rootUri: workspaceUri.toString(true),
+      afterCursor: 0,
+      limit: 200,
+    });
+    return result.events.some((event) => event.currentCount > 0) ? result : undefined;
+  }, "diagnostic event capture");
+  assert.equal(diagnosticEvents.coverage, "sinceActivation");
+
+  const output = vscode.window.createOutputChannel("VS Code Agent Bridge visible E2E output");
+  let visibleSourceId: string | undefined;
+  try {
+    output.appendLine(VISIBLE_OUTPUT_MARKER);
+    output.show(true);
+    const visible = await waitFor(async () => {
+      const result = await client.request<{
+        sources: Array<{ sourceId: string; label: string; canReadNow: boolean; coverage: string }>;
+      }>(BRIDGE_METHODS.listOutputSources, {
+        rootUri: workspaceUri.toString(true),
+        offset: 0,
+        limit: 1_000,
+      });
+      for (const source of result.sources.filter(
+        (candidate) => candidate.canReadNow && candidate.coverage === "visible",
+      )) {
+        const page = await client.request<{ text: string; coverage: string }>(
+          BRIDGE_METHODS.readVisibleOutput,
+          { sourceId: source.sourceId, cursor: 0, maxChars: 65_536 },
+        );
+        if (page.text.includes(VISIBLE_OUTPUT_MARKER)) {
+          visibleSourceId = source.sourceId;
+          return page;
+        }
+      }
+      return undefined;
+    }, "visible Output document discovery");
+    assert.match(visible.text, new RegExp(VISIBLE_OUTPUT_MARKER));
+    assert.equal(visible.coverage, "visible");
+  } finally {
+    output.dispose();
+  }
+  if (visibleSourceId) {
+    await waitFor(async () => {
+      try {
+        await client.request(BRIDGE_METHODS.readVisibleOutput, {
+          sourceId: visibleSourceId,
+          cursor: 0,
+          maxChars: 65_536,
+        });
+        return undefined;
+      } catch (error) {
+        return isBridgeError("OUTPUT_NOT_VISIBLE")(error) ? true : undefined;
+      }
+    }, "closed Output document refusal");
+  }
+}
+
 async function exerciseMasterSwitch(client: BridgeRpcClient): Promise<void> {
   const configuration = vscode.workspace.getConfiguration("vscodeAgentBridge");
   const before = (await listDescriptors()).length;
@@ -1371,7 +1515,7 @@ async function writePrimaryCompletionMarker(): Promise<void> {
   assert.ok(registryDirectory, "the E2E registry directory must be configured");
   await writeFile(
     path.join(registryDirectory, "primary-e2e-passed.json"),
-    `${JSON.stringify({ protocolVersion: BRIDGE_PROTOCOL_VERSION, toolCount: 44 })}\n`,
+    `${JSON.stringify({ protocolVersion: BRIDGE_PROTOCOL_VERSION, toolCount: MCP_TOOL_NAMES.length })}\n`,
     "utf8",
   );
 }

@@ -19,10 +19,14 @@ import {
   type ListBreakpointsResult,
   type ListDebugConfigurationsParams,
   type ListDebugConfigurationsResult,
+  type ListDebugOutputParams,
+  type ListDebugOutputResult,
   type ListDebugSessionsParams,
   type ListDebugSessionsResult,
   type SetDebugVariableParams,
   type SetDebugVariableResult,
+  type ReadDebugOutputParams,
+  type ReadDebugOutputResult,
   type StartDebugSessionParams,
   type StartDebugSessionResult,
   type UpdateBreakpointsParams,
@@ -30,6 +34,7 @@ import {
 } from "@vscode-agent-bridge/protocol";
 
 import { AgentActivityTracker } from "./agent-activity.js";
+import { DebugOutputCaptureStore } from "./debug-output-capture.js";
 import { ExperimentManager } from "./experiment-manager.js";
 import { WorkspaceConfigurationManager } from "./workspace-configuration-manager.js";
 
@@ -48,6 +53,7 @@ export class DebugManager implements vscode.Disposable {
   readonly #activity: AgentActivityTracker;
   readonly #configurations: WorkspaceConfigurationManager;
   readonly #sessions = new Map<string, TrackedDebugSession>();
+  readonly #outputCapture: DebugOutputCaptureStore;
   readonly #disposables: vscode.Disposable[];
 
   constructor(
@@ -60,6 +66,7 @@ export class DebugManager implements vscode.Disposable {
     this.#experiments = experiments;
     this.#activity = activity;
     this.#configurations = configurations;
+    this.#outputCapture = new DebugOutputCaptureStore(instanceId);
     this.#disposables = [
       vscode.debug.onDidStartDebugSession((session) => this.#startSession(session)),
       vscode.debug.onDidTerminateDebugSession((session) => this.#terminateSession(session)),
@@ -342,6 +349,18 @@ export class DebugManager implements vscode.Disposable {
     return [...this.#sessions.values()].filter(({ summary }) => !summary.endedAt).length;
   }
 
+  listOutput(params: ListDebugOutputParams): ListDebugOutputResult {
+    return this.#outputCapture.list(params);
+  }
+
+  readOutput(params: ReadDebugOutputParams): ReadDebugOutputResult {
+    return this.#outputCapture.read(params);
+  }
+
+  get outputSessionCount(): number {
+    return this.#outputCapture.sessionCount;
+  }
+
   dispose(): void {
     for (const disposable of this.#disposables) disposable.dispose();
   }
@@ -363,6 +382,7 @@ export class DebugManager implements vscode.Disposable {
 
   #startSession(session: vscode.DebugSession): void {
     const rootUri = session.workspaceFolder?.uri.toString(true) ?? null;
+    this.#outputCapture.start(session.id, session.name, rootUri);
     const existing = this.#sessions.get(session.id);
     if (existing) {
       existing.summary = { ...existing.summary, status: "running", endedAt: null };
@@ -389,6 +409,7 @@ export class DebugManager implements vscode.Disposable {
   }
 
   #terminateSession(session: vscode.DebugSession): void {
+    this.#outputCapture.finish(session.id);
     const tracked = this.#sessions.get(session.id);
     if (!tracked) return;
     tracked.summary = { ...tracked.summary, status: "terminated", endedAt: new Date().toISOString() };
@@ -400,7 +421,19 @@ export class DebugManager implements vscode.Disposable {
   #observeAdapterMessage(session: vscode.DebugSession, message: unknown): void {
     const tracked = this.#sessions.get(session.id);
     if (!tracked || !isRecord(message) || message.type !== "event" || typeof message.event !== "string") return;
-    if (message.event === "stopped") {
+    if (message.event === "output") {
+      const body = isRecord(message.body) ? message.body : {};
+      const category = debugOutputCategory(body.category);
+      if (!category || typeof body.output !== "string") return;
+      this.#outputCapture.append(
+        session.id,
+        category,
+        body.output,
+        relativeDebugSource(body.source, tracked.summary.rootUri),
+        positiveInteger(body.line) === null ? null : Math.max(0, positiveInteger(body.line)! - 1),
+        positiveInteger(body.column) === null ? null : Math.max(0, positiveInteger(body.column)! - 1),
+      );
+    } else if (message.event === "stopped") {
       invalidateDebugState(tracked);
       const body = isRecord(message.body) ? message.body : {};
       tracked.summary = { ...tracked.summary, status: "stopped", stoppedReason: nullableString(body.reason, 500) };
@@ -411,6 +444,30 @@ export class DebugManager implements vscode.Disposable {
     } else if (message.event === "terminated" || message.event === "exited") {
       tracked.summary = { ...tracked.summary, status: "terminated" };
     }
+  }
+}
+
+function debugOutputCategory(
+  value: unknown,
+): "stdout" | "stderr" | "console" | "important" | null {
+  if (value === undefined) return "console";
+  return value === "stdout" || value === "stderr" || value === "console" || value === "important"
+    ? value
+    : null;
+}
+
+function relativeDebugSource(value: unknown, rootUri: string | null): string | null {
+  if (!rootUri || !isRecord(value) || typeof value.path !== "string") return null;
+  try {
+    const root = vscode.Uri.parse(rootUri);
+    if (root.scheme !== "file") return null;
+    const candidate = path.resolve(value.path);
+    const relative = path.relative(root.fsPath, candidate);
+    return relative && !relative.startsWith("..") && !path.isAbsolute(relative)
+      ? relative.replaceAll("\\", "/").slice(0, 4_000)
+      : null;
+  } catch {
+    return null;
   }
 }
 

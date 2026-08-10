@@ -19,11 +19,11 @@ const SESSION_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const ACTION_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const HASH = "a".repeat(64);
 
-describe("protocol v7 Bridge Hub contracts", () => {
-  test("registers exactly 44 bounded MCP tools", () => {
-    expect(BRIDGE_PROTOCOL_VERSION).toBe(7);
-    expect(MCP_TOOL_NAMES).toHaveLength(44);
-    expect(new Set(MCP_TOOL_NAMES).size).toBe(44);
+describe("protocol v8 extension awareness contracts", () => {
+  test("registers exactly 53 bounded MCP tools", () => {
+    expect(BRIDGE_PROTOCOL_VERSION).toBe(8);
+    expect(MCP_TOOL_NAMES).toHaveLength(53);
+    expect(new Set(MCP_TOOL_NAMES).size).toBe(53);
     expect(MCP_TOOL_NAMES).toContain("vscode_save_document");
     expect(MCP_TOOL_NAMES).toContain("vscode_read_terminal_output");
     expect(MCP_TOOL_NAMES).toContain("vscode_get_workspace_setup");
@@ -33,6 +33,10 @@ describe("protocol v7 Bridge Hub contracts", () => {
     expect(MCP_TOOL_NAMES).toContain("vscode_evaluate_debug_expression");
     expect(MCP_TOOL_NAMES).toContain("vscode_get_bridge_capabilities");
     expect(MCP_TOOL_NAMES).toContain("vscode_get_usage_insights");
+    expect(MCP_TOOL_NAMES).toContain("vscode_list_extensions");
+    expect(MCP_TOOL_NAMES).toContain("vscode_read_visible_output");
+    expect(MCP_TOOL_NAMES).toContain("vscode_list_diagnostic_events");
+    expect(MCP_TOOL_NAMES).toContain("vscode_read_debug_output");
     expect(Object.values(BRIDGE_METHODS)).not.toContain("terminals/sendInput");
   });
 

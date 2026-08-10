@@ -33,3 +33,4 @@ Each report should include:
 | 2026-08-10 | v0.6.1 automated remediation | `completed_with_findings` | [v0.6.1 self-bootstrap remediation](2026-08-10-v0.6.1-self-bootstrap-remediation.md) |
 | 2026-08-10 | v0.7.0 IDE workflow self-bootstrap | `completed` | [v0.7.0 IDE workflow self-bootstrap audit](2026-08-10-v0.7.0-ide-workflow-self-bootstrap.md) |
 | 2026-08-10 | v0.8.0 Bridge Hub release candidate | `completed_with_findings` | [v0.8.0 Bridge Hub release audit](2026-08-10-v0.8.0-bridge-hub-release.md) |
+| 2026-08-10 | v0.9.0 extension awareness release candidate | `completed_with_findings` | [v0.9.0 extension awareness release audit](2026-08-10-v0.9.0-extension-awareness-release.md) |

@@ -129,6 +129,17 @@ class E2EDebugAdapter {
       case "attach":
         this.respond(requestSequence, command);
         if (command === "configurationDone") {
+          this.event("output", {
+            category: "console",
+            output: "\u001b[32mDEBUG_OUTPUT_VSCODE_AGENT_BRIDGE_E2E\u001b[0m\n",
+            source: { name: "debug-e2e.ts", path: process.env.VSCODE_AGENT_BRIDGE_E2E_DEBUG_SOURCE },
+            line: 1,
+            column: 1,
+          });
+          this.event("output", {
+            category: "telemetry",
+            output: "TELEMETRY_MUST_NOT_BE_CAPTURED",
+          });
           this.event("stopped", { reason: "entry", threadId: 1, allThreadsStopped: true });
         }
         return;

@@ -50,12 +50,19 @@ export const MCP_TOOL_CATALOG = [
   entry("vscode_get_workspace_configuration", "context", "observe", "none", false, "notApplicable", "source", READ_ONLY),
   entry("vscode_get_bridge_capabilities", "context", "observe", "none", false, "notApplicable", "public", READ_ONLY),
   entry("vscode_get_usage_insights", "context", "observe", "none", false, "notApplicable", "workspaceMetadata", READ_ONLY),
+  entry("vscode_list_extensions", "context", "observe", "none", false, "notApplicable", "workspaceMetadata", READ_ONLY),
+  entry("vscode_get_extension_details", "context", "observe", "none", false, "notApplicable", "workspaceMetadata", READ_ONLY),
+  entry("vscode_get_extension_configuration_schema", "context", "observe", "none", false, "notApplicable", "workspaceMetadata", READ_ONLY),
+  entry("vscode_get_profile_context", "context", "observe", "none", false, "notApplicable", "workspaceMetadata", READ_ONLY),
+  entry("vscode_list_output_sources", "context", "observe", "none", false, "notApplicable", "workspaceMetadata", READ_ONLY),
+  entry("vscode_read_visible_output", "context", "observe", "none", false, "notApplicable", "source", READ_ONLY),
 
   entry("vscode_get_diagnostics", "language", "observe", "none", false, "notApplicable", "source", READ_ONLY),
   entry("vscode_get_document_symbols", "language", "observe", "none", false, "notApplicable", "source", READ_ONLY),
   entry("vscode_get_definitions", "language", "observe", "none", false, "notApplicable", "source", READ_ONLY),
   entry("vscode_get_references", "language", "observe", "none", false, "notApplicable", "source", READ_ONLY),
   entry("vscode_get_hover", "language", "observe", "none", false, "notApplicable", "source", READ_ONLY),
+  entry("vscode_list_diagnostic_events", "language", "observe", "none", false, "notApplicable", "workspaceMetadata", READ_ONLY),
 
   entry("vscode_get_experiment", "experiments", "observe", "none", false, "notApplicable", "workspaceMetadata", READ_ONLY),
   entry("vscode_list_experiments", "experiments", "observe", "none", false, "notApplicable", "workspaceMetadata", READ_ONLY),
@@ -94,6 +101,8 @@ export const MCP_TOOL_CATALOG = [
   entry("vscode_update_breakpoints", "debug", "act", "debuggee", true, "partial", "debug", GUARDED_WRITE),
   entry("vscode_evaluate_debug_expression", "debug", "control", "debuggee", true, "none", "debug", OPEN_WORLD_WRITE),
   entry("vscode_set_debug_variable", "debug", "control", "debuggee", true, "none", "debug", OPEN_WORLD_WRITE),
+  entry("vscode_list_debug_output", "debug", "observe", "none", false, "notApplicable", "debug", READ_ONLY),
+  entry("vscode_read_debug_output", "debug", "observe", "none", false, "notApplicable", "debug", READ_ONLY),
 ] as const satisfies readonly McpToolCatalogEntry[];
 
 export type McpToolName = (typeof MCP_TOOL_CATALOG)[number]["name"];
