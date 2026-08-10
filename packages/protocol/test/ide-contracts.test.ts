@@ -19,11 +19,11 @@ const SESSION_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const ACTION_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const HASH = "a".repeat(64);
 
-describe("protocol v9 extension orchestration contracts", () => {
-  test("registers exactly 58 bounded MCP tools", () => {
-    expect(BRIDGE_PROTOCOL_VERSION).toBe(9);
-    expect(MCP_TOOL_NAMES).toHaveLength(58);
-    expect(new Set(MCP_TOOL_NAMES).size).toBe(58);
+describe("protocol v10 bounded extension integration contracts", () => {
+  test("registers exactly 60 bounded MCP tools", () => {
+    expect(BRIDGE_PROTOCOL_VERSION).toBe(10);
+    expect(MCP_TOOL_NAMES).toHaveLength(60);
+    expect(new Set(MCP_TOOL_NAMES).size).toBe(60);
     expect(MCP_TOOL_NAMES).toContain("vscode_save_document");
     expect(MCP_TOOL_NAMES).toContain("vscode_read_terminal_output");
     expect(MCP_TOOL_NAMES).toContain("vscode_get_workspace_setup");
@@ -40,6 +40,8 @@ describe("protocol v9 extension orchestration contracts", () => {
     expect(MCP_TOOL_NAMES).toContain("vscode_search_extensions");
     expect(MCP_TOOL_NAMES).toContain("vscode_apply_extension_install");
     expect(MCP_TOOL_NAMES).toContain("vscode_update_extension_configuration");
+    expect(MCP_TOOL_NAMES).toContain("vscode_list_extension_integrations");
+    expect(MCP_TOOL_NAMES).toContain("vscode_get_extension_integration_state");
     expect(Object.values(BRIDGE_METHODS)).not.toContain("terminals/sendInput");
   });
 

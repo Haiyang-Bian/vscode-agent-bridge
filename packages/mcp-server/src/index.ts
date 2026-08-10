@@ -131,7 +131,7 @@ const server = new McpServer(
   },
   {
     instructions:
-      "Prefer this VS Code Bridge over filesystem or shell tools whenever it offers the needed IDE capability. Inspect workspace setup, start a recoverable experiment, and use VS Code-native configuration, Tasks, language services, and Debug workflows. Tool annotations describe side effects so the MCP client or supervising agent can decide approvals. Acceptance, restore, finalization, Managed Worktree operations, formal Git history, and terminal input remain user-only. Call vscode_list_instances before targeting a window when multiple VS Code instances may be open. Every mutation or execution requires explicit routing, an active experiment, workspace trust, and state preconditions. Remote extension hosts are unsupported.",
+      "Prefer this VS Code Bridge over filesystem or shell tools whenever it offers the needed IDE capability. Inspect workspace setup, start a recoverable experiment, and use VS Code-native configuration, Tasks, language services, Debug workflows, and reviewed extension integrations. Integration discovery never activates extensions; an explicit integration-state request may activate only the statically reviewed extension named by that integration. Tool annotations describe side effects so the MCP client or supervising agent can decide approvals. Acceptance, restore, finalization, Managed Worktree operations, formal Git history, and terminal input remain user-only. Call vscode_list_instances before targeting a window when multiple VS Code instances may be open. Every mutation or execution requires explicit routing, an active experiment, workspace trust, and state preconditions. Remote extension hosts are unsupported.",
   },
 );
 const usageInsights = new UsageInsightStore();
@@ -1267,6 +1267,30 @@ registerRoutedWorkflowTool({
   outputSchema: WorkflowProtocol.UpdateExtensionConfigurationResultSchema,
   annotations: annotationsFor("vscode_update_extension_configuration"),
   summarize: (result) => `${result.changed ? "Updated" : "Kept"} declared configuration for ${result.extensionId}.`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_list_extension_integrations",
+  title: "List reviewed VS Code extension integrations",
+  description: "List the static, reviewed extension adapter catalog and installed-version compatibility without activating any extension.",
+  method: BRIDGE_METHODS.listExtensionIntegrations,
+  inputSchema: WorkflowProtocol.ListExtensionIntegrationsInputSchema,
+  paramsSchema: WorkflowProtocol.ListExtensionIntegrationsParamsSchema,
+  outputSchema: WorkflowProtocol.ListExtensionIntegrationsResultSchema,
+  annotations: annotationsFor("vscode_list_extension_integrations"),
+  summarize: (result) => `Returned ${result.returnedCount} of ${result.totalCount} reviewed extension integration(s).`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_get_extension_integration_state",
+  title: "Get reviewed extension integration state",
+  description: "Read one statically reviewed integration state. This may activate only the fixed supported extension through its official API facade; arbitrary extension IDs, commands, exports and arguments are not accepted.",
+  method: BRIDGE_METHODS.getExtensionIntegrationState,
+  inputSchema: WorkflowProtocol.GetExtensionIntegrationStateInputSchema,
+  paramsSchema: WorkflowProtocol.GetExtensionIntegrationStateParamsSchema,
+  outputSchema: WorkflowProtocol.ExtensionIntegrationStateResultSchema,
+  annotations: annotationsFor("vscode_get_extension_integration_state"),
+  summarize: (result) => `Reviewed integration ${result.integrationId} state: ${result.status}.`,
 });
 
 function registerLocationsTool(

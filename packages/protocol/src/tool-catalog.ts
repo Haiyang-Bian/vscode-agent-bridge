@@ -39,6 +39,7 @@ export interface McpToolCatalogEntry {
 
 const READ_ONLY = annotations(true, false, true, false);
 const READ_ONLY_OPEN_WORLD = annotations(true, false, true, true);
+const READ_ONLY_ACTIVATING = annotations(true, false, false, true);
 const PREPARE = annotations(true, false, false, false);
 const PREPARE_OPEN_WORLD = annotations(true, false, false, true);
 const GUARDED_WRITE = annotations(false, false, false, false);
@@ -62,6 +63,8 @@ export const MCP_TOOL_CATALOG = [
   entry("vscode_prepare_extension_install", "context", "prepare", "memory", true, "notApplicable", "workspaceMetadata", PREPARE_OPEN_WORLD),
   entry("vscode_apply_extension_install", "context", "act", "process", true, "none", "workspaceMetadata", OPEN_WORLD_WRITE),
   entry("vscode_get_extension_configuration", "context", "observe", "none", false, "notApplicable", "workspaceMetadata", READ_ONLY),
+  entry("vscode_list_extension_integrations", "context", "observe", "none", false, "notApplicable", "workspaceMetadata", READ_ONLY),
+  entry("vscode_get_extension_integration_state", "context", "observe", "process", false, "none", "workspaceMetadata", READ_ONLY_ACTIVATING),
 
   entry("vscode_get_diagnostics", "language", "observe", "none", false, "notApplicable", "source", READ_ONLY),
   entry("vscode_get_document_symbols", "language", "observe", "none", false, "notApplicable", "source", READ_ONLY),
