@@ -10,5 +10,10 @@ packages/vscode-extension/resources/bin/*.exe
 packages/vscode-extension/resources/bin/*.sha256
 .vscode-test/
 
+# Local IDE and Codex runtime configuration. Shared VS Code workspace files
+# remain tracked under .vscode/.
+.idea/
+.codex/
+
 # Local bridge discovery state. Runtime state must never be committed.
 .vscode-agent-bridge/
