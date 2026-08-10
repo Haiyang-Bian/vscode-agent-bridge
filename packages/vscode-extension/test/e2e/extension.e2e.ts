@@ -1478,6 +1478,52 @@ async function exerciseExtensionAwareness(
   assert.equal(profile.stableApiCoverage, "unavailable");
   assert.equal(profile.privateProfileDataAccessed, false);
 
+  const pythonExtensionBefore = vscode.extensions.getExtension("ms-python.python");
+  const pythonWasActive = pythonExtensionBefore?.isActive ?? false;
+  const integrations = await client.request<{
+    integrations: Array<{
+      integrationId: string;
+      extensionId: string;
+      installed: boolean;
+      availability: string;
+      activationPolicy: string;
+    }>;
+    returnedCount: number;
+    totalCount: number;
+  }>(BRIDGE_METHODS.listExtensionIntegrations, { offset: 0, limit: 20 });
+  assert.equal(integrations.returnedCount, 1);
+  assert.equal(integrations.totalCount, 1);
+  assert.deepEqual(
+    integrations.integrations.map((integration) => integration.integrationId),
+    ["python.environment"],
+  );
+  assert.equal(integrations.integrations[0]?.extensionId, "ms-python.python");
+  assert.equal(integrations.integrations[0]?.activationPolicy, "onStateRequest");
+  assert.equal(vscode.extensions.getExtension("ms-python.python")?.isActive ?? false, pythonWasActive);
+  if (!pythonExtensionBefore) {
+    const state = await client.request<{
+      status: string;
+      reason: string | null;
+      activatedByRequest: boolean;
+      environment: unknown;
+    }>(BRIDGE_METHODS.getExtensionIntegrationState, {
+      integrationId: "python.environment",
+      rootUri: workspaceUri.toString(true),
+    });
+    assert.equal(state.status, "unavailable");
+    assert.equal(state.reason, "notInstalled");
+    assert.equal(state.activatedByRequest, false);
+    assert.equal(state.environment, null);
+  } else if (integrations.integrations[0]?.availability === "versionUnsupported") {
+    await assert.rejects(
+      () => client.request(BRIDGE_METHODS.getExtensionIntegrationState, {
+        integrationId: "python.environment",
+        rootUri: workspaceUri.toString(true),
+      }),
+      isBridgeError("EXTENSION_VERSION_UNSUPPORTED"),
+    );
+  }
+
   const diagnosticEvents = await waitFor(async () => {
     const result = await client.request<{
       events: Array<{ uri: string; currentCount: number }>;

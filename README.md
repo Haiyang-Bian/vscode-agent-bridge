@@ -2,7 +2,7 @@
 
 VS Code Agent Bridge connects local MCP clients such as Codex to IDE-native VS Code state. It has two runtime layers: a standalone STDIO MCP server and a VS Code desktop extension. `packages/protocol` contains their shared RPC contracts and is not a third service.
 
-The unpublished `0.10.0` candidate targets Windows x64 and is distributed as a side-loaded VSIX. It upgrades directly over `0.9.0`; testers do not need Bun, Node.js or this repository because the package contains a Bun-compiled MCP executable and installs a versioned copy only after explicit confirmation.
+The unpublished `0.11.0` candidate targets Windows x64 and is distributed as a side-loaded VSIX. It upgrades directly over `0.10.0`; testers do not need Bun, Node.js or this repository because the package contains a Bun-compiled MCP executable and installs a versioned copy only after explicit confirmation.
 
 ## MCP tools
 
@@ -28,6 +28,8 @@ The unpublished `0.10.0` candidate targets Windows x64 and is distributed as a s
 | `vscode_apply_extension_install` | Apply one prepared plan through VS Code's fixed native install command while preserving Publisher Trust. |
 | `vscode_get_extension_configuration` | Read one non-sensitive manifest-declared setting and its canonical current-Profile hash. |
 | `vscode_update_extension_configuration` | Update one declared setting after a hash precondition, with experiment or local-journal recovery. |
+| `vscode_list_extension_integrations` | List the static reviewed adapter catalog and version compatibility without activating extensions. |
+| `vscode_get_extension_integration_state` | Read one reviewed adapter state; the first adapter exposes only the official Python active environment. |
 | `vscode_list_output_sources` | Discover coverage-aware visible, captured and metadata-only IDE signal sources. |
 | `vscode_read_visible_output` | Read a bounded page from an already opened Output document without switching channels. |
 | `vscode_list_diagnostic_events` | Read the bounded since-activation Problems summary timeline. |
@@ -87,6 +89,8 @@ The stable Activity Bar container is presented as **VS Code Agent Bridge** and c
 Extension reflection uses `vscode.extensions.all` without activating inspected extensions, reading exports or executing contributed commands. Problems changes are summarized in a 15-minute in-memory ring without retaining diagnostic bodies. Output discovery is coverage-aware: only already opened Output documents or Bridge-captured Terminal/Task/Debug streams are readable. The Bridge never switches Output Channels or reads private log/Profile storage. Debug Console output is sanitized, memory-only, bounded and tagged `sinceActivation`; telemetry and evaluate/variable data are discarded.
 
 Marketplace orchestration uses a fixed HTTPS Gallery endpoint, strict bounded responses, proxy-aware TLS and 15-minute in-memory candidates. A versioned maintainer directory is the only source of the `official` label; Marketplace verification is reported separately. Installation is a one-use, exact-version plan through VS Code's native UI boundary. The Bridge never accepts URLs or VSIX paths, invokes the CLI, bypasses Publisher Trust, downgrades, uninstalls or silently updates extensions. Current-Profile configuration is limited to installed extensions' declared non-sensitive keys. Global changes have a 30-day/100-entry local undo journal; Workspace and Folder changes remain part of the active experiment.
+
+Extension-specific state uses a static reviewed adapter catalog rather than arbitrary commands or exports. Listing the catalog never activates an extension. An explicit state request may activate only the fixed extension associated with that adapter and is annotated as non-idempotent/open-world. v0.11's first adapter uses Microsoft's pinned `@vscode/python-extension` facade for `ms-python.python` and returns only the active interpreter path, environment type/name, Python version and bitness. It cannot read environment variables, package inventories, credentials or Python logs, and cannot create environments or install packages.
 
 Every MCP process records a separate append-only local insight session with tool/category, outcome, timing and size buckets, truncation and stable error codes. Parameters, results, paths, source, hashes, terminal content, expressions, variables, environment variables and credentials are never recorded. Data stays on this computer for 30 days with a 20 MiB cap, can be cleared explicitly and can be exported only as a privacy-preserving aggregate report. Suggestions are deterministic rules backed by displayed counts, not claims about Agent personality or model learning.
 
@@ -151,7 +155,7 @@ bun run test:artifact
 
 Pull requests and `master` run [CI](.github/workflows/ci.yml). A version tag runs [the release workflow](.github/workflows/release.yml), creates checksums, a version-specific cross-machine test bundle and provenance, and publishes a GitHub Release. Marketplace publishing remains disabled and runs through `vsce --oidc` only if `MARKETPLACE_TRUSTED_PUBLISHING_ENABLED` is explicitly set to `true`.
 
-No PAT is stored in this repository. See the [v0.10.0 release checklist](docs/releases/v0.10.0.md) and [v0.10.0 cross-machine acceptance procedure](docs/acceptance/v0.10.0-windows-x64.md). Earlier self-bootstrap findings remain available under [docs/audits](docs/audits/README.md).
+No PAT is stored in this repository. See the [v0.11.0 release checklist](docs/releases/v0.11.0.md) and [v0.11.0 cross-machine acceptance procedure](docs/acceptance/v0.11.0-windows-x64.md). Earlier self-bootstrap findings remain available under [docs/audits](docs/audits/README.md).
 
 ## Security and license
 

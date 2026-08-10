@@ -6,6 +6,7 @@ VS Code Agent Bridge bundles or compiles the following principal runtime compone
 | --- | --- | --- | --- |
 | Bun runtime | 1.3.11 | MIT and bundled third-party notices | https://github.com/oven-sh/bun |
 | Model Context Protocol TypeScript SDK | 1.30.0 | MIT | https://github.com/modelcontextprotocol/typescript-sdk |
+| Microsoft VS Code Python Extension API facade | 1.0.6 | MIT | https://github.com/microsoft/vscode-python/tree/main/pythonExtensionApi |
 | smol-toml | 1.6.1 | MIT | https://github.com/squirrelchat/smol-toml |
 | Zod | 4.4.3 | MIT | https://github.com/colinhacks/zod |
 
