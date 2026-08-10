@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   DEFAULT_CHECKPOINT_LIMIT,
+  MAX_AGENT_EXPERIMENT_TITLE_CHARACTERS,
   MAX_CHANGE_SET_DOCUMENTS,
   MAX_CHANGE_SET_EDITS,
   MAX_CHANGE_SET_REPLACEMENT_CHARACTERS,
@@ -119,6 +120,84 @@ export const GetExperimentParamsSchema = z.object({}).strict();
 export const GetExperimentInputSchema = GetExperimentParamsSchema.extend({
   instanceId: z.uuid().optional(),
 }).strict();
+
+const AgentExperimentTitleSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(MAX_AGENT_EXPERIMENT_TITLE_CHARACTERS)
+  .refine((value) => !/[\r\n\u0000-\u001f\u007f]/u.test(value), {
+    message: "Experiment titles cannot contain control characters.",
+  });
+const AgentExperimentReasonSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(MAX_EXPERIMENT_RATIONALE_CHARACTERS);
+
+export const ListExperimentsParamsSchema = z
+  .object({
+    rootUri: z.string().min(1).optional(),
+    mode: ExperimentModeSchema.optional(),
+    lifecycle: ExperimentLifecycleSchema.optional(),
+    offset: z.number().int().nonnegative().default(0),
+    limit: z.number().int().positive().max(MAX_CHECKPOINT_LIMIT).default(DEFAULT_CHECKPOINT_LIMIT),
+  })
+  .strict();
+export const ListExperimentsInputSchema = ListExperimentsParamsSchema.extend({
+  instanceId: z.uuid().optional(),
+}).strict();
+export const ExperimentsResultSchema = z
+  .object({
+    instanceId: z.uuid(),
+    rootUri: z.string().min(1),
+    activeSessionId: ExperimentIdSchema.nullable(),
+    experiments: z.array(ExperimentInfoSchema),
+    returnedCount: z.number().int().nonnegative(),
+    totalCount: z.number().int().nonnegative(),
+    truncated: z.boolean(),
+  })
+  .strict();
+
+export const StartExperimentParamsSchema = z
+  .object({
+    rootUri: z.string().min(1),
+    title: AgentExperimentTitleSchema,
+    reason: AgentExperimentReasonSchema,
+  })
+  .strict();
+export const StartExperimentInputSchema = StartExperimentParamsSchema.extend({
+  instanceId: z.uuid(),
+}).strict();
+
+export const RenameExperimentParamsSchema = z
+  .object({
+    sessionId: ExperimentIdSchema,
+    expectedTitle: z.string().min(1).max(MAX_EXPERIMENT_TITLE_CHARACTERS),
+    title: AgentExperimentTitleSchema,
+    reason: AgentExperimentReasonSchema,
+  })
+  .strict();
+export const RenameExperimentInputSchema = RenameExperimentParamsSchema.extend({
+  instanceId: z.uuid(),
+}).strict();
+
+export const CreateExperimentCheckpointParamsSchema = z
+  .object({
+    sessionId: ExperimentIdSchema,
+    title: AgentExperimentTitleSchema,
+    reason: AgentExperimentReasonSchema,
+  })
+  .strict();
+export const CreateExperimentCheckpointInputSchema =
+  CreateExperimentCheckpointParamsSchema.extend({ instanceId: z.uuid() }).strict();
+export const CreateExperimentCheckpointResultSchema = z
+  .object({
+    instanceId: z.uuid(),
+    sessionId: ExperimentIdSchema,
+    checkpoint: ExperimentCheckpointSchema,
+  })
+  .strict();
 
 export const ListExperimentCheckpointsParamsSchema = z
   .object({
@@ -306,6 +385,13 @@ export type ExperimentCheckpoint = z.infer<typeof ExperimentCheckpointSchema>;
 export type ExperimentCheckpointsResult = z.infer<typeof ExperimentCheckpointsResultSchema>;
 export type ExperimentEvidence = z.infer<typeof ExperimentEvidenceSchema>;
 export type ExperimentInfo = z.infer<typeof ExperimentInfoSchema>;
+export type ExperimentsResult = z.infer<typeof ExperimentsResultSchema>;
+export type ListExperimentsParams = z.infer<typeof ListExperimentsParamsSchema>;
+export type StartExperimentParams = z.infer<typeof StartExperimentParamsSchema>;
+export type RenameExperimentParams = z.infer<typeof RenameExperimentParamsSchema>;
+export type CreateExperimentCheckpointParams = z.infer<
+  typeof CreateExperimentCheckpointParamsSchema
+>;
 export type ListExperimentCheckpointsParams = z.infer<
   typeof ListExperimentCheckpointsParamsSchema
 >;

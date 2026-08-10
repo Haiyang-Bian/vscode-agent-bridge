@@ -19,13 +19,15 @@ const SESSION_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const ACTION_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const HASH = "a".repeat(64);
 
-describe("protocol v4 IDE autonomy contracts", () => {
-  test("registers exactly 21 bounded MCP tools", () => {
-    expect(BRIDGE_PROTOCOL_VERSION).toBe(4);
-    expect(MCP_TOOL_NAMES).toHaveLength(21);
-    expect(new Set(MCP_TOOL_NAMES).size).toBe(21);
+describe("protocol v5 workspace reflexivity contracts", () => {
+  test("registers exactly 26 bounded MCP tools", () => {
+    expect(BRIDGE_PROTOCOL_VERSION).toBe(5);
+    expect(MCP_TOOL_NAMES).toHaveLength(26);
+    expect(new Set(MCP_TOOL_NAMES).size).toBe(26);
     expect(MCP_TOOL_NAMES).toContain("vscode_save_document");
     expect(MCP_TOOL_NAMES).toContain("vscode_read_terminal_output");
+    expect(MCP_TOOL_NAMES).toContain("vscode_get_workspace_setup");
+    expect(MCP_TOOL_NAMES).toContain("vscode_start_experiment");
     expect(Object.values(BRIDGE_METHODS)).not.toContain("terminals/sendInput");
   });
 
@@ -79,13 +81,17 @@ describe("protocol v4 IDE autonomy contracts", () => {
     ).toThrow();
   });
 
-  test("defines policy and stable v4 error codes", () => {
+  test("defines policy and stable v5 error codes", () => {
     expect(TerminalReadPolicySchema.options).toEqual(["allow", "metadataOnly", "deny"]);
     for (const code of [
       "POLICY_DENIED",
       "SAVE_FAILED",
       "CODE_ACTION_UNSUPPORTED",
       "TERMINAL_OUTPUT_UNAVAILABLE",
+      "WORKSPACE_ONBOARDING_REQUIRED",
+      "WORKSPACE_CONFIGURATION_INVALID",
+      "EXPERIMENT_STATE_CHANGED",
+      "EDITOR_REVEAL_FAILED",
     ] as const) {
       expect(BRIDGE_ERROR_CODES).toContain(code);
     }

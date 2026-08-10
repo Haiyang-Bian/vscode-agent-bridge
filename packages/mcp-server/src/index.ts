@@ -15,6 +15,9 @@ import {
   ApplyCodeActionResultSchema,
   ApplyChangeSetInputSchema,
   ApplyChangeSetParamsSchema,
+  CreateExperimentCheckpointInputSchema,
+  CreateExperimentCheckpointParamsSchema,
+  CreateExperimentCheckpointResultSchema,
   DiagnosticsInputSchema,
   DiagnosticsParamsSchema,
   DiagnosticsResultSchema,
@@ -26,16 +29,21 @@ import {
   ExperimentCheckpointsResultSchema,
   ExperimentEvidenceSchema,
   ExperimentInfoSchema,
+  ExperimentsResultSchema,
   FormatDocumentInputSchema,
   FormatDocumentParamsSchema,
   FormatDocumentResultSchema,
   GetExperimentInputSchema,
+  GetWorkspaceSetupInputSchema,
+  GetWorkspaceSetupParamsSchema,
   HoverInputSchema,
   HoverParamsSchema,
   HoverResultSchema,
   LocationsResultSchema,
   ListExperimentCheckpointsInputSchema,
   ListExperimentCheckpointsParamsSchema,
+  ListExperimentsInputSchema,
+  ListExperimentsParamsSchema,
   ListCodeActionsInputSchema,
   ListCodeActionsParamsSchema,
   ListCodeActionsResultSchema,
@@ -60,9 +68,14 @@ import {
   ReadTerminalOutputResultSchema,
   RecordExperimentEvidenceInputSchema,
   RecordExperimentEvidenceParamsSchema,
+  RenameExperimentInputSchema,
+  RenameExperimentParamsSchema,
   SaveDocumentInputSchema,
   SaveDocumentParamsSchema,
   SaveDocumentResultSchema,
+  StartExperimentInputSchema,
+  StartExperimentParamsSchema,
+  WorkspaceSetupResultSchema,
   asBridgeError,
   type BridgeError,
   type InstanceDescriptor,
@@ -108,7 +121,7 @@ const server = new McpServer(
   },
   {
     instructions:
-      "Prefer this VS Code Bridge over filesystem or shell tools whenever it offers the needed IDE capability. It exposes unsaved buffers, language services, guarded text edits, formatting, pure-text Code Actions, and saving existing documents inside a user-started experiment. Terminal tools are observation-only and may report partial capture; they can never create a terminal, send input, or execute a command. Call vscode_list_instances before targeting a window when multiple VS Code instances may be open. Every mutation requires explicit instance/session IDs plus version/hash guards and is enforced by the active autonomy policy. Remote VS Code extension hosts are unsupported.",
+      "Prefer this VS Code Bridge over filesystem or shell tools whenever it offers the needed IDE capability. Inspect workspace setup before starting work, and use a concise experiment title derived from the user's task. The Bridge exposes unsaved buffers, language services, guarded text edits, formatting, pure-text Code Actions, saving existing documents, bounded experiment management, and read-only terminal observation. The Agent may start, rename, and checkpoint ordinary experiments, but acceptance, restore, finalization, abandonment, deletion, pinning, Managed Worktree operations, formal Git history, and terminal input remain user-only. Call vscode_list_instances before targeting a window when multiple VS Code instances may be open. Every mutation is constrained by explicit routing, state or document preconditions, workspace trust, and active policy. Remote VS Code extension hosts are unsupported.",
   },
 );
 
@@ -177,6 +190,36 @@ server.registerTool(
           ? `Active editor: ${context.activeEditor.uri}`
           : "The selected VS Code window has no active text editor.",
         context,
+      );
+    } catch (error) {
+      return toolError(asBridgeError(error));
+    }
+  },
+);
+
+server.registerTool(
+  "vscode_get_workspace_setup",
+  {
+    title: "Get VS Code workspace experiment setup",
+    description:
+      "Inspect one workspace root's experiment onboarding state and the presence of VS Code settings, launch, tasks, and workspace files without returning their contents.",
+    inputSchema: GetWorkspaceSetupInputSchema,
+    outputSchema: WorkspaceSetupResultSchema,
+    annotations: readOnlyAnnotations,
+  },
+  async ({ instanceId, ...rawParams }) => {
+    try {
+      const descriptor = await resolveInstance(instanceId);
+      const params = GetWorkspaceSetupParamsSchema.parse(rawParams);
+      const result = await requestBridgeResult(
+        descriptor,
+        BRIDGE_METHODS.getWorkspaceSetup,
+        params,
+        (value) => WorkspaceSetupResultSchema.parse(value),
+      );
+      return toolSuccess(
+        `Workspace experiment onboarding is ${result.onboarding}; ${result.files.filter((file) => file.state === "present").length} setup file(s) are present.`,
+        result,
       );
     } catch (error) {
       return toolError(asBridgeError(error));
@@ -340,6 +383,120 @@ server.registerTool(
         (value) => ExperimentInfoSchema.parse(value),
       );
       return toolSuccess(`Active experiment: ${result.title} (${result.sessionId}).`, result);
+    } catch (error) {
+      return toolError(asBridgeError(error));
+    }
+  },
+);
+
+server.registerTool(
+  "vscode_list_experiments",
+  {
+    title: "List VS Code experiments",
+    description:
+      "Return a bounded metadata-only page of ordinary and managed experiments for one selected workspace root.",
+    inputSchema: ListExperimentsInputSchema,
+    outputSchema: ExperimentsResultSchema,
+    annotations: readOnlyAnnotations,
+  },
+  async ({ instanceId, ...rawParams }) => {
+    try {
+      const descriptor = await resolveInstance(instanceId);
+      const params = ListExperimentsParamsSchema.parse(rawParams);
+      const result = await requestBridgeResult(
+        descriptor,
+        BRIDGE_METHODS.listExperiments,
+        params,
+        (value) => ExperimentsResultSchema.parse(value),
+      );
+      return toolSuccess(
+        `Returned ${result.returnedCount} of ${result.totalCount} experiment(s) for the selected root.`,
+        result,
+      );
+    } catch (error) {
+      return toolError(asBridgeError(error));
+    }
+  },
+);
+
+server.registerTool(
+  "vscode_start_experiment",
+  {
+    title: "Start ordinary VS Code experiment",
+    description:
+      "Start one ordinary recoverable experiment with a task-derived title. First use may wait for explicit workspace onboarding confirmation in VS Code.",
+    inputSchema: StartExperimentInputSchema,
+    outputSchema: ExperimentInfoSchema,
+    annotations: guardedWriteAnnotations,
+  },
+  async ({ instanceId, ...rawParams }) => {
+    try {
+      const descriptor = await resolveInstance(instanceId);
+      const params = StartExperimentParamsSchema.parse(rawParams);
+      const result = await requestBridgeResult(
+        descriptor,
+        BRIDGE_METHODS.startExperiment,
+        params,
+        (value) => ExperimentInfoSchema.parse(value),
+      );
+      return toolSuccess(`Started experiment ${result.title} (${result.sessionId}).`, result);
+    } catch (error) {
+      return toolError(asBridgeError(error));
+    }
+  },
+);
+
+server.registerTool(
+  "vscode_rename_experiment",
+  {
+    title: "Rename ordinary VS Code experiment",
+    description:
+      "Rename an ordinary experiment after checking its session ID and expected current title. Managed experiments and lifecycle changes are not supported.",
+    inputSchema: RenameExperimentInputSchema,
+    outputSchema: ExperimentInfoSchema,
+    annotations: guardedWriteAnnotations,
+  },
+  async ({ instanceId, ...rawParams }) => {
+    try {
+      const descriptor = await resolveInstance(instanceId);
+      const params = RenameExperimentParamsSchema.parse(rawParams);
+      const result = await requestBridgeResult(
+        descriptor,
+        BRIDGE_METHODS.renameExperiment,
+        params,
+        (value) => ExperimentInfoSchema.parse(value),
+      );
+      return toolSuccess(`Renamed experiment to ${result.title}.`, result);
+    } catch (error) {
+      return toolError(asBridgeError(error));
+    }
+  },
+);
+
+server.registerTool(
+  "vscode_create_experiment_checkpoint",
+  {
+    title: "Create VS Code experiment checkpoint",
+    description:
+      "Flush pending ordinary-experiment observations, reconcile Git state, and create one explicit recovery checkpoint without committing.",
+    inputSchema: CreateExperimentCheckpointInputSchema,
+    outputSchema: CreateExperimentCheckpointResultSchema,
+    annotations: guardedWriteAnnotations,
+  },
+  async ({ instanceId, ...rawParams }) => {
+    try {
+      const descriptor = await resolveInstance(instanceId);
+      const params = CreateExperimentCheckpointParamsSchema.parse(rawParams);
+      const result = await requestBridgeResult(
+        descriptor,
+        BRIDGE_METHODS.createExperimentCheckpoint,
+        params,
+        (value) => CreateExperimentCheckpointResultSchema.parse(value),
+      );
+      return toolSuccess(
+        `Created explicit checkpoint ${result.checkpoint.checkpointId}.`,
+        result,
+      );
     } catch (error) {
       return toolError(asBridgeError(error));
     }

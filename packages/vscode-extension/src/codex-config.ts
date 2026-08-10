@@ -231,6 +231,9 @@ export function enabledToolsForPolicies(policies: AgentPolicyOptions): readonly 
   const writeWorkflowTools = new Set([
     "vscode_prepare_text_edits",
     "vscode_prepare_rename",
+    "vscode_start_experiment",
+    "vscode_rename_experiment",
+    "vscode_create_experiment_checkpoint",
     "vscode_apply_change_set",
     "vscode_record_experiment_evidence",
     "vscode_save_document",

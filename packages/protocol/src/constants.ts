@@ -1,6 +1,6 @@
 export const BRIDGE_NAME = "vscode-agent-bridge" as const;
-export const BRIDGE_RELEASE_VERSION = "0.5.1" as const;
-export const BRIDGE_PROTOCOL_VERSION = 4 as const;
+export const BRIDGE_RELEASE_VERSION = "0.6.0" as const;
+export const BRIDGE_PROTOCOL_VERSION = 5 as const;
 export const DEFAULT_BRIDGE_TIMEOUT_MS = 5_000;
 export const MAX_RPC_MESSAGE_BYTES = 1_048_576;
 export const DEFAULT_DOCUMENT_MAX_CHARACTERS = 65_536;
@@ -16,6 +16,7 @@ export const MAX_CHANGE_SET_REPLACEMENT_CHARACTERS = 500_000;
 export const DEFAULT_CHECKPOINT_LIMIT = 50;
 export const MAX_CHECKPOINT_LIMIT = 200;
 export const MAX_EXPERIMENT_TITLE_CHARACTERS = 120;
+export const MAX_AGENT_EXPERIMENT_TITLE_CHARACTERS = 80;
 export const MAX_EXPERIMENT_RATIONALE_CHARACTERS = 2_000;
 export const MAX_EXPERIMENT_EVIDENCE_CHARACTERS = 2_000;
 export const CODE_ACTION_TTL_MS = 10 * 60 * 1_000;
@@ -30,6 +31,7 @@ export const CLOSED_TERMINAL_RETENTION_MS = 15 * 60 * 1_000;
 export const BRIDGE_METHODS = {
   initialize: "bridge/initialize",
   getEditorContext: "editor/getContext",
+  getWorkspaceSetup: "workspace/getSetup",
   readDocument: "document/read",
   getDiagnostics: "languages/getDiagnostics",
   getDocumentSymbols: "languages/getDocumentSymbols",
@@ -37,6 +39,10 @@ export const BRIDGE_METHODS = {
   getReferences: "languages/getReferences",
   getHover: "languages/getHover",
   getExperiment: "experiment/get",
+  listExperiments: "experiment/list",
+  startExperiment: "experiment/start",
+  renameExperiment: "experiment/rename",
+  createExperimentCheckpoint: "experiment/createCheckpoint",
   listExperimentCheckpoints: "experiment/listCheckpoints",
   prepareTextEdits: "experiment/prepareTextEdits",
   prepareRename: "experiment/prepareRename",
@@ -53,6 +59,7 @@ export const BRIDGE_METHODS = {
 
 export const BRIDGE_CAPABILITIES = [
   "editor.getContext",
+  "workspace.getSetup",
   "document.read",
   "languages.getDiagnostics",
   "languages.getDocumentSymbols",
@@ -60,6 +67,10 @@ export const BRIDGE_CAPABILITIES = [
   "languages.getReferences",
   "languages.getHover",
   "experiment.get",
+  "experiment.list",
+  "experiment.start",
+  "experiment.rename",
+  "experiment.createCheckpoint",
   "experiment.listCheckpoints",
   "experiment.prepareTextEdits",
   "experiment.prepareRename",
@@ -77,6 +88,7 @@ export const BRIDGE_CAPABILITIES = [
 export const MCP_TOOL_NAMES = [
   "vscode_list_instances",
   "vscode_get_editor_context",
+  "vscode_get_workspace_setup",
   "vscode_read_document",
   "vscode_get_diagnostics",
   "vscode_get_document_symbols",
@@ -84,6 +96,10 @@ export const MCP_TOOL_NAMES = [
   "vscode_get_references",
   "vscode_get_hover",
   "vscode_get_experiment",
+  "vscode_list_experiments",
+  "vscode_start_experiment",
+  "vscode_rename_experiment",
+  "vscode_create_experiment_checkpoint",
   "vscode_list_experiment_checkpoints",
   "vscode_prepare_text_edits",
   "vscode_prepare_rename",
@@ -144,6 +160,11 @@ export const BRIDGE_ERROR_CODES = [
   "TERMINAL_NOT_FOUND",
   "TERMINAL_EXECUTION_NOT_FOUND",
   "TERMINAL_OUTPUT_UNAVAILABLE",
+  "WORKSPACE_ONBOARDING_REQUIRED",
+  "WORKSPACE_ONBOARDING_DECLINED",
+  "WORKSPACE_CONFIGURATION_INVALID",
+  "EXPERIMENT_STATE_CHANGED",
+  "EDITOR_REVEAL_FAILED",
   "INTERNAL_ERROR",
 ] as const;
 

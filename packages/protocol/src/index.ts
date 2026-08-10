@@ -6,3 +6,4 @@ export * from "./registry.js";
 export * from "./rpc.js";
 export * from "./schemas.js";
 export * from "./terminals.js";
+export * from "./workspace.js";
