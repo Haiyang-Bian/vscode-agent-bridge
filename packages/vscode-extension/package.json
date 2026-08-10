@@ -259,6 +259,10 @@
         {
           "id": "vscodeAgentBridge.experimentsView",
           "name": "Experiments"
+        },
+        {
+          "id": "vscodeAgentBridge.agentActivityView",
+          "name": "Agent Activity"
         }
       ]
     },

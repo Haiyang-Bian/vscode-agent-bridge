@@ -19,6 +19,7 @@ import {
 } from "@vscode-agent-bridge/protocol";
 
 import { ExperimentManager } from "./experiment-manager.js";
+import { AgentEditorVisibility } from "./agent-editor-visibility.js";
 import { assertAgentWriteAllowed } from "./policies.js";
 
 interface InternalPreparedDocument {
@@ -37,11 +38,17 @@ interface InternalChangeSet {
 export class ChangeSetManager {
   readonly #instanceId: string;
   readonly #experiments: ExperimentManager;
+  readonly #visibility: AgentEditorVisibility;
   readonly #changeSets = new Map<string, InternalChangeSet>();
 
-  constructor(instanceId: string, experiments: ExperimentManager) {
+  constructor(
+    instanceId: string,
+    experiments: ExperimentManager,
+    visibility: AgentEditorVisibility,
+  ) {
     this.#instanceId = instanceId;
     this.#experiments = experiments;
+    this.#visibility = visibility;
   }
 
   async prepareTextEdits(params: PrepareTextEditsParams): Promise<PreparedChangeSet> {
@@ -128,7 +135,7 @@ export class ChangeSetManager {
     checkpointSummary?: string,
   ): Promise<AppliedChangeSet> {
     this.#assertMutationAllowed();
-    await this.#assertActiveSession(params.sessionId);
+    const experiment = await this.#assertActiveSession(params.sessionId);
     const changeSet = this.#changeSets.get(params.changeSetId);
     if (!changeSet || changeSet.result.sessionId !== params.sessionId) {
       throw new BridgeError("CHANGE_SET_NOT_FOUND", "The prepared change set was not found.");
@@ -169,6 +176,10 @@ export class ChangeSetManager {
         workspaceEdit.replace(target.document.uri, edit.range, edit.newText);
       }
     }
+    await this.#visibility.reveal(
+      experiment.rootUri,
+      resolved.map(({ document }) => document.uri),
+    );
     if (!(await this.#experiments.applyGuardedWorkspaceEdit(workspaceEdit))) {
       throw new BridgeError("INTERNAL_ERROR", "VS Code refused to apply the prepared text edits.");
     }

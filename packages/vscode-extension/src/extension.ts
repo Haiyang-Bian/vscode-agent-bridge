@@ -3,6 +3,9 @@ import * as vscode from "vscode";
 import { BRIDGE_RELEASE_VERSION } from "@vscode-agent-bridge/protocol";
 
 import { BridgeHost } from "./bridge-host.js";
+import { AgentActivityTracker } from "./agent-activity.js";
+import { registerAgentActivityUi } from "./agent-activity-ui.js";
+import { AgentEditorVisibility } from "./agent-editor-visibility.js";
 import { ChangeSetManager } from "./change-set-manager.js";
 import { CodexConfigConflictError, createManagedConfigBlock } from "./codex-config.js";
 import {
@@ -42,22 +45,38 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const host = new BridgeHost(output);
   const experiments = new ExperimentManager(context, host.instanceId, output);
   const onboarding = new WorkspaceOnboardingService(host.instanceId);
-  const changeSets = new ChangeSetManager(host.instanceId, experiments);
+  const activity = new AgentActivityTracker();
+  const visibility = new AgentEditorVisibility(onboarding);
+  const changeSets = new ChangeSetManager(host.instanceId, experiments, visibility);
   const managed = new ManagedWorktreeManager(experiments);
   const terminals = new TerminalObserver(host.instanceId);
-  const ideAutonomy = new IdeAutonomyManager(host.instanceId, experiments, changeSets);
+  const ideAutonomy = new IdeAutonomyManager(
+    host.instanceId,
+    experiments,
+    changeSets,
+    visibility,
+  );
   host.registerRequestHandlers(
-    createExperimentRequestHandlers(host.instanceId, experiments, changeSets, onboarding),
+    createExperimentRequestHandlers(
+      host.instanceId,
+      experiments,
+      changeSets,
+      onboarding,
+      activity,
+    ),
   );
   host.registerRequestHandlers(createWorkspaceRequestHandlers(onboarding));
   host.registerRequestHandlers(createTerminalRequestHandlers(terminals));
-  host.registerRequestHandlers(createIdeAutonomyRequestHandlers(ideAutonomy));
+  host.registerRequestHandlers(
+    createIdeAutonomyRequestHandlers(ideAutonomy, experiments, onboarding, activity),
+  );
   await experiments.initialize();
   terminals.start();
   activeHost = host;
   activeExperimentManager = experiments;
   activeTerminalObserver = terminals;
   registerExperimentUi(context, experiments, onboarding, output);
+  registerAgentActivityUi(context, activity);
   registerManagedWorktreeUi(context, managed, output);
   registerAcceptanceFixtureProvider(context);
   registerE2ECommands(context, experiments, managed);

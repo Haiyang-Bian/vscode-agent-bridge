@@ -88,7 +88,11 @@ export class WorkspaceOnboardingService {
     proposedTitle: string,
     source: OnboardingSource,
   ): Promise<boolean> {
-    assertAgentWriteAllowed();
+    if (source === "agent") {
+      assertAgentWriteAllowed();
+    } else {
+      assertUserWorkspaceWriteAllowed();
+    }
     assertLocalRoot(root);
     const setup = await this.getSetup({ rootUri: root.uri.toString(true) });
     if (setup.onboarding === "enabled") {
@@ -147,7 +151,7 @@ export class WorkspaceOnboardingService {
   }
 
   async configureInteractively(): Promise<void> {
-    assertAgentWriteAllowed();
+    assertUserWorkspaceWriteAllowed();
     const root = await pickWorkspaceRoot();
     if (!root) {
       return;
@@ -272,6 +276,18 @@ function assertLocalRoot(folder: vscode.WorkspaceFolder): vscode.WorkspaceFolder
     throw new BridgeError("UNSUPPORTED_REMOTE", "Workspace experiments require a local file root.");
   }
   return folder;
+}
+
+function assertUserWorkspaceWriteAllowed(): void {
+  if (vscode.env.remoteName) {
+    throw new BridgeError("UNSUPPORTED_REMOTE", "Remote workspace configuration is unsupported.");
+  }
+  if (!vscode.workspace.isTrusted) {
+    throw new BridgeError(
+      "WORKSPACE_UNTRUSTED",
+      "Trust the workspace before configuring Agent experiments.",
+    );
+  }
 }
 
 async function inspectSetupFile(
