@@ -174,7 +174,7 @@ export function registerExperimentUi(
           throw new BridgeError("INVALID_REQUEST", "Mark a checkpoint as accepted before restoring it.");
         }
         const confirmation = await vscode.window.showWarningMessage(
-          `Restore accepted checkpoint ${experiment.acceptedCheckpointId} into editor buffers? A safety checkpoint will be created and files will remain unsaved.`,
+          `Restore accepted checkpoint ${experiment.acceptedCheckpointId} to the workspace? A safety checkpoint will be created; v2 experiments may create, overwrite, or delete captured resources on disk.`,
           { modal: true },
           "Restore Accepted Candidate",
         );
@@ -183,7 +183,7 @@ export function registerExperimentUi(
         }
         await experiments.restoreAccepted();
         await vscode.window.showInformationMessage(
-          "Accepted candidate restored to dirty editor buffers. Review and save manually.",
+          "Accepted candidate restored. Resource-history experiments were written to disk; legacy text-only experiments remain dirty for review.",
         );
       });
     }),

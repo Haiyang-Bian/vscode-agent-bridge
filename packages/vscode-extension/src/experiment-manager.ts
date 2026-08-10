@@ -339,6 +339,39 @@ export class ExperimentManager implements vscode.Disposable {
     });
   }
 
+  async assertResourceChangesAllowed(sessionId: string): Promise<ExperimentInfo> {
+    this.#assertMutationAllowed();
+    const active = this.#requireActive(sessionId);
+    active.manifest = await this.#store.assertResourceHistorySupported(sessionId);
+    await this.#store.assertLease(sessionId);
+    return this.#store.toExperimentInfo(active.manifest);
+  }
+
+  async captureBeforeResourceApply(
+    sessionId: string,
+    uris: readonly vscode.Uri[],
+  ): Promise<string> {
+    const active = this.#requireActive(sessionId);
+    return this.#enqueue(async () => {
+      await this.#captureUris(active, uris);
+      return this.#appendCheckpoint(
+        active,
+        "explicit",
+        "Safety checkpoint before resource Change Set",
+        true,
+      );
+    });
+  }
+
+  async markResourceRecoveryRequired(sessionId: string): Promise<void> {
+    const active = this.#requireActive(sessionId);
+    active.manifest = await this.#store.addWarning(
+      sessionId,
+      "Resource recovery is required before further Agent writes.",
+    );
+    this.#changeEmitter.fire();
+  }
+
   async applyGuardedWorkspaceEdit(edit: vscode.WorkspaceEdit): Promise<boolean> {
     this.#assertMutationAllowed();
     this.#requireActive();
@@ -422,6 +455,10 @@ export class ExperimentManager implements vscode.Disposable {
     const accepted = await this.#store.readCheckpoint(active.manifest.sessionId, acceptedId);
     await this.#reconcileGitDocuments(active);
     const resolvedAccepted = await this.#resolveCheckpointDocuments(active, accepted.documents);
+    if (active.manifest.schemaVersion >= 2) {
+      await this.#restoreResourceCheckpoint(active, resolvedAccepted);
+      return;
+    }
     if (resolvedAccepted.some(({ state }) => !state.exists || (!state.blobSha256 && !state.contentSha256))) {
       throw new BridgeError(
         "SESSION_COVERAGE_INCOMPLETE",
@@ -848,10 +885,10 @@ export class ExperimentManager implements vscode.Disposable {
     if (selected.length === 0) {
       return active.manifest.currentCheckpointId ?? "";
     }
-    if (selected.some((change) => change.resourceChange)) {
+    if (selected.some((change) => change.resourceChange) && active.manifest.schemaVersion < 2) {
       active.manifest = await this.#store.addWarning(
         active.manifest.sessionId,
-        "Resource-level changes were observed; v0.3 whole-session restore is limited.",
+        "Resource-level changes were observed in a legacy experiment; whole-session restore is limited.",
       );
       this.#changeEmitter.fire();
     }
@@ -880,6 +917,14 @@ export class ExperimentManager implements vscode.Disposable {
         continue;
       }
       const previous = active.documents.get(state.uri);
+      if (!state.exists && previous?.resourceType) {
+        state = {
+          ...state,
+          resourceType: previous.resourceType,
+          recoverable: previous.recoverable,
+          unrecoverableReason: previous.unrecoverableReason,
+        };
+      }
       if (!sameStoredDocument(previous, state)) {
         changed = true;
         active.documents.set(state.uri, state);
@@ -900,11 +945,15 @@ export class ExperimentManager implements vscode.Disposable {
     coverageComplete: boolean,
     gitCommit: string | null = null,
   ): Promise<string> {
+    const documents = [...active.documents.values()].sort((left, right) => left.uri.localeCompare(right.uri));
     active.manifest = await this.#store.appendCheckpoint(active.manifest.sessionId, {
       source,
       summary,
-      documents: [...active.documents.values()].sort((left, right) => left.uri.localeCompare(right.uri)),
-      coverageComplete: coverageComplete && active.manifest.health === "complete",
+      documents,
+      coverageComplete:
+        coverageComplete &&
+        active.manifest.health === "complete" &&
+        documents.every((document) => document.recoverable !== false),
       gitCommit,
     });
     const checkpointId = active.manifest.currentCheckpointId!;
@@ -964,6 +1013,54 @@ export class ExperimentManager implements vscode.Disposable {
     if (uri.scheme !== "file") {
       throw new Error("Only open non-file documents can be snapshotted.");
     }
+    let resourceStat: vscode.FileStat;
+    try {
+      resourceStat = await vscode.workspace.fs.stat(uri);
+    } catch (error) {
+      if (isFileNotFound(error)) {
+        return {
+          uri: uri.toString(true),
+          languageId: "plaintext",
+          documentVersion: null,
+          isDirty: false,
+          exists: false,
+          blobSha256: null,
+          contentSha256: null,
+          resourceType: "file",
+          recoverable: true,
+          unrecoverableReason: null,
+        };
+      }
+      throw error;
+    }
+    if ((resourceStat.type & vscode.FileType.SymbolicLink) !== 0) {
+      return {
+        uri: uri.toString(true),
+        languageId: "plaintext",
+        documentVersion: null,
+        isDirty: false,
+        exists: true,
+        blobSha256: null,
+        contentSha256: null,
+        resourceType: (resourceStat.type & vscode.FileType.Directory) !== 0 ? "directory" : "file",
+        recoverable: false,
+        unrecoverableReason: "symbolic-resource",
+      };
+    }
+    if ((resourceStat.type & vscode.FileType.Directory) !== 0) {
+      return {
+        uri: uri.toString(true),
+        languageId: "plaintext",
+        documentVersion: null,
+        isDirty: false,
+        exists: true,
+        blobSha256: null,
+        contentSha256: null,
+        resourceType: "directory",
+        recoverable: true,
+        unrecoverableReason: null,
+      };
+    }
     let bytes: Uint8Array;
     try {
       bytes = await vscode.workspace.fs.readFile(uri);
@@ -977,12 +1074,26 @@ export class ExperimentManager implements vscode.Disposable {
           exists: false,
           blobSha256: null,
           contentSha256: null,
+          resourceType: "file",
+          recoverable: true,
+          unrecoverableReason: null,
         };
       }
       throw error;
     }
     if (bytes.byteLength > MAX_EXPERIMENT_BLOB_BYTES || bytes.includes(0)) {
-      throw new Error("Document is binary or too large.");
+      return {
+        uri: uri.toString(true),
+        languageId: "plaintext",
+        documentVersion: null,
+        isDirty: false,
+        exists: true,
+        blobSha256: null,
+        contentSha256: createHash("sha256").update(bytes).digest("hex"),
+        resourceType: "file",
+        recoverable: false,
+        unrecoverableReason: bytes.includes(0) ? "binary" : "snapshot-size-limit",
+      };
     }
     return this.#storeText(uri, Buffer.from(bytes).toString("utf8"), "plaintext", null, false);
   }
@@ -1013,6 +1124,9 @@ export class ExperimentManager implements vscode.Disposable {
       exists: true,
       blobSha256: blob.sha256,
       contentSha256: blob.sha256,
+      resourceType: "file",
+      recoverable: true,
+      unrecoverableReason: null,
     };
   }
 
@@ -1142,6 +1256,22 @@ export class ExperimentManager implements vscode.Disposable {
       }
       const uri = vscode.Uri.parse(current.uri, true);
       const relativePath = uri.scheme === "file" ? active.git?.relativePath(uri.fsPath) : null;
+      if (active.manifest.schemaVersion >= 2 && (!active.git || !active.manifest.baseRevision || !relativePath || !current.exists || current.resourceType === "directory")) {
+        resolved.set(current.uri, {
+          state: {
+            ...current,
+            documentVersion: null,
+            isDirty: false,
+            exists: false,
+            blobSha256: null,
+            contentSha256: null,
+            recoverable: current.recoverable !== false,
+            unrecoverableReason: current.recoverable === false ? current.unrecoverableReason : null,
+          },
+          baselineText: null,
+        });
+        continue;
+      }
       if (!active.git || !active.manifest.baseRevision || !relativePath || !current.exists) {
         throw new BridgeError(
           "SESSION_COVERAGE_INCOMPLETE",
@@ -1149,6 +1279,22 @@ export class ExperimentManager implements vscode.Disposable {
         );
       }
       const baselineText = await active.git.readHeadText(relativePath, active.manifest.baseRevision);
+      if (baselineText === null && active.manifest.schemaVersion >= 2) {
+        resolved.set(current.uri, {
+          state: {
+            ...current,
+            documentVersion: null,
+            isDirty: false,
+            exists: false,
+            blobSha256: null,
+            contentSha256: null,
+            recoverable: true,
+            unrecoverableReason: null,
+          },
+          baselineText: null,
+        });
+        continue;
+      }
       if (baselineText === null || Buffer.byteLength(baselineText, "utf8") > MAX_EXPERIMENT_BLOB_BYTES) {
         throw new BridgeError(
           "SESSION_COVERAGE_INCOMPLETE",
@@ -1165,11 +1311,126 @@ export class ExperimentManager implements vscode.Disposable {
           exists: true,
           blobSha256: null,
           contentSha256,
+          resourceType: "file",
+          recoverable: true,
+          unrecoverableReason: null,
         },
         baselineText,
       });
     }
     return [...resolved.values()].sort((left, right) => left.state.uri.localeCompare(right.state.uri));
+  }
+
+  async #restoreResourceCheckpoint(
+    active: ActiveExperiment,
+    resolvedAccepted: readonly ResolvedCheckpointDocument[],
+  ): Promise<void> {
+    if (
+      resolvedAccepted.some(
+        ({ state }) => state.recoverable === false || (state.exists && state.resourceType !== "directory" && !state.blobSha256 && !state.contentSha256),
+      )
+    ) {
+      throw new BridgeError(
+        "SESSION_COVERAGE_INCOMPLETE",
+        "The accepted checkpoint contains a resource that cannot be reconstructed safely.",
+      );
+    }
+    await this.createExplicitCheckpoint("Safety checkpoint before restoring accepted resources");
+    const edit = new vscode.WorkspaceEdit();
+    const directoriesToCreate = resolvedAccepted
+      .filter(({ state }) => state.exists && state.resourceType === "directory")
+      .sort((left, right) => left.state.uri.length - right.state.uri.length);
+    const resourcesToDelete = resolvedAccepted
+      .filter(({ state }) => !state.exists)
+      .sort((left, right) => right.state.uri.length - left.state.uri.length);
+    const savedUris: vscode.Uri[] = [];
+
+    try {
+      for (const { state } of directoriesToCreate) {
+        const uri = vscode.Uri.parse(state.uri, true);
+        try {
+          const current = await vscode.workspace.fs.stat(uri);
+          if ((current.type & vscode.FileType.Directory) === 0) {
+            throw new BridgeError("RESOURCE_PRECONDITION_FAILED", "A file blocks a directory required by the accepted checkpoint.");
+          }
+        } catch (error) {
+          if (!isFileNotFound(error)) {
+            throw error;
+          }
+          await vscode.workspace.fs.createDirectory(uri);
+        }
+      }
+
+      for (const { state, baselineText } of resolvedAccepted) {
+        if (!state.exists || state.resourceType === "directory") {
+          continue;
+        }
+        const uri = vscode.Uri.parse(state.uri, true);
+        const text = baselineText ?? await this.#store.readBlob(state.blobSha256!);
+        let exists = true;
+        try {
+          await vscode.workspace.fs.stat(uri);
+        } catch (error) {
+          if (!isFileNotFound(error)) {
+            throw error;
+          }
+          exists = false;
+        }
+        if (!exists) {
+          edit.createFile(uri, { ignoreIfExists: false, overwrite: false });
+          edit.insert(uri, new vscode.Position(0, 0), text);
+        } else {
+          const document = await resolveExistingDocument(uri);
+          edit.replace(uri, fullDocumentRange(document), text);
+        }
+        savedUris.push(uri);
+      }
+
+      for (const { state } of resourcesToDelete) {
+        const uri = vscode.Uri.parse(state.uri, true);
+        try {
+          await vscode.workspace.fs.stat(uri);
+          edit.deleteFile(uri, {
+            recursive: state.resourceType === "directory",
+            ignoreIfNotExists: true,
+          });
+        } catch (error) {
+          if (!isFileNotFound(error)) {
+            throw error;
+          }
+        }
+      }
+
+      this.#suppressAutomaticCapture += 1;
+      try {
+        if (!(await vscode.workspace.applyEdit(edit))) {
+          throw new BridgeError("RESOURCE_RECOVERY_REQUIRED", "VS Code refused the accepted resource restore plan.");
+        }
+        for (const uri of savedUris) {
+          const document = await resolveExistingDocument(uri);
+          if (document.isDirty && !(await document.save())) {
+            throw new BridgeError("RESOURCE_RECOVERY_REQUIRED", "A restored document could not be saved.");
+          }
+        }
+      } finally {
+        this.#suppressAutomaticCapture -= 1;
+      }
+    } catch (error) {
+      await this.markResourceRecoveryRequired(active.manifest.sessionId);
+      if (error instanceof BridgeError) {
+        throw error;
+      }
+      throw new BridgeError(
+        "RESOURCE_RECOVERY_REQUIRED",
+        "The resource restore did not complete; use the safety checkpoint for manual recovery.",
+      );
+    }
+
+    await this.#captureUris(
+      active,
+      resolvedAccepted.map(({ state }) => vscode.Uri.parse(state.uri, true)),
+    );
+    await this.#appendCheckpoint(active, "restore", "Restored accepted resource candidate", true);
   }
 
   #requireActive(sessionId?: string): ActiveExperiment {
@@ -1285,7 +1546,9 @@ function sameStoredDocument(
     left?.exists === right.exists &&
     left?.contentSha256 === right.contentSha256 &&
     left?.documentVersion === right.documentVersion &&
-    left?.isDirty === right.isDirty
+    left?.isDirty === right.isDirty &&
+    (left?.resourceType ?? "file") === (right.resourceType ?? "file") &&
+    (left?.recoverable ?? true) === (right.recoverable ?? true)
   );
 }
 
@@ -1301,7 +1564,8 @@ function sameDocumentContent(
     const current = rightMap.get(document.uri);
     return (
       current?.exists === document.exists &&
-      current?.contentSha256 === document.contentSha256
+      current?.contentSha256 === document.contentSha256 &&
+      (current?.resourceType ?? "file") === (document.resourceType ?? "file")
     );
   });
 }

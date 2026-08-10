@@ -51,6 +51,33 @@ describe("experiment store", () => {
     expect((await store.addWarning(manifest.sessionId, "Informational Git warning", false)).health).toBe(
       "complete",
     );
+    expect(manifest.schemaVersion).toBe(2);
+    await expect(store.assertResourceHistorySupported(manifest.sessionId)).resolves.toMatchObject({
+      schemaVersion: 2,
+    });
+  });
+
+  test("reads legacy v1 manifests but refuses resource-history writes", async () => {
+    const directory = await temporaryDirectory();
+    const store = new ExperimentStore(directory, INSTANCE_A);
+    const manifest = await store.createExperiment({
+      mode: "workspace",
+      title: "Legacy session",
+      rootUri: "file:///workspace",
+      workspaceIdentity: "workspace",
+      baseRevision: null,
+      branch: null,
+      health: "partial",
+    });
+    const manifestPath = path.join(directory, "sessions", manifest.sessionId, "manifest.json");
+    const legacy = JSON.parse(await readFile(manifestPath, "utf8"));
+    legacy.schemaVersion = 1;
+    await writeFile(manifestPath, `${JSON.stringify(legacy, null, 2)}\n`, "utf8");
+
+    expect((await store.readManifest(manifest.sessionId)).schemaVersion).toBe(1);
+    await expect(store.assertResourceHistorySupported(manifest.sessionId)).rejects.toMatchObject({
+      code: "EXPERIMENT_UPGRADE_REQUIRED",
+    });
   });
 
   test("prevents two live instances from owning one experiment", async () => {
