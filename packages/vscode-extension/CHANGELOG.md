@@ -1,5 +1,13 @@
 # Change Log
 
+## 0.6.1 - 2026-08-10
+
+- Propagated MCP cancellation through authenticated bridge requests so an abandoned onboarding prompt cannot later commit workspace settings.
+- Added explicit `initializing`, `ready` and `degraded` instance lifecycle states and registered the bridge before experiment recovery.
+- Increased only interactive write RPCs to a bounded 90-second timeout while retaining prompt cancellation and one active request per socket.
+- Excluded Git-ignored build output from future external-change checkpoints while retaining open-buffer observation and conservative fallback on Git failures.
+- Deduplicated content-addressed blob validation during recovery and added delayed-activation/onboarding regression coverage.
+
 ## 0.6.0 - 2026-08-10
 
 - Upgraded the authenticated bridge to protocol v5 with 26 bounded IDE tools.

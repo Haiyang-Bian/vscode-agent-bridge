@@ -2,7 +2,7 @@
 
 Connect Codex to capability-limited IDE autonomy, recoverable Agent experiments and read-only terminal observation in local VS Code windows.
 
-`0.6.0` is an unpublished Windows x64 desktop candidate distributed by side-loaded VSIX and can upgrade directly over `0.5.1`. The package contains a standalone MCP server, so testers do not need Bun, Node.js or the source repository.
+`0.6.1` is an unpublished Windows x64 desktop candidate distributed by side-loaded VSIX and can upgrade directly over `0.5.1` or `0.6.0`. The package contains a standalone MCP server, so testers do not need Bun, Node.js or the source repository.
 
 ## Setup
 
@@ -50,7 +50,7 @@ Source, issues, checksums and release artifacts are available at [GitHub](https:
 
 # 中文说明
 
-VS Code Agent Bridge 将 Codex 连接到本机 VS Code 的 IDE 原生状态，提供能力受限的自治、可恢复实验会话和终端只读观测。`0.6.0` 是暂未发布 Marketplace 的 Windows x64 候选版本，可直接覆盖升级 `0.5.1`；通过 VSIX 旁加载测试时不需要安装 Bun、Node.js 或克隆源码。
+VS Code Agent Bridge 将 Codex 连接到本机 VS Code 的 IDE 原生状态，提供能力受限的自治、可恢复实验会话和终端只读观测。`0.6.1` 是暂未发布 Marketplace 的 Windows x64 候选版本，可直接覆盖升级 `0.5.1` 或 `0.6.0`；通过 VSIX 旁加载测试时不需要安装 Bun、Node.js 或克隆源码。
 
 安装后先运行 **Configure Agent Policies**。默认 `autonomous + allow` 允许 Agent 在严格校验下编辑、格式化、应用纯文本 Code Action 并保存已有文档；`review` 要求写审批和显式接受；`readOnly` 在配置与扩展处理器两层拒绝写入。随后运行 **Configure Codex** 并重启 Codex。
 
