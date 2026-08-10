@@ -18,6 +18,8 @@ Interactive Agent writes use a bounded 90-second inner RPC timeout. The MCP SDK 
 
 Recovery validates each content-addressed Blob at most once per initialization, while still reading every immutable checkpoint event. Existing experiment events and Blobs are neither migrated nor deleted.
 
+Every per-session manifest read-modify-write operation uses the same manifest mutation queue. Immutable event files remain separately atomic, but checkpoint, evidence, warning, storage, acceptance, lifecycle, pin and rename metadata cannot overwrite a newer manifest snapshot from another operation.
+
 For Git-backed experiments, workspace watcher events are captured only when their path is currently Git-dirty or the document is open in VS Code. This excludes ignored build output while preserving unsaved/open-buffer observation. If the bounded Git status check fails, the extension conservatively captures the event and records only a path-free warning in its output channel.
 
 ## Consequences
@@ -25,5 +27,6 @@ For Git-backed experiments, workspace watcher events are captured only when thei
 - A cancelled onboarding request cannot later write workspace settings or create an experiment.
 - Slow recovery is discoverable and has a stable machine-readable state instead of presenting an empty registry.
 - Future checkpoints do not grow from ordinary Git-ignored build output; legacy journals remain available and benefit from deduplicated Blob validation.
+- Concurrent automatic evidence or checkpoint capture cannot silently undo an Agent rename or lose another manifest field update.
 - The bridge still exposes exactly 26 IDE-bounded tools. No generic filesystem, terminal input, shell, command or Git surface is added.
 - A real reload against the existing large journal remains a separate self-bootstrap validation gate for the patch candidate.

@@ -7,6 +7,7 @@
 - Increased only interactive write RPCs to a bounded 90-second timeout while retaining prompt cancellation and one active request per socket.
 - Excluded Git-ignored build output from future external-change checkpoints while retaining open-buffer observation and conservative fallback on Git failures.
 - Deduplicated content-addressed blob validation during recovery and added delayed-activation/onboarding regression coverage.
+- Serialized all per-session manifest mutations so automatic checkpoints and diagnostic evidence cannot revert a concurrent experiment rename or lose another metadata update.
 
 ## 0.6.0 - 2026-08-10
 

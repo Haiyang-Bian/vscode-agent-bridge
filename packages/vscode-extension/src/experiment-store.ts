@@ -254,10 +254,7 @@ export class ExperimentStore {
     expectedTitle: string,
     title: string,
   ): Promise<ExperimentManifest> {
-    assertUuid(sessionId);
-    const manifestPath = this.#manifestPath(sessionId);
-    return serializeManifestMutation(manifestPath, async () => {
-      const manifest = await this.readManifest(sessionId);
+    return this.#mutateManifest(sessionId, async (manifest) => {
       if (manifest.mode !== "workspace") {
         throw new BridgeError(
           "POLICY_DENIED",
@@ -294,41 +291,42 @@ export class ExperimentStore {
     input: AppendCheckpointInput,
   ): Promise<ExperimentManifest> {
     await this.assertLease(sessionId);
-    const manifest = await this.readManifest(sessionId);
-    if (manifest.lifecycle !== "active") {
-      throw new Error("Cannot append a checkpoint to a completed experiment.");
-    }
-    const checkpointId = randomUUID();
-    const createdAt = this.#now().toISOString();
-    const checkpoint: StoredCheckpoint = {
-      checkpointId,
-      parentCheckpointId: manifest.currentCheckpointId,
-      sequence: manifest.nextSequence,
-      createdAt,
-      source: input.source,
-      summary: input.summary,
-      documentCount: input.documents.length,
-      coverageComplete: input.coverageComplete,
-      gitCommit: input.gitCommit ?? null,
-      evidence: [...(input.evidence ?? [])],
-      documents: [...input.documents],
-    };
-    StoredCheckpointSchema.parse(checkpoint);
-    await writeAtomic(
-      this.#eventPath(sessionId, checkpoint.sequence, checkpointId),
-      `${JSON.stringify(checkpoint, null, 2)}\n`,
-    );
+    return this.#mutateManifest(sessionId, async (manifest) => {
+      if (manifest.lifecycle !== "active") {
+        throw new Error("Cannot append a checkpoint to a completed experiment.");
+      }
+      const checkpointId = randomUUID();
+      const createdAt = this.#now().toISOString();
+      const checkpoint: StoredCheckpoint = {
+        checkpointId,
+        parentCheckpointId: manifest.currentCheckpointId,
+        sequence: manifest.nextSequence,
+        createdAt,
+        source: input.source,
+        summary: input.summary,
+        documentCount: input.documents.length,
+        coverageComplete: input.coverageComplete,
+        gitCommit: input.gitCommit ?? null,
+        evidence: [...(input.evidence ?? [])],
+        documents: [...input.documents],
+      };
+      StoredCheckpointSchema.parse(checkpoint);
+      await writeAtomic(
+        this.#eventPath(sessionId, checkpoint.sequence, checkpointId),
+        `${JSON.stringify(checkpoint, null, 2)}\n`,
+      );
 
-    const updated: ExperimentManifest = {
-      ...manifest,
-      health: input.coverageComplete ? manifest.health : "partial",
-      currentCheckpointId: checkpointId,
-      checkpointIds: [...manifest.checkpointIds, checkpointId],
-      nextSequence: manifest.nextSequence + 1,
-      updatedAt: createdAt,
-    };
-    await this.#writeManifest(updated);
-    return updated;
+      const updated: ExperimentManifest = {
+        ...manifest,
+        health: input.coverageComplete ? manifest.health : "partial",
+        currentCheckpointId: checkpointId,
+        checkpointIds: [...manifest.checkpointIds, checkpointId],
+        nextSequence: manifest.nextSequence + 1,
+        updatedAt: createdAt,
+      };
+      await this.#writeManifest(updated);
+      return updated;
+    });
   }
 
   async readCheckpoint(sessionId: string, checkpointId: string): Promise<StoredCheckpoint> {
@@ -387,8 +385,9 @@ export class ExperimentStore {
       this.#evidenceEventPath(sessionId, checkpoint.sequence, checkpoint.checkpointId, evidence.evidenceId),
       `${JSON.stringify({ type: "evidence", checkpointId, evidence }, null, 2)}\n`,
     );
-    const manifest = await this.readManifest(sessionId);
-    await this.#writeManifest({ ...manifest, updatedAt: this.#now().toISOString() });
+    await this.#mutateManifest(sessionId, async (manifest) => {
+      await this.#writeManifest({ ...manifest, updatedAt: this.#now().toISOString() });
+    });
     return updated;
   }
 
@@ -397,28 +396,30 @@ export class ExperimentStore {
     checkpointId: string,
   ): Promise<ExperimentManifest> {
     await this.assertLease(sessionId);
-    const manifest = await this.readManifest(sessionId);
-    if (!manifest.checkpointIds.includes(checkpointId)) {
-      throw new Error("Accepted checkpoint must belong to the experiment.");
-    }
-    const updated = {
-      ...manifest,
-      acceptedCheckpointId: checkpointId,
-      updatedAt: this.#now().toISOString(),
-    };
-    await this.#writeManifest(updated);
-    return updated;
+    return this.#mutateManifest(sessionId, async (manifest) => {
+      if (!manifest.checkpointIds.includes(checkpointId)) {
+        throw new Error("Accepted checkpoint must belong to the experiment.");
+      }
+      const updated = {
+        ...manifest,
+        acceptedCheckpointId: checkpointId,
+        updatedAt: this.#now().toISOString(),
+      };
+      await this.#writeManifest(updated);
+      return updated;
+    });
   }
 
   async clearAcceptedCheckpoint(sessionId: string): Promise<ExperimentManifest> {
-    const manifest = await this.readManifest(sessionId);
-    const updated = {
-      ...manifest,
-      acceptedCheckpointId: null,
-      updatedAt: this.#now().toISOString(),
-    };
-    await this.#writeManifest(updated);
-    return updated;
+    return this.#mutateManifest(sessionId, async (manifest) => {
+      const updated = {
+        ...manifest,
+        acceptedCheckpointId: null,
+        updatedAt: this.#now().toISOString(),
+      };
+      await this.#writeManifest(updated);
+      return updated;
+    });
   }
 
   async setLifecycle(
@@ -426,13 +427,15 @@ export class ExperimentStore {
     lifecycle: "finalized" | "abandoned",
   ): Promise<ExperimentManifest> {
     await this.assertLease(sessionId);
-    const manifest = await this.readManifest(sessionId);
-    const updated = {
-      ...manifest,
-      lifecycle,
-      updatedAt: this.#now().toISOString(),
-    };
-    await this.#writeManifest(updated);
+    const updated = await this.#mutateManifest(sessionId, async (manifest) => {
+      const next = {
+        ...manifest,
+        lifecycle,
+        updatedAt: this.#now().toISOString(),
+      };
+      await this.#writeManifest(next);
+      return next;
+    });
     await this.releaseLease(sessionId);
     return updated;
   }
@@ -441,29 +444,32 @@ export class ExperimentStore {
     sessionId: string,
     lifecycle: "finalized" | "abandoned",
   ): Promise<ExperimentManifest> {
-    const manifest = await this.readManifest(sessionId);
-    if (manifest.mode !== "worktree") {
-      throw new Error("Controlled lifecycle updates belong only to managed experiments.");
-    }
-    const updated = {
-      ...manifest,
-      lifecycle,
-      updatedAt: this.#now().toISOString(),
-    };
-    await this.#writeManifest(updated);
+    const updated = await this.#mutateManifest(sessionId, async (manifest) => {
+      if (manifest.mode !== "worktree") {
+        throw new Error("Controlled lifecycle updates belong only to managed experiments.");
+      }
+      const next = {
+        ...manifest,
+        lifecycle,
+        updatedAt: this.#now().toISOString(),
+      };
+      await this.#writeManifest(next);
+      return next;
+    });
     await this.releaseLease(sessionId);
     return updated;
   }
 
   async setPinned(sessionId: string, pinned: boolean): Promise<ExperimentManifest> {
-    const manifest = await this.readManifest(sessionId);
-    const updated = {
-      ...manifest,
-      pinned,
-      updatedAt: this.#now().toISOString(),
-    };
-    await this.#writeManifest(updated);
-    return updated;
+    return this.#mutateManifest(sessionId, async (manifest) => {
+      const updated = {
+        ...manifest,
+        pinned,
+        updatedAt: this.#now().toISOString(),
+      };
+      await this.#writeManifest(updated);
+      return updated;
+    });
   }
 
   async writeManagedMetadata(
@@ -507,18 +513,19 @@ export class ExperimentStore {
     markCoveragePartial = true,
   ): Promise<ExperimentManifest> {
     await this.assertLease(sessionId);
-    const manifest = await this.readManifest(sessionId);
-    if (manifest.warnings.includes(warning)) {
-      return manifest;
-    }
-    const updated: ExperimentManifest = {
-      ...manifest,
-      health: markCoveragePartial ? "partial" : manifest.health,
-      warnings: [...manifest.warnings, warning],
-      updatedAt: this.#now().toISOString(),
-    };
-    await this.#writeManifest(updated);
-    return updated;
+    return this.#mutateManifest(sessionId, async (manifest) => {
+      if (manifest.warnings.includes(warning)) {
+        return manifest;
+      }
+      const updated: ExperimentManifest = {
+        ...manifest,
+        health: markCoveragePartial ? "partial" : manifest.health,
+        warnings: [...manifest.warnings, warning],
+        updatedAt: this.#now().toISOString(),
+      };
+      await this.#writeManifest(updated);
+      return updated;
+    });
   }
 
   async putBlob(text: string): Promise<{ sha256: string; storedBytes: number; created: boolean }> {
@@ -564,11 +571,12 @@ export class ExperimentStore {
     if (addedBytes === 0) {
       return;
     }
-    const manifest = await this.readManifest(sessionId);
-    await this.#writeManifest({
-      ...manifest,
-      storageBytes: manifest.storageBytes + addedBytes,
-      updatedAt: this.#now().toISOString(),
+    await this.#mutateManifest(sessionId, async (manifest) => {
+      await this.#writeManifest({
+        ...manifest,
+        storageBytes: manifest.storageBytes + addedBytes,
+        updatedAt: this.#now().toISOString(),
+      });
     });
   }
 
@@ -744,6 +752,16 @@ export class ExperimentStore {
   async #readLease(sessionId: string): Promise<z.infer<typeof LeaseSchema>> {
     const value = JSON.parse(await readFile(this.#leasePath(sessionId), "utf8"));
     return LeaseSchema.parse(value);
+  }
+
+  async #mutateManifest<Result>(
+    sessionId: string,
+    operation: (manifest: ExperimentManifest) => Promise<Result>,
+  ): Promise<Result> {
+    assertUuid(sessionId);
+    return serializeManifestMutation(this.#manifestPath(sessionId), async () =>
+      operation(await this.readManifest(sessionId)),
+    );
   }
 
   async #writeManifest(manifest: ExperimentManifest): Promise<void> {
