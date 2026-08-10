@@ -29,6 +29,8 @@ import {
   type SaveDocumentResult,
 } from "@vscode-agent-bridge/protocol";
 
+import { isPathWithin, samePath } from "../../src/git-path.js";
+
 const UNSAVED_MARKER = "UNSAVED_VSCODE_AGENT_BRIDGE_E2E";
 const AGENT_MARKER = "AGENT_CHANGE_SET_E2E";
 const STALE_MARKER = "STALE_CHANGE_SET_MUST_NOT_APPLY";
@@ -174,7 +176,7 @@ suite("VS Code Agent Bridge Extension Host", function () {
         (candidate) =>
           candidate.isDirty &&
           candidate.uri.scheme === "file" &&
-          candidate.uri.fsPath.toLowerCase().startsWith(workspaceFolder.uri.fsPath.toLowerCase()),
+          isPathWithin(workspaceFolder.uri.fsPath, candidate.uri.fsPath),
       )) {
         await dirtyDocument.save();
       }
@@ -329,10 +331,7 @@ async function isPrimaryTestWindow(): Promise<boolean> {
     "E2E workspace folder",
     5_000,
   ).catch(() => undefined);
-  return (
-    current !== undefined &&
-    path.resolve(configured).toLowerCase() === path.resolve(current).toLowerCase()
-  );
+  return current !== undefined && samePath(configured, current);
 }
 
 async function waitForManagedCompletionMarker(): Promise<void> {
@@ -929,10 +928,8 @@ async function waitForDescriptorForWorkspace(workspacePath: string): Promise<Ins
       );
       if (
         parsed.success &&
-        parsed.data.workspaceFolders.some(
-          (folder) =>
-            path.resolve(vscode.Uri.parse(folder.uri, true).fsPath).toLowerCase() ===
-            path.resolve(workspacePath).toLowerCase(),
+        parsed.data.workspaceFolders.some((folder) =>
+          samePath(vscode.Uri.parse(folder.uri, true).fsPath, workspacePath),
         )
       ) {
         return parsed.data;
