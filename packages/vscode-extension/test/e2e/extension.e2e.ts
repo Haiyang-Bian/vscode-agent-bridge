@@ -1371,7 +1371,7 @@ async function writePrimaryCompletionMarker(): Promise<void> {
   assert.ok(registryDirectory, "the E2E registry directory must be configured");
   await writeFile(
     path.join(registryDirectory, "primary-e2e-passed.json"),
-    `${JSON.stringify({ protocolVersion: BRIDGE_PROTOCOL_VERSION, toolCount: 42 })}\n`,
+    `${JSON.stringify({ protocolVersion: BRIDGE_PROTOCOL_VERSION, toolCount: 44 })}\n`,
     "utf8",
   );
 }

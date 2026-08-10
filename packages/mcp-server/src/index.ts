@@ -9,7 +9,12 @@ import {
   BRIDGE_NAME,
   BRIDGE_PROTOCOL_VERSION,
   BRIDGE_RELEASE_VERSION,
+  BridgeCapabilitiesResultSchema,
+  GetBridgeCapabilitiesInputSchema,
+  GetUsageInsightsInputSchema,
   INTERACTIVE_BRIDGE_TIMEOUT_MS,
+  MCP_TOOL_CATALOG,
+  UsageInsightsResultSchema,
   AppliedChangeSetSchema,
   ApplyCodeActionInputSchema,
   ApplyCodeActionParamsSchema,
@@ -78,6 +83,8 @@ import {
   StartExperimentParamsSchema,
   WorkspaceSetupResultSchema,
   asBridgeError,
+  getMcpToolCatalogEntry,
+  publicToolCatalog,
   type BridgeError,
   type InstanceDescriptor,
 } from "@vscode-agent-bridge/protocol";
@@ -85,6 +92,7 @@ import * as WorkflowProtocol from "@vscode-agent-bridge/protocol";
 
 import { discoverLiveInstances, selectInstance, toPublicInstance } from "./instances.js";
 import { requestBridgeResult, requestEditorContext } from "./rpc-client.js";
+import { UsageInsightStore } from "./usage-insights.js";
 
 if (process.argv.includes("--version")) {
   process.stdout.write(`${BRIDGE_RELEASE_VERSION}\n`);
@@ -126,41 +134,59 @@ const server = new McpServer(
       "Prefer this VS Code Bridge over filesystem or shell tools whenever it offers the needed IDE capability. Inspect workspace setup, start a recoverable experiment, and use VS Code-native configuration, Tasks, language services, and Debug workflows. Tool annotations describe side effects so the MCP client or supervising agent can decide approvals. Acceptance, restore, finalization, Managed Worktree operations, formal Git history, and terminal input remain user-only. Call vscode_list_instances before targeting a window when multiple VS Code instances may be open. Every mutation or execution requires explicit routing, an active experiment, workspace trust, and state preconditions. Remote extension hosts are unsupported.",
   },
 );
+const usageInsights = new UsageInsightStore();
+const rawRegisterTool = server.registerTool.bind(server) as (...args: any[]) => unknown;
+(server as unknown as { registerTool: (...args: any[]) => unknown }).registerTool = (
+  name: string,
+  configuration: unknown,
+  handler: (...args: any[]) => Promise<unknown>,
+): unknown =>
+  rawRegisterTool(name, configuration, (...args: any[]) =>
+    usageInsights.track(name, args[0], () => handler(...args)),
+  );
 
-const readOnlyAnnotations = {
-  readOnlyHint: true,
-  destructiveHint: false,
-  idempotentHint: true,
-  openWorldHint: false,
-} as const;
+const readOnlyAnnotations = annotationsFor("vscode_list_instances");
+const prepareAnnotations = annotationsFor("vscode_prepare_text_edits");
+const guardedWriteAnnotations = annotationsFor("vscode_save_document");
+const destructiveLocalWriteAnnotations = annotationsFor("vscode_apply_change_set");
+const openWorldWriteAnnotations = annotationsFor("vscode_run_task");
 
-const prepareAnnotations = {
-  readOnlyHint: true,
-  destructiveHint: false,
-  idempotentHint: false,
-  openWorldHint: false,
-} as const;
+server.registerTool(
+  "vscode_get_bridge_capabilities",
+  {
+    title: "Get VS Code Agent Bridge capabilities",
+    description:
+      "Return the authoritative, privacy-safe catalog of bounded Bridge tools, side effects, experiment requirements, recoverability, sensitivity, and MCP annotations.",
+    inputSchema: GetBridgeCapabilitiesInputSchema,
+    outputSchema: BridgeCapabilitiesResultSchema,
+    annotations: annotationsFor("vscode_get_bridge_capabilities"),
+  },
+  async () => {
+    const result = BridgeCapabilitiesResultSchema.parse({
+      releaseVersion: BRIDGE_RELEASE_VERSION,
+      protocolVersion: BRIDGE_PROTOCOL_VERSION,
+      toolCount: MCP_TOOL_CATALOG.length,
+      tools: publicToolCatalog(),
+    });
+    return toolSuccess(`VS Code Agent Bridge exposes ${result.toolCount} bounded IDE tools.`, result);
+  },
+);
 
-const guardedWriteAnnotations = {
-  readOnlyHint: false,
-  destructiveHint: false,
-  idempotentHint: false,
-  openWorldHint: false,
-} as const;
-
-const destructiveLocalWriteAnnotations = {
-  readOnlyHint: false,
-  destructiveHint: true,
-  idempotentHint: false,
-  openWorldHint: false,
-} as const;
-
-const openWorldWriteAnnotations = {
-  readOnlyHint: false,
-  destructiveHint: true,
-  idempotentHint: false,
-  openWorldHint: true,
-} as const;
+server.registerTool(
+  "vscode_get_usage_insights",
+  {
+    title: "Get local VS Code Agent Bridge usage insights",
+    description:
+      "Aggregate privacy-preserving local tool counts, outcomes, friction, and workflow closure evidence. Parameters, results, paths, source, terminal output, and debug values are never recorded.",
+    inputSchema: GetUsageInsightsInputSchema,
+    outputSchema: UsageInsightsResultSchema,
+    annotations: annotationsFor("vscode_get_usage_insights"),
+  },
+  async ({ days }) => {
+    const result = UsageInsightsResultSchema.parse(await usageInsights.getInsights(days));
+    return toolSuccess(`Aggregated ${result.totalCalls} local Bridge call(s) from ${days} day(s).`, result);
+  },
+);
 
 server.registerTool(
   "vscode_list_instances",
@@ -1154,6 +1180,14 @@ function registerRoutedWorkflowTool(registration: RoutedWorkflowToolRegistration
       }
     },
   );
+}
+
+function annotationsFor(name: string): RoutedWorkflowToolRegistration["annotations"] {
+  const entry = getMcpToolCatalogEntry(name);
+  if (!entry) {
+    throw new Error(`MCP tool is missing from the authoritative catalog: ${name}`);
+  }
+  return entry.annotations;
 }
 
 async function resolveInstance(instanceId?: string): Promise<InstanceDescriptor> {

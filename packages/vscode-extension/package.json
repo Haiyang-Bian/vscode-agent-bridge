@@ -2,7 +2,7 @@
   "name": "vscode-agent-bridge",
   "displayName": "VS Code Agent Bridge",
   "description": "Expose IDE-native VS Code context to local MCP clients through an authenticated bridge.",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "publisher": "AliceLin",
   "license": "MIT",
   "icon": "resources/icon.png",
@@ -133,6 +133,18 @@
         "title": "VS Code Agent Bridge: Run Doctor"
       },
       {
+        "command": "vscodeAgentBridge.refreshHub",
+        "title": "VS Code Agent Bridge: Refresh Hub"
+      },
+      {
+        "command": "vscodeAgentBridge.clearUsageInsights",
+        "title": "VS Code Agent Bridge: Clear Local Usage Insights"
+      },
+      {
+        "command": "vscodeAgentBridge.exportUsageInsights",
+        "title": "VS Code Agent Bridge: Export Usage Insights"
+      },
+      {
         "command": "vscodeAgentBridge.startExperiment",
         "title": "VS Code Agent Bridge: Start Agent Experiment",
         "enablement": "isWorkspaceTrusted"
@@ -237,7 +249,7 @@
       "activitybar": [
         {
           "id": "vscodeAgentBridgeExperiments",
-          "title": "Agent Experiments",
+          "title": "VS Code Agent Bridge",
           "icon": "resources/experiment.svg"
         }
       ]
@@ -245,17 +257,44 @@
     "views": {
       "vscodeAgentBridgeExperiments": [
         {
+          "id": "vscodeAgentBridge.overviewView",
+          "name": "Overview"
+        },
+        {
           "id": "vscodeAgentBridge.experimentsView",
           "name": "Experiments"
         },
         {
           "id": "vscodeAgentBridge.agentActivityView",
           "name": "Agent Activity"
+        },
+        {
+          "id": "vscodeAgentBridge.capabilitiesView",
+          "name": "Capabilities"
+        },
+        {
+          "id": "vscodeAgentBridge.usageInsightsView",
+          "name": "Usage Insights"
         }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "vscodeAgentBridge.overviewView",
+        "contents": "[Configure Codex](command:vscodeAgentBridge.configureCodex)\n[Run Doctor](command:vscodeAgentBridge.runDoctor)\n[Start Experiment](command:vscodeAgentBridge.startExperiment)"
+      },
+      {
+        "view": "vscodeAgentBridge.usageInsightsView",
+        "contents": "Usage insights stay on this computer and never contain tool parameters or results.\n[Refresh](command:vscodeAgentBridge.refreshHub)\n[Export aggregate report](command:vscodeAgentBridge.exportUsageInsights)\n[Clear local insights](command:vscodeAgentBridge.clearUsageInsights)"
+      }
+    ],
     "menus": {
       "view/title": [
+        {
+          "command": "vscodeAgentBridge.refreshHub",
+          "when": "view == vscodeAgentBridge.overviewView || view == vscodeAgentBridge.capabilitiesView || view == vscodeAgentBridge.usageInsightsView",
+          "group": "navigation"
+        },
         {
           "command": "vscodeAgentBridge.startExperiment",
           "when": "view == vscodeAgentBridge.experimentsView && isWorkspaceTrusted",

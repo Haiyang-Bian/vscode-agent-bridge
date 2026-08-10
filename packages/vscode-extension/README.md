@@ -2,7 +2,7 @@
 
 Connect Codex to guarded IDE workflow autonomy, recoverable Agent experiments, VS Code Tasks, bounded debugging and read-only terminal observation in local VS Code windows.
 
-`0.7.0` is an unpublished Windows x64 desktop candidate distributed by side-loaded VSIX and upgrades directly over `0.6.1`. The package contains a standalone MCP server, so testers do not need Bun, Node.js or the source repository.
+`0.8.0` is an unpublished Windows x64 desktop candidate distributed by side-loaded VSIX and upgrades directly over `0.7.0`. The package contains a standalone MCP server, so testers do not need Bun, Node.js or the source repository.
 
 ## Setup
 
@@ -15,7 +15,9 @@ Configuration creates a timestamped backup when the file exists, refuses malform
 
 ## Bridge and experiment workflow
 
-The bridge exposes 42 bounded IDE tools. v0.7 adds guarded JSONC/resource updates, fingerprinted workspace Tasks and a fixed-whitelist Debug workflow. Starting an experiment still triggers first-use workspace onboarding. Agent acceptance, restore, Finalize, abandon, deletion and all Managed Worktree actions remain unavailable through MCP.
+The bridge exposes 44 bounded IDE tools. v0.8 adds an authoritative classified capability catalog and privacy-preserving local usage insights on top of the v0.7 JSONC/resource, Task and fixed-whitelist Debug workflows. Starting an experiment still triggers first-use workspace onboarding. Agent acceptance, restore, Finalize, abandon, deletion and all Managed Worktree actions remain unavailable through MCP.
+
+The Activity Bar container is named **VS Code Agent Bridge** and presents Overview, Experiments, Agent Activity, Capabilities and Usage Insights as native views. Local insight events contain only tool/category, outcome, timing and size buckets, truncation and stable error codes. They never contain parameters, results, paths, source, hashes, terminal output, debug expressions/values, environment variables or credentials; they remain local for 30 days with a 20 MiB cap and can be cleared or exported as aggregates.
 
 - The machine master switch stops RPC and removes the instance descriptor when disabled.
 - `explicit` rejects delayed execution such as folder-open Tasks.
@@ -31,7 +33,7 @@ The native **Agent Activity** view shows bounded operation state without source,
 
 For deterministic acceptance testing, the machine setting `vscodeAgentBridge.enableAcceptanceFixtures` may be enabled temporarily. It registers one pure-text Quick Fix for existing `*.bridgeaction` documents containing `BROKEN_E2E`; the action replaces that marker with `FIXED_E2E`. The setting is off by default and should be disabled after the test.
 
-Run **Start Agent Experiment** on an ordinary Git experiment branch. The Agent may use bounded IDE workflows while automatic checkpoints remain separate from Git. Finalize may use the current saved state if no candidate was accepted; an existing accepted candidate stays authoritative. The user then uses normal Git squash/rebase to create the desired formal history. Review, restore and explicit acceptance remain available in the native **Agent Experiments** view.
+Run **Start Agent Experiment** on an ordinary Git experiment branch. The Agent may use bounded IDE workflows while automatic checkpoints remain separate from Git. Finalize may use the current saved state if no candidate was accepted; an existing accepted candidate stays authoritative. The user then uses normal Git squash/rebase to create the desired formal history. Review, restore and explicit acceptance remain available in the native **Experiments** view.
 
 Managed Worktree is an advanced mode for stronger isolation. Start **Start Managed Worktree Experiment (Advanced)** from a completely clean named branch. You may create many private checkpoint commits, but only a user-accepted reachable commit can be promoted. It still never pushes or cleans up automatically.
 
@@ -53,7 +55,9 @@ Source, issues, checksums and release artifacts are available at [GitHub](https:
 
 # 中文说明
 
-VS Code Agent Bridge 将 Codex 连接到本机 VS Code 的 IDE 原生状态，提供受实验保护的配置/资源修改、VS Code Tasks、受限调试和终端只读观测。`0.7.0` 是暂未发布 Marketplace 的 Windows x64 候选版本，可直接覆盖升级 `0.6.1`；旁加载测试不需要 Bun、Node.js 或源码。
+VS Code Agent Bridge 将 Codex 连接到本机 VS Code 的 IDE 原生状态，提供受实验保护的配置/资源修改、VS Code Tasks、受限调试和终端只读观测。`0.8.0` 是暂未发布 Marketplace 的 Windows x64 候选版本，可直接覆盖升级 `0.7.0`；旁加载测试不需要 Bun、Node.js 或源码。
+
+侧栏现在以插件全名 **VS Code Agent Bridge** 展示 Overview、Experiments、Agent Activity、Capabilities 和 Usage Insights。44 个工具的名称、分类、注解、恢复边界和敏感级别来自同一权威目录。使用洞察只在本机保存工具名/类别、结果状态、粗粒度延迟与消息大小、截断和稳定错误码，绝不记录参数、结果、路径、源码、哈希、终端内容、调试值、环境变量或凭据；默认保留 30 天且总量不超过 20 MiB，可由用户清除或导出聚合报告。
 
 安装后先运行 **Configure Bridge**。机器总开关默认启用；`explicit`（默认）只允许运行 MCP 当前明确请求的工作流，`aggressive` 才允许 folder-open Task 等延迟效果。工具审批由 Codex、用户配置或监督 Agent 根据 MCP 注解决定，**Configure Codex** 不再写审批档位。旧版显式限制策略不会被静默扩权，升级后必须由用户选择。
 

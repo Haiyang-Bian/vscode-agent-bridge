@@ -2,7 +2,11 @@ import { cp, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { BRIDGE_RELEASE_VERSION } from "@vscode-agent-bridge/protocol";
+import {
+  BRIDGE_PROTOCOL_VERSION,
+  BRIDGE_RELEASE_VERSION,
+  MCP_TOOL_NAMES,
+} from "@vscode-agent-bridge/protocol";
 
 const repositoryRoot = path.resolve(import.meta.dir, "..");
 const extensionRoot = path.join(repositoryRoot, "packages", "vscode-extension");
@@ -58,7 +62,7 @@ async function assertPrimaryE2EMarker(registryDirectory: string): Promise<void> 
   const marker = JSON.parse(
     await readFile(path.join(registryDirectory, "primary-e2e-passed.json"), "utf8"),
   ) as Record<string, unknown>;
-  if (marker.protocolVersion !== 6 || marker.toolCount !== 42) {
+  if (marker.protocolVersion !== BRIDGE_PROTOCOL_VERSION || marker.toolCount !== MCP_TOOL_NAMES.length) {
     throw new Error("Primary packaged IDE workflow E2E completion marker is invalid.");
   }
 }

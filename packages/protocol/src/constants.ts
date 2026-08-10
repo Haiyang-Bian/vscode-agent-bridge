@@ -1,6 +1,6 @@
 export const BRIDGE_NAME = "vscode-agent-bridge" as const;
-export const BRIDGE_RELEASE_VERSION = "0.7.0" as const;
-export const BRIDGE_PROTOCOL_VERSION = 6 as const;
+export const BRIDGE_RELEASE_VERSION = "0.8.0" as const;
+export const BRIDGE_PROTOCOL_VERSION = 7 as const;
 export const DEFAULT_BRIDGE_TIMEOUT_MS = 5_000;
 export const INTERACTIVE_BRIDGE_TIMEOUT_MS = 90_000;
 export const MAX_RPC_MESSAGE_BYTES = 1_048_576;
@@ -125,51 +125,6 @@ export const BRIDGE_CAPABILITIES = [
   "debug.updateBreakpoints",
   "debug.evaluate",
   "debug.setVariable",
-] as const;
-
-export const MCP_TOOL_NAMES = [
-  "vscode_list_instances",
-  "vscode_get_editor_context",
-  "vscode_get_workspace_setup",
-  "vscode_get_workspace_configuration",
-  "vscode_update_workspace_configuration",
-  "vscode_read_document",
-  "vscode_get_diagnostics",
-  "vscode_get_document_symbols",
-  "vscode_get_definitions",
-  "vscode_get_references",
-  "vscode_get_hover",
-  "vscode_get_experiment",
-  "vscode_list_experiments",
-  "vscode_start_experiment",
-  "vscode_rename_experiment",
-  "vscode_create_experiment_checkpoint",
-  "vscode_list_experiment_checkpoints",
-  "vscode_prepare_text_edits",
-  "vscode_prepare_rename",
-  "vscode_prepare_resource_changes",
-  "vscode_apply_change_set",
-  "vscode_record_experiment_evidence",
-  "vscode_save_document",
-  "vscode_format_document",
-  "vscode_list_code_actions",
-  "vscode_apply_code_action",
-  "vscode_list_terminals",
-  "vscode_list_terminal_executions",
-  "vscode_read_terminal_output",
-  "vscode_list_tasks",
-  "vscode_run_task",
-  "vscode_list_task_executions",
-  "vscode_terminate_task",
-  "vscode_list_debug_configurations",
-  "vscode_start_debug_session",
-  "vscode_list_debug_sessions",
-  "vscode_get_debug_state",
-  "vscode_control_debug_session",
-  "vscode_list_breakpoints",
-  "vscode_update_breakpoints",
-  "vscode_evaluate_debug_expression",
-  "vscode_set_debug_variable",
 ] as const;
 
 export const BRIDGE_ERROR_CODES = [
