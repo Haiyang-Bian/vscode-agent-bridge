@@ -50,7 +50,7 @@ export function createManagedConfigBlock(
 [mcp_servers.vscode_agent_bridge]
 command = ${command}
 startup_timeout_sec = 10
-tool_timeout_sec = 15
+tool_timeout_sec = 120
 default_tools_approval_mode = "${approvalMode}"
 enabled_tools = [
 ${enabledTools}

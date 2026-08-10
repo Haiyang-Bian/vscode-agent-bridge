@@ -60,7 +60,7 @@ assert(
   Array.isArray(extensionManifest.extensionKind) && extensionManifest.extensionKind.includes("ui"),
   "Extension must run as a desktop UI extension.",
 );
-assert(MCP_TOOL_NAMES.length === 21, "The release must expose exactly twenty-one MCP tools.");
+assert(MCP_TOOL_NAMES.length === 26, "The release must expose exactly twenty-six MCP tools.");
 assert(
   rootDevDependencies["@vscode/vsce"] === "3.9.3-4",
   "The release must pin the verified OIDC-capable vsce build exactly.",
@@ -116,6 +116,9 @@ assert(
     "vscode_format_document",
     "vscode_list_code_actions",
     "vscode_apply_code_action",
+    "vscode_start_experiment",
+    "vscode_rename_experiment",
+    "vscode_create_experiment_checkpoint",
   ].every((name) => MCP_TOOL_NAMES.includes(name)),
   "The guarded mutation surface is not the expected prepare/apply workflow.",
 );

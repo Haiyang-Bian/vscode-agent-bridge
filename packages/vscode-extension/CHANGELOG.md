@@ -1,5 +1,14 @@
 # Change Log
 
+## 0.6.0 - 2026-08-10
+
+- Upgraded the authenticated bridge to protocol v5 with 26 bounded IDE tools.
+- Added first-use per-root experiment onboarding through the VS Code Configuration API and read-only setup inventory for `.vscode`, settings, launch, tasks and workspace files.
+- Added Agent tools to list, start, rename and checkpoint ordinary experiments while preserving user-only acceptance, recovery, lifecycle and Managed Worktree control.
+- Added expected-title concurrency protection and atomic ordinary-session rename without migrating existing experiment storage.
+- Added the memory-only Agent Activity view, operation status bar and four configurable fixed-tab visibility policies for guarded writes.
+- Extended real Extension Host coverage through empty `.vscode` onboarding, task naming, stale rename refusal, explicit checkpoints, multi-file tab visibility and the v0.5/v0.4 regression suites.
+
 ## 0.5.1 - 2026-08-09
 
 - Treat formatter responses with zero edits as successful no-ops instead of reporting `FORMAT_PROVIDER_UNAVAILABLE`.

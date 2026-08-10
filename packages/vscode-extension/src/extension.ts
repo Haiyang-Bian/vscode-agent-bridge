@@ -79,7 +79,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   registerAgentActivityUi(context, activity);
   registerManagedWorktreeUi(context, managed, output);
   registerAcceptanceFixtureProvider(context);
-  registerE2ECommands(context, experiments, managed);
+  registerE2ECommands(context, experiments, managed, onboarding, activity);
 
   await host.start();
 
@@ -198,6 +198,8 @@ function registerE2ECommands(
   context: vscode.ExtensionContext,
   experiments: ExperimentManager,
   managed: ManagedWorktreeManager,
+  onboarding: WorkspaceOnboardingService,
+  activity: AgentActivityTracker,
 ): void {
   if (process.env.VSCODE_AGENT_BRIDGE_E2E !== "1") {
     return;
@@ -266,6 +268,17 @@ function registerE2ECommands(
       }
       return experiments.startWorkspaceExperiment({ title, root });
     }),
+    vscode.commands.registerCommand(
+      "vscodeAgentBridge.e2eConfigureWorkspaceExperiment",
+      async (visibility: Parameters<WorkspaceOnboardingService["configureRoot"]>[2] = "focusFirst") => {
+        const root = vscode.workspace.workspaceFolders?.[0];
+        if (!root) {
+          throw new Error("The E2E workspace root is unavailable.");
+        }
+        await onboarding.configureRoot(root, true, visibility);
+      },
+    ),
+    vscode.commands.registerCommand("vscodeAgentBridge.e2eGetAgentActivity", () => activity.entries),
     vscode.commands.registerCommand(
       "vscodeAgentBridge.e2eMarkCheckpointAccepted",
       (checkpointId: string) => experiments.markAccepted(checkpointId),

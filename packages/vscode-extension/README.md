@@ -2,7 +2,7 @@
 
 Connect Codex to capability-limited IDE autonomy, recoverable Agent experiments and read-only terminal observation in local VS Code windows.
 
-`0.5.1` is an unpublished Windows x64 desktop candidate distributed by side-loaded VSIX. The package contains a standalone MCP server, so testers do not need Bun, Node.js or the source repository.
+`0.6.0` is an unpublished Windows x64 desktop candidate distributed by side-loaded VSIX and can upgrade directly over `0.5.1`. The package contains a standalone MCP server, so testers do not need Bun, Node.js or the source repository.
 
 ## Setup
 
@@ -15,14 +15,16 @@ Configuration creates a timestamped backup when the file exists, refuses malform
 
 ## Policies and experiment workflow
 
-The bridge exposes 21 bounded IDE tools. In addition to editor/language-service and experiment history tools, v0.5 adds guarded save, formatting, Code Action discovery/application, terminal metadata, observed executions and sanitized output paging.
+The bridge exposes 26 bounded IDE tools. v0.6 adds workspace setup inventory plus Agent-visible ordinary-experiment list/start/rename/checkpoint operations. Starting an experiment triggers first-use workspace onboarding; user acceptance writes only scoped Bridge settings through the VS Code Configuration API. Agent acceptance, restore, Finalize, abandon, deletion and all Managed Worktree actions remain unavailable through MCP.
 
 - `autonomous` allows guarded edits and saves without per-tool approval.
 - `review` prompts for writes and requires an accepted checkpoint for Finalize.
 - `readOnly` removes write tools from Codex configuration and makes extension handlers reject writes.
 - Terminal policy `allow` exposes Shell Integration details in trusted workspaces, `metadataOnly` redacts command/output, and `deny` rejects all terminal tools.
 
-Change Sets, formatter edits, pure-text Code Actions and saves can only target existing documents inside a user-started experiment. Every write requires explicit instance/session routing plus fresh document version and SHA-256 preconditions. File creation/deletion/rename and command-bearing Code Actions are rejected. A formatter that reports no edits is treated as a successful no-op, not as a missing provider.
+Change Sets, formatter edits, pure-text Code Actions and saves can only target existing documents inside an active, onboarded experiment. Every write requires explicit instance/session routing plus fresh document version and SHA-256 preconditions. File creation/deletion/rename and command-bearing Code Actions are rejected. A formatter that reports no edits is treated as a successful no-op, not as a missing provider.
+
+The native **Agent Activity** view shows bounded operation state without source or terminal content. By default every validated target is opened as a fixed tab before mutation and the first target receives focus. Use **Configure Workspace Experiment** to enable/disable Agent writes for one root and select `focusFirst`, `focusEach`, `firstOnly` or `off`. Existing `launch.json`, `tasks.json` and `.code-workspace` files are inventoried only.
 
 For deterministic acceptance testing, the machine setting `vscodeAgentBridge.enableAcceptanceFixtures` may be enabled temporarily. It registers one pure-text Quick Fix for existing `*.bridgeaction` documents containing `BROKEN_E2E`; the action replaces that marker with `FIXED_E2E`. The setting is off by default and should be disabled after the test.
 
@@ -48,11 +50,13 @@ Source, issues, checksums and release artifacts are available at [GitHub](https:
 
 # 中文说明
 
-VS Code Agent Bridge 将 Codex 连接到本机 VS Code 的 IDE 原生状态，提供能力受限的自治、可恢复实验会话和终端只读观测。`0.5.1` 是暂未发布 Marketplace 的 Windows x64 候选版本；通过 VSIX 旁加载测试时不需要安装 Bun、Node.js 或克隆源码。
+VS Code Agent Bridge 将 Codex 连接到本机 VS Code 的 IDE 原生状态，提供能力受限的自治、可恢复实验会话和终端只读观测。`0.6.0` 是暂未发布 Marketplace 的 Windows x64 候选版本，可直接覆盖升级 `0.5.1`；通过 VSIX 旁加载测试时不需要安装 Bun、Node.js 或克隆源码。
 
 安装后先运行 **Configure Agent Policies**。默认 `autonomous + allow` 允许 Agent 在严格校验下编辑、格式化、应用纯文本 Code Action 并保存已有文档；`review` 要求写审批和显式接受；`readOnly` 在配置与扩展处理器两层拒绝写入。随后运行 **Configure Codex** 并重启 Codex。
 
-在可信的本地工作区中运行 **Start Agent Experiment**。所有写操作仍要求明确实例/会话 ID、文档版本和 SHA-256；保存只允许已打开且已存在的 `file:` 文档，格式化只调用固定 Provider，Code Action 只能包含纯文本 WorkspaceEdit，不能包含 command 或资源操作。Formatter 返回零个 edit 时按成功 no-op 处理。
+首次运行实验命令或由 Agent 请求启动实验时，扩展只盘点 `.vscode`、settings、launch、tasks 与 workspace 文件，并在用户确认后通过 VS Code Configuration API 写入本工作区根的 Bridge 设置。取消时不改文件；launch、tasks 和 workspace 文件在 v0.6 中只盘点、不修改。此后 Agent 可以按任务命名普通实验、列出实验、重命名普通实验并创建检查点，但接受、恢复、结束、放弃、删除和全部 Managed 操作仍由用户控制。
+
+所有文档写操作仍要求明确实例/会话 ID、文档版本和 SHA-256；保存只允许已打开且已存在的 `file:` 文档，格式化只调用固定 Provider，Code Action 只能包含纯文本 WorkspaceEdit，不能包含 command 或资源操作。Formatter 返回零个 edit 时按成功 no-op 处理。写入会显示在 **Agent Activity** 中；默认在实际修改前以固定标签打开全部目标并聚焦第一个目标，可在 **Configure Workspace Experiment** 中调整或关闭。
 
 为了稳定覆盖 Code Action 正向验收，可临时开启机器级设置 `vscodeAgentBridge.enableAcceptanceFixtures`。它只为包含 `BROKEN_E2E` 的既有 `*.bridgeaction` 文档提供一个纯文本 Quick Fix，并将其替换为 `FIXED_E2E`；该设置默认关闭，验收后应重新关闭。
 

@@ -64,6 +64,7 @@ async function prepareWorkspace(target: string): Promise<void> {
   await cp(path.join(extensionRoot, "test", "fixtures", "typescript-workspace"), target, {
     recursive: true,
   });
+  await rm(path.join(target, ".vscode"), { recursive: true, force: true });
   await run(["git", "init", "--initial-branch=main"], target);
   await run(["git", "config", "user.name", "VS Code Agent Bridge E2E"], target);
   await run(["git", "config", "user.email", "bridge-e2e@example.invalid"], target);

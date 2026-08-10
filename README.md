@@ -2,7 +2,7 @@
 
 VS Code Agent Bridge connects local MCP clients such as Codex to IDE-native VS Code state. It has two runtime layers: a standalone STDIO MCP server and a VS Code desktop extension. `packages/protocol` contains their shared RPC contracts and is not a third service.
 
-The unpublished `0.5.1` candidate targets Windows x64 and is distributed as a side-loaded VSIX. Testers do not need Bun, Node.js or this repository: the package contains a Bun-compiled MCP executable and installs a versioned copy only after explicit confirmation.
+The unpublished `0.6.0` candidate targets Windows x64 and is distributed as a side-loaded VSIX. It upgrades directly over `0.5.1`; testers do not need Bun, Node.js or this repository because the package contains a Bun-compiled MCP executable and installs a versioned copy only after explicit confirmation.
 
 ## MCP tools
 
@@ -16,7 +16,12 @@ The unpublished `0.5.1` candidate targets Windows x64 and is distributed as a si
 | `vscode_get_definitions` | Resolve definitions for an explicit URI and zero-based position. |
 | `vscode_get_references` | Resolve sorted, deduplicated references. |
 | `vscode_get_hover` | Read bounded hover text with command links redacted. |
+| `vscode_get_workspace_setup` | Inventory trust, onboarding and standard VS Code configuration-file presence without returning contents. |
 | `vscode_get_experiment` | Read active experiment lifecycle, health and accepted candidate. |
+| `vscode_list_experiments` | Page through ordinary and Managed experiment metadata for one workspace root. |
+| `vscode_start_experiment` | Propose and, after workspace onboarding, start an ordinary task-named experiment. |
+| `vscode_rename_experiment` | Rename an ordinary experiment with an expected-title concurrency guard. |
+| `vscode_create_experiment_checkpoint` | Reconcile the workspace and create an explicit task checkpoint. |
 | `vscode_list_experiment_checkpoints` | Read bounded checkpoint history and verification evidence. |
 | `vscode_prepare_text_edits` | Validate an expiring, one-use multi-document text Change Set without changing buffers. |
 | `vscode_prepare_rename` | Ask the fixed VS Code rename provider for a text-only Change Set. |
@@ -30,7 +35,7 @@ The unpublished `0.5.1` candidate targets Windows x64 and is distributed as a si
 | `vscode_list_terminal_executions` | Page through Shell Integration executions observed since extension activation. |
 | `vscode_read_terminal_output` | Page through bounded, sanitized in-memory output with loss metadata. |
 
-The original read tools and experiment-history tools are read-only. Every Agent write requires an active trusted local experiment, explicit `instanceId`/`sessionId`, and fresh document version plus SHA-256 guards. There is no generic VS Code command, terminal input, shell, filesystem or Git tool.
+The original read tools and experiment-history tools are read-only. Every document write requires an active trusted local experiment, explicit `instanceId`/`sessionId`, and fresh document version plus SHA-256 guards. Starting is the sole write without a session ID and requires an explicit instance, root, title, reason and user-confirmed workspace onboarding. There is no generic VS Code command, terminal input, shell, filesystem or Git tool.
 
 ## Agent policies
 
@@ -43,7 +48,9 @@ Run **Configure Agent Policies**, then rerun **Configure Codex** whenever a poli
 
 ## Recoverable experiments
 
-Run **VS Code Agent Bridge: Start Agent Experiment** in a trusted local workspace before asking an Agent to edit. Experiments keep content-addressed, gzip-compressed text snapshots in VS Code extension storage, separate from the repository and Settings Sync. Agent Apply, manual edits, saves, external changes, explicit checkpoints and Git HEAD changes remain distinct events.
+The first experiment request in a trusted local workspace inventories `.vscode`, `settings.json`, `launch.json`, `tasks.json` and the workspace file, then asks before enabling experiments. Confirmation writes only `vscodeAgentBridge.experiments.enabled` and the selected `agentEditVisibility` through the VS Code Configuration API; cancellation makes no file change. Existing JSONC content is preserved and launch/tasks/workspace files are never modified.
+
+After onboarding, the Agent can name an ordinary experiment for the current task, list sessions, rename ordinary sessions and create explicit checkpoints. Accept, restore, Finalize, abandon, pin, delete and every Managed Worktree action remain user-only. Experiments keep content-addressed, gzip-compressed text snapshots in VS Code extension storage, separate from the repository and Settings Sync.
 
 - Saving is not acceptance; a checkpoint is not a Git commit.
 - In autonomous mode the Agent may save an existing guarded document; it cannot create files or save untitled buffers.
@@ -53,6 +60,8 @@ Run **VS Code Agent Bridge: Start Agent Experiment** in a trusted local workspac
 - Retention defaults to 30 days or 500 MB. Active, pinned and corrupt sessions are not auto-deleted.
 
 The default Git workflow is an ordinary experiment branch plus normal Git squash/rebase performed by the user. Automatic checkpoints never create Git commits.
+
+Agent writes appear in the native **Agent Activity** view and status bar. Depending on `agentEditVisibility`, guarded target documents are opened as fixed tabs before mutation; the default opens all targets and focuses the first. Activity is memory-only, capped at 200 entries, and records relative names and outcomes rather than source, replacement text, hashes, terminal data or absolute paths.
 
 ## Managed worktrees and one-commit promotion (advanced)
 
@@ -98,7 +107,7 @@ bun run test:artifact
 
 Pull requests and `master` run [CI](.github/workflows/ci.yml). A version tag runs [the release workflow](.github/workflows/release.yml), creates checksums, a version-specific cross-machine test bundle and provenance, and publishes a GitHub Release. Marketplace publishing remains disabled and runs through `vsce --oidc` only if `MARKETPLACE_TRUSTED_PUBLISHING_ENABLED` is explicitly set to `true`.
 
-No PAT is stored in this repository. See the [v0.5.1 release checklist](docs/releases/v0.5.1.md) and [v0.5.1 cross-machine acceptance prompt](docs/acceptance/v0.5.1-windows-x64.md).
+No PAT is stored in this repository. See the [v0.6.0 release checklist](docs/releases/v0.6.0.md) and [v0.6.0 cross-machine acceptance prompt](docs/acceptance/v0.6.0-windows-x64.md).
 
 ## Security and license
 

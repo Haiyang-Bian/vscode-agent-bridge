@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { BridgeError } from "@vscode-agent-bridge/protocol";
 
 import { WorkspaceOnboardingService } from "./workspace-onboarding.js";
+import { planEditorReveal } from "./editor-visibility-plan.js";
 
 export class AgentEditorVisibility {
   readonly #onboarding: WorkspaceOnboardingService;
@@ -18,31 +19,26 @@ export class AgentEditorVisibility {
     }
     const root = vscode.Uri.parse(rootUri, true);
     const policy = this.#onboarding.getEditVisibility(root);
-    if (policy === "off") {
+    const revealPlan = planEditorReveal(policy, unique);
+    if (revealPlan.length === 0) {
       return;
     }
 
     try {
-      const documents = await Promise.all(
-        (policy === "firstOnly" ? unique.slice(0, 1) : unique).map((uri) =>
-          vscode.workspace.openTextDocument(uri),
+      const documents = new Map(
+        await Promise.all(
+          revealPlan.map(async ({ target }) => [
+            target.toString(true),
+            await vscode.workspace.openTextDocument(target),
+          ] as const),
         ),
       );
-      if (policy === "focusEach") {
-        for (const document of documents) {
-          await vscode.window.showTextDocument(document, { preview: false, preserveFocus: false });
-        }
-        return;
+      for (const step of revealPlan) {
+        await vscode.window.showTextDocument(documents.get(step.target.toString(true))!, {
+          preview: false,
+          preserveFocus: step.preserveFocus,
+        });
       }
-      if (policy === "focusFirst") {
-        for (const document of documents.slice(1)) {
-          await vscode.window.showTextDocument(document, { preview: false, preserveFocus: true });
-        }
-      }
-      await vscode.window.showTextDocument(documents[0]!, {
-        preview: false,
-        preserveFocus: false,
-      });
     } catch {
       throw new BridgeError(
         "EDITOR_REVEAL_FAILED",

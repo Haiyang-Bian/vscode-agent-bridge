@@ -113,7 +113,7 @@ export class WorkspaceOnboardingService {
       if (choice !== "Enable Experiments") {
         throw new BridgeError("WORKSPACE_ONBOARDING_DECLINED", "Workspace onboarding was declined.");
       }
-      await this.#writeSettings(root, "focusFirst");
+      await this.#writeSettings(root, "focusFirst", true);
       return true;
     }
 
@@ -139,7 +139,7 @@ export class WorkspaceOnboardingService {
         continue;
       }
       if (choice === "Create Experiment") {
-        await this.#writeSettings(root, "focusFirst");
+        await this.#writeSettings(root, "focusFirst", true);
         this.#declinedRoots.delete(rootKey);
         return true;
       }
@@ -188,7 +188,7 @@ export class WorkspaceOnboardingService {
       return;
     }
     if (!action.value) {
-      await this.#updateEnabled(root, false);
+      await this.configureRoot(root, false);
       await vscode.window.showInformationMessage(
         "Agent experiments disabled for this workspace root. Existing sessions were preserved.",
       );
@@ -210,7 +210,7 @@ export class WorkspaceOnboardingService {
     if (!visibility) {
       return;
     }
-    await this.#writeSettings(root, visibility.value);
+    await this.configureRoot(root, true, visibility.value);
     this.#declinedRoots.delete(root.uri.toString(true));
     await vscode.window.showInformationMessage("Workspace experiment settings updated.");
   }
@@ -224,14 +224,32 @@ export class WorkspaceOnboardingService {
     );
   }
 
+  async configureRoot(
+    root: vscode.WorkspaceFolder,
+    enabled: boolean,
+    visibility: AgentEditVisibility = "focusFirst",
+  ): Promise<void> {
+    assertUserWorkspaceWriteAllowed();
+    assertLocalRoot(root);
+    if (!enabled) {
+      await this.#updateEnabled(root, false);
+      return;
+    }
+    await this.#writeSettings(root, visibility, false);
+  }
+
   async #writeSettings(
     root: vscode.WorkspaceFolder,
     visibility: AgentEditVisibility,
+    preserveExplicitVisibility: boolean,
   ): Promise<void> {
     try {
       const configuration = vscode.workspace.getConfiguration(CONFIGURATION_SECTION, root.uri);
       await configuration.update(ENABLED_SETTING, true, vscode.ConfigurationTarget.WorkspaceFolder);
-      if (configuration.inspect(VISIBILITY_SETTING)?.workspaceFolderValue === undefined) {
+      if (
+        !preserveExplicitVisibility ||
+        configuration.inspect(VISIBILITY_SETTING)?.workspaceFolderValue === undefined
+      ) {
         await configuration.update(
           VISIBILITY_SETTING,
           visibility,
