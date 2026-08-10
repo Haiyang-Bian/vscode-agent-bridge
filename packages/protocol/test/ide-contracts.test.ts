@@ -19,7 +19,7 @@ const SESSION_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const ACTION_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const HASH = "a".repeat(64);
 
-describe("protocol v6 IDE workflow contracts", () => {
+describe("protocol v7 Bridge Hub contracts", () => {
   test("registers exactly 44 bounded MCP tools", () => {
     expect(BRIDGE_PROTOCOL_VERSION).toBe(7);
     expect(MCP_TOOL_NAMES).toHaveLength(44);

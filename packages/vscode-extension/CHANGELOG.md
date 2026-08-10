@@ -1,5 +1,14 @@
 # Change Log
 
+## 0.8.0 - 2026-08-10
+
+- Renamed the stable Activity Bar container to VS Code Agent Bridge and added native Overview, Capabilities and Usage Insights views alongside Experiments and Agent Activity.
+- Added an authoritative 44-tool catalog that derives tool names and classifies intent, side effects, experiment requirements, recoverability, open-world effects, sensitivity and MCP annotations.
+- Added `vscode_get_bridge_capabilities` and `vscode_get_usage_insights`.
+- Added per-process append-only local insight events with 30-day/20 MiB retention and no parameters, results, paths, source, terminal data, debug values, environment variables or credentials.
+- Added explicit clear and aggregate-export commands plus deterministic, count-backed friction and workflow-closure suggestions.
+- Removed protocol/tool-count literals from Extension Host and packaged E2E completion markers.
+
 ## 0.7.0 - 2026-08-10
 
 - Upgraded the authenticated bridge to protocol v6 with exactly 42 bounded IDE workflow tools.

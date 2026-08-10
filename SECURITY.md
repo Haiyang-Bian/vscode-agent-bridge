@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Security fixes are provided for the latest side-loaded candidate while Marketplace publication remains disabled. During this cycle, `0.7.x` is the supported line.
+Security fixes are provided for the latest side-loaded candidate while Marketplace publication remains disabled. During this cycle, `0.8.x` is the supported line.
 
 ## Reporting a vulnerability
 
@@ -29,3 +29,5 @@ Version `0.7.0` replaces per-capability extension policy with an explicit master
 Tasks can only be executed after workspace enumeration and fingerprint validation; MCP never supplies an arbitrary Task, command line or shell. Debug launch accepts only named static configurations. Debug Adapter Protocol access is a fixed whitelist with tracked session/frame/reference freshness, bounded pagination and workspace-scoped source breakpoints; generic `customRequest` is never exposed. Task commands/output, debug expressions/values and raw DAP messages never enter logs, Doctor, Activity or experiment Blobs. Task and Debug can have open-world side effects that local snapshots cannot reverse, and their MCP annotations declare that boundary.
 
 Terminal access is observation-only. The MCP surface cannot create, focus, close or write to a terminal and cannot execute a command. Command lines and sanitized output depend on Shell Integration, remain in memory only, are bounded and report incomplete coverage. Untrusted or remote workspaces do not publish the bridge. Raw command lines/output never enter logs, Doctor, experiment snapshots or crash reports.
+
+Version `0.8.0` adds no new workspace mutation. The authoritative catalog is public metadata. Local insight events are written per MCP process and contain only tool/category, timestamps, outcome, coarse latency and message-size buckets, truncation and stable error codes. They never retain parameters, results, paths, source, hashes, terminal content, debug expressions/values, environment variables or credentials; they remain local for at most 30 days and 20 MiB and are never uploaded.

@@ -2,7 +2,7 @@
 
 VS Code Agent Bridge connects local MCP clients such as Codex to IDE-native VS Code state. It has two runtime layers: a standalone STDIO MCP server and a VS Code desktop extension. `packages/protocol` contains their shared RPC contracts and is not a third service.
 
-The unpublished `0.7.0` candidate targets Windows x64 and is distributed as a side-loaded VSIX. It upgrades directly over `0.6.1`; testers do not need Bun, Node.js or this repository because the package contains a Bun-compiled MCP executable and installs a versioned copy only after explicit confirmation.
+The unpublished `0.8.0` candidate targets Windows x64 and is distributed as a side-loaded VSIX. It upgrades directly over `0.7.0`; testers do not need Bun, Node.js or this repository because the package contains a Bun-compiled MCP executable and installs a versioned copy only after explicit confirmation.
 
 ## MCP tools
 
@@ -17,6 +17,8 @@ The unpublished `0.7.0` candidate targets Windows x64 and is distributed as a si
 | `vscode_get_references` | Resolve sorted, deduplicated references. |
 | `vscode_get_hover` | Read bounded hover text with command links redacted. |
 | `vscode_get_workspace_setup` | Inventory trust, onboarding and standard VS Code configuration-file presence without returning contents. |
+| `vscode_get_bridge_capabilities` | Read the authoritative classified tool catalog, side effects, recovery and sensitivity metadata. |
+| `vscode_get_usage_insights` | Read privacy-preserving local counts, friction evidence and deterministic workflow suggestions. |
 | `vscode_get_experiment` | Read active experiment lifecycle, health and accepted candidate. |
 | `vscode_list_experiments` | Page through ordinary and Managed experiment metadata for one workspace root. |
 | `vscode_start_experiment` | Propose and, after workspace onboarding, start an ordinary task-named experiment. |
@@ -63,6 +65,12 @@ Run **Configure Bridge** to choose the machine-level master switch and workflow 
 - Existing v0.6 users who explicitly selected `readOnly`, `review`, `metadataOnly` or `deny` are not silently widened: bridge publication pauses until they explicitly enable or disable v0.7.
 
 The managed Codex block no longer chooses approval modes. Codex, user configuration or a supervising Agent decides approval from the accurate MCP annotations.
+
+## Bridge Hub and local insights
+
+The stable Activity Bar container is presented as **VS Code Agent Bridge** and contains native Overview, Experiments, Agent Activity, Capabilities and Usage Insights views. Overview shows only bounded state such as version/protocol, publication, trust, active experiment, Problems and Task/Debug/Terminal counts. Capabilities is derived from the same catalog that defines MCP names, Codex configuration and annotations.
+
+Every MCP process records a separate append-only local insight session with tool/category, outcome, timing and size buckets, truncation and stable error codes. Parameters, results, paths, source, hashes, terminal content, expressions, variables, environment variables and credentials are never recorded. Data stays on this computer for 30 days with a 20 MiB cap, can be cleared explicitly and can be exported only as a privacy-preserving aggregate report. Suggestions are deterministic rules backed by displayed counts, not claims about Agent personality or model learning.
 
 ## Recoverable experiments
 
@@ -125,7 +133,7 @@ bun run test:artifact
 
 Pull requests and `master` run [CI](.github/workflows/ci.yml). A version tag runs [the release workflow](.github/workflows/release.yml), creates checksums, a version-specific cross-machine test bundle and provenance, and publishes a GitHub Release. Marketplace publishing remains disabled and runs through `vsce --oidc` only if `MARKETPLACE_TRUSTED_PUBLISHING_ENABLED` is explicitly set to `true`.
 
-No PAT is stored in this repository. See the [v0.7.0 release checklist](docs/releases/v0.7.0.md) and [v0.7.0 cross-machine acceptance procedure](docs/acceptance/v0.7.0-windows-x64.md). Earlier self-bootstrap findings remain available under [docs/audits](docs/audits/README.md).
+No PAT is stored in this repository. See the [v0.8.0 release checklist](docs/releases/v0.8.0.md) and [v0.8.0 cross-machine acceptance procedure](docs/acceptance/v0.8.0-windows-x64.md). Earlier self-bootstrap findings remain available under [docs/audits](docs/audits/README.md).
 
 ## Security and license
 
