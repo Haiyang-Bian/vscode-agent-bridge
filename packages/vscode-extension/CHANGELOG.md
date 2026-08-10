@@ -1,5 +1,16 @@
 # Change Log
 
+## 0.10.0 - 2026-08-10
+
+- Added five bounded Marketplace and current-Profile tools, raising the catalog to 58 tools on protocol v9.
+- Added a fixed Visual Studio Marketplace Gallery client with TLS/proxy support, strict bounded response validation, 15-minute caching and fail-closed errors.
+- Added deterministic ranking that separates a versioned official-maintainer directory from Marketplace Verified Publisher state.
+- Added exact-version, one-use installation plans with a completely resolved maximum-20 dependency graph and no downgrade/update/uninstall path.
+- Added native VS Code installation with Publisher Trust/reload preservation and no CLI, URL or arbitrary VSIX fallback.
+- Added manifest-declared, non-sensitive current-Profile configuration with canonical hash preconditions, target-scope validation and no private Profile storage access.
+- Added a 30-day/100-entry local Global Profile undo journal, experiment checkpoints for Workspace/Folder changes and native Profile-management commands.
+- Added unit, source-boundary and real Extension Host coverage for malformed Marketplace responses, version drift, stale configuration and undo.
+
 ## 0.9.0 - 2026-08-10
 
 - Added nine read-only extension and IDE-signal tools, raising the catalog to 53 tools on protocol v8.

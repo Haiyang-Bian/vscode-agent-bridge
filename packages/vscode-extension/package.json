@@ -2,7 +2,7 @@
   "name": "vscode-agent-bridge",
   "displayName": "VS Code Agent Bridge",
   "description": "Expose IDE-native VS Code context to local MCP clients through an authenticated bridge.",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "publisher": "AliceLin",
   "license": "MIT",
   "icon": "resources/icon.png",
@@ -131,6 +131,14 @@
       {
         "command": "vscodeAgentBridge.runDoctor",
         "title": "VS Code Agent Bridge: Run Doctor"
+      },
+      {
+        "command": "vscodeAgentBridge.undoLastAgentProfileChange",
+        "title": "VS Code Agent Bridge: Undo Last Agent Profile Change"
+      },
+      {
+        "command": "vscodeAgentBridge.createCapabilityProfile",
+        "title": "VS Code Agent Bridge: Create Capability Profile"
       },
       {
         "command": "vscodeAgentBridge.refreshHub",

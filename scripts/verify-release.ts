@@ -60,7 +60,7 @@ assert(
   Array.isArray(extensionManifest.extensionKind) && extensionManifest.extensionKind.includes("ui"),
   "Extension must run as a desktop UI extension.",
 );
-assert(MCP_TOOL_NAMES.length === 53, "The release must expose exactly fifty-three MCP tools.");
+assert(MCP_TOOL_NAMES.length === 58, "The release must expose exactly fifty-eight MCP tools.");
 assert(
   rootDevDependencies["@vscode/vsce"] === "3.9.3-4",
   "The release must pin the verified OIDC-capable vsce build exactly.",
@@ -85,6 +85,45 @@ assert(gitRunnerSource.includes("execFile"), "Managed Git operations must use ex
 const terminalObserverSource = await readFile(
   path.join(extensionRoot, "src", "terminal-observer.ts"),
   "utf8",
+);
+const extensionMarketplaceSource = await readFile(
+  path.join(extensionRoot, "src", "extension-marketplace-manager.ts"),
+  "utf8",
+);
+assert(
+  extensionMarketplaceSource.includes('"workbench.extensions.installExtension"') &&
+    extensionMarketplaceSource.includes('"workbench.extensions.action.showExtensionsWithIds"'),
+  "Extension installation must use only the reviewed native VS Code command boundary.",
+);
+for (const forbidden of [
+  /--install-extension/iu,
+  /--uninstall-extension/iu,
+  /\.vsix/iu,
+  /child_process/iu,
+  /execFile/iu,
+  /spawn\s*\(/iu,
+]) {
+  assert(
+    !forbidden.test(extensionMarketplaceSource),
+    `Forbidden extension installation fallback: ${forbidden}.`,
+  );
+}
+const extensionProfileSource = await readFile(
+  path.join(extensionRoot, "src", "extension-profile-manager.ts"),
+  "utf8",
+);
+const extensionProfileCoreSource = await readFile(
+  path.join(extensionRoot, "src", "extension-profile-core.ts"),
+  "utf8",
+);
+assert(
+  extensionProfileCoreSource.includes("token|password|secret|credential|api") &&
+    extensionProfileSource.includes("expectedValueSha256"),
+  "Current-Profile writes must deny sensitive keys and require canonical hash preconditions.",
+);
+assert(
+  !/SecretStorage|globalState|profileName|profileId/iu.test(extensionProfileSource),
+  "Extension Profile management must not access private Profile identity or secret storage.",
 );
 for (const forbidden of [
   /window\.createTerminal/u,
@@ -128,8 +167,25 @@ assert(
     "vscode_update_breakpoints",
     "vscode_evaluate_debug_expression",
     "vscode_set_debug_variable",
+    "vscode_prepare_extension_install",
+    "vscode_apply_extension_install",
+    "vscode_update_extension_configuration",
   ].every((name) => MCP_TOOL_NAMES.includes(name)),
   "The guarded IDE workflow mutation surface is incomplete.",
+);
+assert(
+  MCP_TOOL_NAMES.filter((name) => name.includes("extension")).join(",") ===
+    [
+      "vscode_list_extensions",
+      "vscode_get_extension_details",
+      "vscode_get_extension_configuration_schema",
+      "vscode_search_extensions",
+      "vscode_prepare_extension_install",
+      "vscode_apply_extension_install",
+      "vscode_get_extension_configuration",
+      "vscode_update_extension_configuration",
+    ].join(","),
+  "The extension surface must remain the eight bounded discovery, install and configuration tools.",
 );
 assert(
   MCP_TOOL_NAMES.filter((name) => name.includes("terminal")).join(",") ===

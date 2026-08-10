@@ -19,11 +19,11 @@ const SESSION_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const ACTION_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const HASH = "a".repeat(64);
 
-describe("protocol v8 extension awareness contracts", () => {
-  test("registers exactly 53 bounded MCP tools", () => {
-    expect(BRIDGE_PROTOCOL_VERSION).toBe(8);
-    expect(MCP_TOOL_NAMES).toHaveLength(53);
-    expect(new Set(MCP_TOOL_NAMES).size).toBe(53);
+describe("protocol v9 extension orchestration contracts", () => {
+  test("registers exactly 58 bounded MCP tools", () => {
+    expect(BRIDGE_PROTOCOL_VERSION).toBe(9);
+    expect(MCP_TOOL_NAMES).toHaveLength(58);
+    expect(new Set(MCP_TOOL_NAMES).size).toBe(58);
     expect(MCP_TOOL_NAMES).toContain("vscode_save_document");
     expect(MCP_TOOL_NAMES).toContain("vscode_read_terminal_output");
     expect(MCP_TOOL_NAMES).toContain("vscode_get_workspace_setup");
@@ -37,6 +37,9 @@ describe("protocol v8 extension awareness contracts", () => {
     expect(MCP_TOOL_NAMES).toContain("vscode_read_visible_output");
     expect(MCP_TOOL_NAMES).toContain("vscode_list_diagnostic_events");
     expect(MCP_TOOL_NAMES).toContain("vscode_read_debug_output");
+    expect(MCP_TOOL_NAMES).toContain("vscode_search_extensions");
+    expect(MCP_TOOL_NAMES).toContain("vscode_apply_extension_install");
+    expect(MCP_TOOL_NAMES).toContain("vscode_update_extension_configuration");
     expect(Object.values(BRIDGE_METHODS)).not.toContain("terminals/sendInput");
   });
 
@@ -109,6 +112,10 @@ describe("protocol v8 extension awareness contracts", () => {
       "TASK_CHANGED",
       "DEBUG_REQUEST_UNSUPPORTED",
       "RESOURCE_RECOVERY_REQUIRED",
+      "MARKETPLACE_UNAVAILABLE",
+      "EXTENSION_CANDIDATE_EXPIRED",
+      "EXTENSION_INSTALL_UNSUPPORTED",
+      "EXTENSION_CONFIGURATION_STALE",
     ] as const) {
       expect(BRIDGE_ERROR_CODES).toContain(code);
     }

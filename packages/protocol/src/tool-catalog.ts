@@ -38,7 +38,9 @@ export interface McpToolCatalogEntry {
 }
 
 const READ_ONLY = annotations(true, false, true, false);
+const READ_ONLY_OPEN_WORLD = annotations(true, false, true, true);
 const PREPARE = annotations(true, false, false, false);
+const PREPARE_OPEN_WORLD = annotations(true, false, false, true);
 const GUARDED_WRITE = annotations(false, false, false, false);
 const DESTRUCTIVE_LOCAL_WRITE = annotations(false, true, false, false);
 const OPEN_WORLD_WRITE = annotations(false, true, false, true);
@@ -56,6 +58,10 @@ export const MCP_TOOL_CATALOG = [
   entry("vscode_get_profile_context", "context", "observe", "none", false, "notApplicable", "workspaceMetadata", READ_ONLY),
   entry("vscode_list_output_sources", "context", "observe", "none", false, "notApplicable", "workspaceMetadata", READ_ONLY),
   entry("vscode_read_visible_output", "context", "observe", "none", false, "notApplicable", "source", READ_ONLY),
+  entry("vscode_search_extensions", "context", "observe", "none", false, "notApplicable", "workspaceMetadata", READ_ONLY_OPEN_WORLD),
+  entry("vscode_prepare_extension_install", "context", "prepare", "memory", true, "notApplicable", "workspaceMetadata", PREPARE_OPEN_WORLD),
+  entry("vscode_apply_extension_install", "context", "act", "process", true, "none", "workspaceMetadata", OPEN_WORLD_WRITE),
+  entry("vscode_get_extension_configuration", "context", "observe", "none", false, "notApplicable", "workspaceMetadata", READ_ONLY),
 
   entry("vscode_get_diagnostics", "language", "observe", "none", false, "notApplicable", "source", READ_ONLY),
   entry("vscode_get_document_symbols", "language", "observe", "none", false, "notApplicable", "source", READ_ONLY),
@@ -82,6 +88,7 @@ export const MCP_TOOL_CATALOG = [
   entry("vscode_format_document", "editing", "act", "workspace", true, "full", "source", GUARDED_WRITE),
   entry("vscode_list_code_actions", "editing", "prepare", "memory", true, "notApplicable", "source", PREPARE),
   entry("vscode_apply_code_action", "editing", "act", "workspace", true, "full", "source", GUARDED_WRITE),
+  entry("vscode_update_extension_configuration", "editing", "act", "workspace", true, "partial", "workspaceMetadata", GUARDED_WRITE),
 
   entry("vscode_list_terminals", "terminals", "observe", "none", false, "notApplicable", "terminal", READ_ONLY),
   entry("vscode_list_terminal_executions", "terminals", "observe", "none", false, "notApplicable", "terminal", READ_ONLY),

@@ -21,6 +21,10 @@ import {
 import { ExperimentManager } from "./experiment-manager.js";
 import { ExtensionAwarenessManager } from "./extension-awareness-manager.js";
 import { createExtensionAwarenessRequestHandlers } from "./extension-awareness-handlers.js";
+import { ExtensionMarketplaceManager } from "./extension-marketplace-manager.js";
+import { createExtensionMarketplaceRequestHandlers } from "./extension-marketplace-handlers.js";
+import { ExtensionProfileManager } from "./extension-profile-manager.js";
+import { createExtensionProfileRequestHandlers } from "./extension-profile-handlers.js";
 import { IdeAutonomyManager } from "./ide-autonomy-manager.js";
 import { registerExperimentUi } from "./experiment-ui.js";
 import { ManagedWorktreeManager } from "./managed-worktree-manager.js";
@@ -61,6 +65,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const tasks = new TaskManager(host.instanceId, experiments, terminals, activity);
   const debug = new DebugManager(host.instanceId, experiments, activity, configurations);
   const extensionAwareness = new ExtensionAwarenessManager(host.instanceId, terminals, tasks, debug);
+  const extensionMarketplace = new ExtensionMarketplaceManager(host.instanceId, experiments);
+  const extensionProfiles = new ExtensionProfileManager(host.instanceId, experiments, context.globalStorageUri);
   const ideAutonomy = new IdeAutonomyManager(
     host.instanceId,
     experiments,
@@ -84,6 +90,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   host.registerRequestHandlers(createTaskRequestHandlers(tasks, experiments, onboarding, activity));
   host.registerRequestHandlers(createDebugRequestHandlers(debug, experiments, onboarding, activity));
   host.registerRequestHandlers(createExtensionAwarenessRequestHandlers(extensionAwareness));
+  host.registerRequestHandlers(
+    createExtensionMarketplaceRequestHandlers(extensionMarketplace, experiments, onboarding, activity),
+  );
+  host.registerRequestHandlers(
+    createExtensionProfileRequestHandlers(extensionProfiles, experiments, onboarding, activity),
+  );
   host.registerRequestHandlers(
     createIdeAutonomyRequestHandlers(ideAutonomy, experiments, onboarding, activity),
   );
@@ -118,7 +130,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     extensionAwareness,
   });
   registerAcceptanceFixtureProvider(context);
-  registerE2ECommands(context, experiments, managed, onboarding, activity);
+  registerE2ECommands(context, experiments, managed, onboarding, activity, extensionProfiles);
 
   context.subscriptions.push(
     output,
@@ -154,6 +166,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("vscodeAgentBridge.runDoctor", async () => {
       await runDoctorCommand(context, host, experiments, managed, terminals, tasks, debug, configurations, output);
+    }),
+    vscode.commands.registerCommand("vscodeAgentBridge.undoLastAgentProfileChange", async () => {
+      const confirmed = await vscode.window.showWarningMessage(
+        "Undo the latest Agent change to the current VS Code Profile? The value is restored only if it has not changed since.",
+        { modal: true },
+        "Undo",
+      );
+      if (confirmed !== "Undo") return;
+      try {
+        const undone = await extensionProfiles.undoLastGlobalChange();
+        await vscode.window.showInformationMessage(
+          undone ? "The latest Agent Profile change was undone." : "There is no Agent Profile change to undo.",
+        );
+      } catch (error) {
+        await vscode.window.showErrorMessage(
+          error instanceof Error ? error.message : "The Agent Profile change could not be undone.",
+        );
+      }
+    }),
+    vscode.commands.registerCommand("vscodeAgentBridge.createCapabilityProfile", async () => {
+      const commands = new Set(await vscode.commands.getCommands(true));
+      const command = "workbench.profiles.actions.manageProfiles";
+      if (!commands.has(command)) {
+        await vscode.window.showErrorMessage("This VS Code build does not expose the native Profiles manager.");
+        return;
+      }
+      await vscode.window.showInformationMessage(
+        "Create or copy a Profile in VS Code, open it in a new window, then ask the Agent to inventory and configure that current Profile.",
+      );
+      await vscode.commands.executeCommand(command);
     }),
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       void (host.isListening ? host.refreshDescriptor() : Promise.resolve());
@@ -256,6 +298,7 @@ function registerE2ECommands(
   managed: ManagedWorktreeManager,
   onboarding: WorkspaceOnboardingService,
   activity: AgentActivityTracker,
+  extensionProfiles: ExtensionProfileManager,
 ): void {
   if (process.env.VSCODE_AGENT_BRIDGE_E2E !== "1") {
     return;
@@ -335,6 +378,9 @@ function registerE2ECommands(
       },
     ),
     vscode.commands.registerCommand("vscodeAgentBridge.e2eGetAgentActivity", () => activity.entries),
+    vscode.commands.registerCommand("vscodeAgentBridge.e2eUndoLastProfileChange", () =>
+      extensionProfiles.undoLastGlobalChange(),
+    ),
     vscode.commands.registerCommand(
       "vscodeAgentBridge.e2eMarkCheckpointAccepted",
       (checkpointId: string) => experiments.markAccepted(checkpointId),
@@ -575,6 +621,7 @@ async function runDoctorCommand(
       )).filter((result) => result.deferredEffects).length
     : 0;
   const terminalStats = terminals.getStats();
+  const commandIds = new Set(await vscode.commands.getCommands(true));
   const lines = [
     `releaseVersion=${report.releaseVersion}`,
     `extensionVersion=${report.extensionVersion}`,
@@ -607,6 +654,8 @@ async function runDoctorCommand(
     `activeTaskExecutions=${tasks.activeCount}`,
     `activeDebugSessions=${debug.activeCount}`,
     `deferredWorkflowConfigurations=${deferredConfigurations}`,
+    `nativeExtensionInstall=${commandIds.has("workbench.extensions.installExtension") ? "available" : "user-action-only"}`,
+    `nativeProfilesManager=${commandIds.has("workbench.profiles.actions.manageProfiles") ? "available" : "unavailable"}`,
   ];
   output.info(`Doctor report:\n${lines.join("\n")}`);
   output.show(true);
