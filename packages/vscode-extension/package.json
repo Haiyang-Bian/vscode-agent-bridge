@@ -2,7 +2,7 @@
   "name": "vscode-agent-bridge",
   "displayName": "VS Code Agent Bridge",
   "description": "Expose IDE-native VS Code context to local MCP clients through an authenticated bridge.",
-  "version": "0.5.1",
+  "version": "0.6.1",
   "publisher": "AliceLin",
   "license": "MIT",
   "icon": "resources/icon.png",
@@ -87,6 +87,30 @@
           "default": false,
           "scope": "machine",
           "description": "Register a deterministic pure-text Code Action fixture for acceptance testing. Keep disabled during normal use."
+        },
+        "vscodeAgentBridge.experiments.enabled": {
+          "type": "boolean",
+          "default": false,
+          "scope": "resource",
+          "description": "Allow bounded Agent experiment writes for this workspace folder. An absent folder value means onboarding has not run."
+        },
+        "vscodeAgentBridge.agentEditVisibility": {
+          "type": "string",
+          "enum": [
+            "focusFirst",
+            "focusEach",
+            "firstOnly",
+            "off"
+          ],
+          "enumDescriptions": [
+            "Open every target and focus the first before an Agent mutation.",
+            "Focus every target in sequence before an Agent mutation.",
+            "Open and focus only the first target.",
+            "Do not automatically open target editors."
+          ],
+          "default": "focusFirst",
+          "scope": "resource",
+          "description": "Controls how Agent text mutations become visible in VS Code."
         }
       }
     },
@@ -106,6 +130,11 @@
       {
         "command": "vscodeAgentBridge.configureAgentPolicies",
         "title": "VS Code Agent Bridge: Configure Agent Policies"
+      },
+      {
+        "command": "vscodeAgentBridge.configureWorkspaceExperiment",
+        "title": "VS Code Agent Bridge: Configure Workspace Experiment",
+        "enablement": "isWorkspaceTrusted"
       },
       {
         "command": "vscodeAgentBridge.removeCodexConfiguration",
@@ -151,6 +180,11 @@
       {
         "command": "vscodeAgentBridge.abandonExperiment",
         "title": "VS Code Agent Bridge: Abandon Agent Experiment",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.renameExperiment",
+        "title": "VS Code Agent Bridge: Rename Agent Experiment",
         "enablement": "isWorkspaceTrusted"
       },
       {
@@ -225,6 +259,10 @@
         {
           "id": "vscodeAgentBridge.experimentsView",
           "name": "Experiments"
+        },
+        {
+          "id": "vscodeAgentBridge.agentActivityView",
+          "name": "Agent Activity"
         }
       ]
     },
@@ -239,6 +277,11 @@
           "command": "vscodeAgentBridge.createCheckpoint",
           "when": "view == vscodeAgentBridge.experimentsView && isWorkspaceTrusted",
           "group": "navigation@2"
+        },
+        {
+          "command": "vscodeAgentBridge.configureWorkspaceExperiment",
+          "when": "view == vscodeAgentBridge.experimentsView && isWorkspaceTrusted",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [
@@ -253,9 +296,14 @@
           "group": "navigation"
         },
         {
-          "command": "vscodeAgentBridge.toggleExperimentPinned",
+          "command": "vscodeAgentBridge.renameExperiment",
           "when": "view == vscodeAgentBridge.experimentsView && (viewItem == experiment || viewItem == activeExperiment)",
           "group": "navigation"
+        },
+        {
+          "command": "vscodeAgentBridge.toggleExperimentPinned",
+          "when": "view == vscodeAgentBridge.experimentsView && (viewItem == experiment || viewItem == activeExperiment)",
+          "group": "navigation@2"
         },
         {
           "command": "vscodeAgentBridge.deleteExperiment",

@@ -18,6 +18,8 @@ try {
       ...process.env,
       VSCODE_AGENT_BRIDGE_REGISTRY_DIR: registryDirectory,
       VSCODE_AGENT_BRIDGE_E2E: "1",
+      VSCODE_AGENT_BRIDGE_E2E_INITIALIZATION_DELAY_MS: "10000",
+      VSCODE_AGENT_BRIDGE_E2E_ONBOARDING_DELAY_MS: "11000",
       VSCODE_AGENT_BRIDGE_E2E_WORKSPACE: workspaceDirectory,
       VSCODE_AGENT_BRIDGE_MANAGED_ROOT: path.join(registryDirectory, "managed-worktrees"),
     },
@@ -41,6 +43,7 @@ async function prepareWorkspace(target: string): Promise<void> {
   await cp(path.join(extensionRoot, "test", "fixtures", "typescript-workspace"), target, {
     recursive: true,
   });
+  await rm(path.join(target, ".vscode"), { recursive: true, force: true });
   await run(["git", "init", "--initial-branch=main"], target);
   await run(["git", "config", "user.name", "VS Code Agent Bridge E2E"], target);
   await run(["git", "config", "user.email", "bridge-e2e@example.invalid"], target);

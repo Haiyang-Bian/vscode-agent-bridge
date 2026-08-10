@@ -70,6 +70,8 @@ export const TransportDescriptorSchema = z.discriminatedUnion("kind", [
     .strict(),
 ]);
 
+export const BridgeLifecycleSchema = z.enum(["initializing", "ready", "degraded"]);
+
 export const InstanceDescriptorSchema = z
   .object({
     protocolVersion: z.literal(BRIDGE_PROTOCOL_VERSION),
@@ -82,6 +84,7 @@ export const InstanceDescriptorSchema = z
     appHost: z.string().min(1),
     remoteName: z.string().nullable(),
     workspaceTrusted: z.boolean(),
+    lifecycle: BridgeLifecycleSchema,
     workspaceFolders: z.array(WorkspaceFolderSchema),
     transport: TransportDescriptorSchema,
     authToken: z.string().min(32),
@@ -330,6 +333,7 @@ export const BridgeInitializeResultSchema = z
   .object({
     protocolVersion: z.literal(BRIDGE_PROTOCOL_VERSION),
     instanceId: z.string().uuid(),
+    lifecycle: BridgeLifecycleSchema,
     capabilities: z.array(z.enum(BRIDGE_CAPABILITIES)),
   })
   .strict();
@@ -381,6 +385,7 @@ export const JsonRpcResponseSchema = z.union([
 
 export type BridgeInitializeParams = z.infer<typeof BridgeInitializeParamsSchema>;
 export type BridgeInitializeResult = z.infer<typeof BridgeInitializeResultSchema>;
+export type BridgeLifecycle = z.infer<typeof BridgeLifecycleSchema>;
 export type DiagnosticItem = z.infer<typeof DiagnosticItemSchema>;
 export type DiagnosticsParams = z.infer<typeof DiagnosticsParamsSchema>;
 export type DiagnosticsResult = z.infer<typeof DiagnosticsResultSchema>;

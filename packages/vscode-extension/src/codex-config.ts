@@ -50,7 +50,7 @@ export function createManagedConfigBlock(
 [mcp_servers.vscode_agent_bridge]
 command = ${command}
 startup_timeout_sec = 10
-tool_timeout_sec = 15
+tool_timeout_sec = 120
 default_tools_approval_mode = "${approvalMode}"
 enabled_tools = [
 ${enabledTools}
@@ -231,6 +231,9 @@ export function enabledToolsForPolicies(policies: AgentPolicyOptions): readonly 
   const writeWorkflowTools = new Set([
     "vscode_prepare_text_edits",
     "vscode_prepare_rename",
+    "vscode_start_experiment",
+    "vscode_rename_experiment",
+    "vscode_create_experiment_checkpoint",
     "vscode_apply_change_set",
     "vscode_record_experiment_evidence",
     "vscode_save_document",

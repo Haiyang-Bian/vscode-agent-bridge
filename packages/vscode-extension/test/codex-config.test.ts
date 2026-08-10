@@ -71,6 +71,9 @@ describe("Codex managed MCP configuration", () => {
     expect(readOnlyTools).not.toContain("vscode_prepare_text_edits");
     expect(readOnlyTools).not.toContain("vscode_apply_change_set");
     expect(readOnlyTools).not.toContain("vscode_save_document");
+    expect(readOnlyTools).not.toContain("vscode_start_experiment");
+    expect(readOnlyTools).not.toContain("vscode_rename_experiment");
+    expect(readOnlyTools).not.toContain("vscode_create_experiment_checkpoint");
     expect(readOnlyTools).not.toContain("vscode_read_terminal_output");
 
     const denied = createManagedConfigBlock(executable, {

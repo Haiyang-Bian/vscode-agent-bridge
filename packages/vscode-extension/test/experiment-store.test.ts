@@ -74,6 +74,94 @@ describe("experiment store", () => {
     await expect(storeA.assertLease(manifest.sessionId)).rejects.toThrow();
   });
 
+  test("renames ordinary experiments atomically with an expected-title precondition", async () => {
+    const directory = await temporaryDirectory();
+    const store = new ExperimentStore(directory, INSTANCE_A);
+    const manifest = await store.createExperiment({
+      mode: "workspace",
+      title: "Initial title",
+      rootUri: "file:///workspace",
+      workspaceIdentity: "workspace",
+      baseRevision: null,
+      branch: null,
+      health: "partial",
+    });
+
+    const renamed = await store.renameOrdinaryExperiment(
+      manifest.sessionId,
+      "Initial title",
+      "Task-derived title",
+    );
+    expect(renamed.title).toBe("Task-derived title");
+    await expect(
+      store.renameOrdinaryExperiment(manifest.sessionId, "Initial title", "Stale update"),
+    ).rejects.toMatchObject({ code: "EXPERIMENT_STATE_CHANGED" });
+    expect((await store.readManifest(manifest.sessionId)).title).toBe("Task-derived title");
+  });
+
+  test("preserves a rename across concurrent checkpoint metadata mutations", async () => {
+    const directory = await temporaryDirectory();
+    const store = new ExperimentStore(directory, INSTANCE_A);
+    const manifest = await store.createExperiment({
+      mode: "workspace",
+      title: "Initial title",
+      rootUri: "file:///workspace",
+      workspaceIdentity: "workspace",
+      baseRevision: null,
+      branch: null,
+      health: "complete",
+    });
+
+    await Promise.all([
+      store.renameOrdinaryExperiment(manifest.sessionId, "Initial title", "Renamed title"),
+      store.appendCheckpoint(manifest.sessionId, {
+        source: "explicit",
+        summary: "Concurrent checkpoint",
+        documents: [],
+        coverageComplete: true,
+      }),
+      store.addStorageBytes(manifest.sessionId, 17),
+      store.addWarning(manifest.sessionId, "Concurrent warning", false),
+      store.addEvidence(manifest.sessionId, manifest.currentCheckpointId!, {
+        evidenceId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+        kind: "test",
+        status: "passed",
+        source: "client-reported",
+        summary: "Concurrent evidence",
+        createdAt: "2026-08-10T00:00:00.000Z",
+      }),
+    ]);
+
+    const current = await store.readManifest(manifest.sessionId);
+    expect(current).toMatchObject({
+      title: "Renamed title",
+      storageBytes: 17,
+      warnings: ["Concurrent warning"],
+      nextSequence: 2,
+    });
+    expect(current.checkpointIds).toHaveLength(2);
+    await expect(
+      store.renameOrdinaryExperiment(manifest.sessionId, "Initial title", "Stale overwrite"),
+    ).rejects.toMatchObject({ code: "EXPERIMENT_STATE_CHANGED" });
+  });
+
+  test("does not expose managed experiment renaming through the ordinary metadata path", async () => {
+    const directory = await temporaryDirectory();
+    const store = new ExperimentStore(directory, INSTANCE_A);
+    const manifest = await store.createExperiment({
+      mode: "worktree",
+      title: "Managed",
+      rootUri: "file:///managed",
+      workspaceIdentity: "managed",
+      baseRevision: "a".repeat(40),
+      branch: "vscode-agent-bridge/experiment/test",
+      health: "complete",
+    });
+    await expect(
+      store.renameOrdinaryExperiment(manifest.sessionId, "Managed", "Renamed"),
+    ).rejects.toMatchObject({ code: "POLICY_DENIED" });
+  });
+
   test("stores managed metadata separately from checkpoint manifests", async () => {
     const directory = await temporaryDirectory();
     const store = new ExperimentStore(directory, INSTANCE_A);

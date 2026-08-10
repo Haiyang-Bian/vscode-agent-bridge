@@ -2,9 +2,14 @@ import { describe, expect, test } from "bun:test";
 
 import {
   MAX_CHANGE_SET_DOCUMENTS,
+  CreateExperimentCheckpointInputSchema,
+  GetWorkspaceSetupInputSchema,
+  ListExperimentsInputSchema,
   ManagedExperimentInfoSchema,
   PrepareRenameInputSchema,
   PrepareTextEditsInputSchema,
+  RenameExperimentInputSchema,
+  StartExperimentInputSchema,
 } from "../src/index.js";
 
 const INSTANCE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -95,5 +100,46 @@ describe("experiment contracts", () => {
     });
     expect(managed).not.toHaveProperty("repositoryRoot");
     expect(managed).not.toHaveProperty("worktreePath");
+  });
+
+  test("defines bounded workspace reflection and experiment management inputs", () => {
+    expect(GetWorkspaceSetupInputSchema.parse({})).toEqual({});
+    expect(ListExperimentsInputSchema.parse({ rootUri: "file:///workspace" })).toMatchObject({
+      offset: 0,
+      limit: 50,
+    });
+    expect(
+      StartExperimentInputSchema.parse({
+        instanceId: INSTANCE_ID,
+        rootUri: "file:///workspace",
+        title: "  Implement workspace onboarding  ",
+        reason: "Start a recoverable IDE session.",
+      }),
+    ).toMatchObject({ title: "Implement workspace onboarding" });
+    expect(() =>
+      StartExperimentInputSchema.parse({
+        instanceId: INSTANCE_ID,
+        rootUri: "file:///workspace",
+        title: "line one\nline two",
+        reason: "Invalid title.",
+      }),
+    ).toThrow();
+    expect(
+      RenameExperimentInputSchema.parse({
+        instanceId: INSTANCE_ID,
+        sessionId: SESSION_ID,
+        expectedTitle: "Old",
+        title: "New",
+        reason: "Match the current task.",
+      }),
+    ).toMatchObject({ expectedTitle: "Old", title: "New" });
+    expect(
+      CreateExperimentCheckpointInputSchema.parse({
+        instanceId: INSTANCE_ID,
+        sessionId: SESSION_ID,
+        title: "Provider complete",
+        reason: "Capture the verified protocol state.",
+      }),
+    ).toMatchObject({ sessionId: SESSION_ID });
   });
 });

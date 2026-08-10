@@ -3,6 +3,9 @@ import * as vscode from "vscode";
 import { BRIDGE_RELEASE_VERSION } from "@vscode-agent-bridge/protocol";
 
 import { BridgeHost } from "./bridge-host.js";
+import { AgentActivityTracker } from "./agent-activity.js";
+import { registerAgentActivityUi } from "./agent-activity-ui.js";
+import { AgentEditorVisibility } from "./agent-editor-visibility.js";
 import { ChangeSetManager } from "./change-set-manager.js";
 import { CodexConfigConflictError, createManagedConfigBlock } from "./codex-config.js";
 import {
@@ -26,8 +29,10 @@ import {
   createExperimentRequestHandlers,
   createIdeAutonomyRequestHandlers,
   createTerminalRequestHandlers,
+  createWorkspaceRequestHandlers,
 } from "./request-handlers.js";
 import { TerminalObserver } from "./terminal-observer.js";
+import { WorkspaceOnboardingService } from "./workspace-onboarding.js";
 
 let activeHost: BridgeHost | undefined;
 let activeExperimentManager: ExperimentManager | undefined;
@@ -39,26 +44,49 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const output = vscode.window.createOutputChannel("VS Code Agent Bridge", { log: true });
   const host = new BridgeHost(output);
   const experiments = new ExperimentManager(context, host.instanceId, output);
-  const changeSets = new ChangeSetManager(host.instanceId, experiments);
+  const onboarding = new WorkspaceOnboardingService(host.instanceId);
+  const activity = new AgentActivityTracker();
+  const visibility = new AgentEditorVisibility(onboarding);
+  const changeSets = new ChangeSetManager(host.instanceId, experiments, visibility);
   const managed = new ManagedWorktreeManager(experiments);
   const terminals = new TerminalObserver(host.instanceId);
-  const ideAutonomy = new IdeAutonomyManager(host.instanceId, experiments, changeSets);
-  host.registerRequestHandlers(
-    createExperimentRequestHandlers(host.instanceId, experiments, changeSets),
+  const ideAutonomy = new IdeAutonomyManager(
+    host.instanceId,
+    experiments,
+    changeSets,
+    visibility,
   );
+  host.registerRequestHandlers(
+    createExperimentRequestHandlers(
+      host.instanceId,
+      experiments,
+      changeSets,
+      onboarding,
+      activity,
+    ),
+  );
+  host.registerRequestHandlers(createWorkspaceRequestHandlers(onboarding));
   host.registerRequestHandlers(createTerminalRequestHandlers(terminals));
-  host.registerRequestHandlers(createIdeAutonomyRequestHandlers(ideAutonomy));
-  await experiments.initialize();
+  host.registerRequestHandlers(
+    createIdeAutonomyRequestHandlers(ideAutonomy, experiments, onboarding, activity),
+  );
+  await host.start();
+  try {
+    await experiments.initialize();
+    await host.markReady();
+  } catch (error) {
+    await host.markDegraded();
+    output.error("Experiment storage initialization failed; the bridge is degraded.", error);
+  }
   terminals.start();
   activeHost = host;
   activeExperimentManager = experiments;
   activeTerminalObserver = terminals;
-  registerExperimentUi(context, experiments, output);
+  registerExperimentUi(context, experiments, onboarding, output);
+  registerAgentActivityUi(context, activity);
   registerManagedWorktreeUi(context, managed, output);
   registerAcceptanceFixtureProvider(context);
-  registerE2ECommands(context, experiments, managed);
-
-  await host.start();
+  registerE2ECommands(context, experiments, managed, onboarding, activity);
 
   context.subscriptions.push(
     output,
@@ -79,6 +107,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand("vscodeAgentBridge.configureAgentPolicies", async () => {
       await configureAgentPoliciesCommand();
+    }),
+    vscode.commands.registerCommand("vscodeAgentBridge.configureWorkspaceExperiment", async () => {
+      await onboarding.configureInteractively();
     }),
     vscode.commands.registerCommand("vscodeAgentBridge.removeCodexConfiguration", async () => {
       await removeCodexCommand(output);
@@ -172,6 +203,8 @@ function registerE2ECommands(
   context: vscode.ExtensionContext,
   experiments: ExperimentManager,
   managed: ManagedWorktreeManager,
+  onboarding: WorkspaceOnboardingService,
+  activity: AgentActivityTracker,
 ): void {
   if (process.env.VSCODE_AGENT_BRIDGE_E2E !== "1") {
     return;
@@ -240,6 +273,17 @@ function registerE2ECommands(
       }
       return experiments.startWorkspaceExperiment({ title, root });
     }),
+    vscode.commands.registerCommand(
+      "vscodeAgentBridge.e2eConfigureWorkspaceExperiment",
+      async (visibility: Parameters<WorkspaceOnboardingService["configureRoot"]>[2] = "focusFirst") => {
+        const root = vscode.workspace.workspaceFolders?.[0];
+        if (!root) {
+          throw new Error("The E2E workspace root is unavailable.");
+        }
+        await onboarding.configureRoot(root, true, visibility);
+      },
+    ),
+    vscode.commands.registerCommand("vscodeAgentBridge.e2eGetAgentActivity", () => activity.entries),
     vscode.commands.registerCommand(
       "vscodeAgentBridge.e2eMarkCheckpointAccepted",
       (checkpointId: string) => experiments.markAccepted(checkpointId),

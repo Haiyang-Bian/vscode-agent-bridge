@@ -20,10 +20,15 @@ import {
 interface PendingRequest {
   readonly resolve: (value: unknown) => void;
   readonly reject: (error: Error) => void;
-  readonly timeout: ReturnType<typeof setTimeout>;
+  readonly cleanup: () => void;
 }
 
-class BridgeRpcClient {
+export interface BridgeRequestOptions {
+  readonly timeoutMilliseconds?: number;
+  readonly signal?: AbortSignal;
+}
+
+export class BridgeRpcClient {
   readonly #socket: Socket;
   readonly #timeoutMilliseconds: number;
   readonly #decoder = new NdjsonDecoder();
@@ -96,16 +101,34 @@ class BridgeRpcClient {
     }
   }
 
-  request(method: string, params: unknown): Promise<unknown> {
+  request(method: string, params: unknown, options: BridgeRequestOptions = {}): Promise<unknown> {
     const id = this.#nextRequestId++;
+    const timeoutMilliseconds = options.timeoutMilliseconds ?? this.#timeoutMilliseconds;
 
     return new Promise((resolve, reject) => {
+      if (options.signal?.aborted) {
+        reject(new BridgeError("REQUEST_CANCELLED", `Cancelled while calling ${method}.`));
+        return;
+      }
+      const handleAbort = (): void => {
+        this.#pending.delete(id);
+        cleanup();
+        reject(new BridgeError("REQUEST_CANCELLED", `Cancelled while calling ${method}.`));
+        this.#socket.destroy();
+      };
       const timeout = setTimeout(() => {
         this.#pending.delete(id);
+        cleanup();
         reject(new BridgeError("TIMEOUT", `Timed out while calling ${method}.`));
-      }, this.#timeoutMilliseconds);
+        this.#socket.destroy();
+      }, timeoutMilliseconds);
+      const cleanup = (): void => {
+        clearTimeout(timeout);
+        options.signal?.removeEventListener("abort", handleAbort);
+      };
 
-      this.#pending.set(id, { resolve, reject, timeout });
+      options.signal?.addEventListener("abort", handleAbort, { once: true });
+      this.#pending.set(id, { resolve, reject, cleanup });
       this.#socket.write(
         encodeRpcMessage({
           jsonrpc: "2.0",
@@ -135,7 +158,7 @@ class BridgeRpcClient {
           continue;
         }
         this.#pending.delete(response.id);
-        clearTimeout(pending.timeout);
+        pending.cleanup();
 
         if ("result" in response) {
           pending.resolve(response.result);
@@ -161,7 +184,7 @@ class BridgeRpcClient {
 
   #failAll(error: Error): void {
     for (const pending of this.#pending.values()) {
-      clearTimeout(pending.timeout);
+      pending.cleanup();
       pending.reject(error);
     }
     this.#pending.clear();
@@ -181,10 +204,14 @@ export async function requestBridgeResult<Result>(
   method: string,
   params: unknown,
   parseResult: (value: unknown) => Result,
+  options: BridgeRequestOptions = {},
 ): Promise<Result> {
+  if (options.signal?.aborted) {
+    throw new BridgeError("REQUEST_CANCELLED", `Cancelled while calling ${method}.`);
+  }
   const client = await BridgeRpcClient.connect(descriptor);
   try {
-    return parseResult(await client.request(method, params));
+    return parseResult(await client.request(method, params, options));
   } finally {
     client.close();
   }
