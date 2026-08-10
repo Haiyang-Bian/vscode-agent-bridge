@@ -25,6 +25,8 @@ import { ExtensionMarketplaceManager } from "./extension-marketplace-manager.js"
 import { createExtensionMarketplaceRequestHandlers } from "./extension-marketplace-handlers.js";
 import { ExtensionProfileManager } from "./extension-profile-manager.js";
 import { createExtensionProfileRequestHandlers } from "./extension-profile-handlers.js";
+import { ExtensionIntegrationManager } from "./extension-integration-manager.js";
+import { createExtensionIntegrationRequestHandlers } from "./extension-integration-handlers.js";
 import { IdeAutonomyManager } from "./ide-autonomy-manager.js";
 import { registerExperimentUi } from "./experiment-ui.js";
 import { ManagedWorktreeManager } from "./managed-worktree-manager.js";
@@ -67,6 +69,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const extensionAwareness = new ExtensionAwarenessManager(host.instanceId, terminals, tasks, debug);
   const extensionMarketplace = new ExtensionMarketplaceManager(host.instanceId, experiments);
   const extensionProfiles = new ExtensionProfileManager(host.instanceId, experiments, context.globalStorageUri);
+  const extensionIntegrations = new ExtensionIntegrationManager(host.instanceId);
   const ideAutonomy = new IdeAutonomyManager(
     host.instanceId,
     experiments,
@@ -96,6 +99,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   host.registerRequestHandlers(
     createExtensionProfileRequestHandlers(extensionProfiles, experiments, onboarding, activity),
   );
+  host.registerRequestHandlers(createExtensionIntegrationRequestHandlers(extensionIntegrations));
   host.registerRequestHandlers(
     createIdeAutonomyRequestHandlers(ideAutonomy, experiments, onboarding, activity),
   );
