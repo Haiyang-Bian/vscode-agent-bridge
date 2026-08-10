@@ -13,6 +13,7 @@ import {
 import type { BridgeHost } from "./bridge-host.js";
 import type { DebugManager } from "./debug-manager.js";
 import type { ExperimentManager } from "./experiment-manager.js";
+import type { ExtensionAwarenessManager } from "./extension-awareness-manager.js";
 import { inspectInstallation } from "./installation.js";
 import {
   clearLocalUsageInsights,
@@ -32,6 +33,7 @@ interface HubDependencies {
   readonly terminals: TerminalObserver;
   readonly tasks: TaskManager;
   readonly debug: DebugManager;
+  readonly extensionAwareness: ExtensionAwarenessManager;
 }
 
 interface HubNode {
@@ -93,6 +95,8 @@ export function registerBridgeHubUi(
     vscode.debug.onDidStartDebugSession(refresh),
     vscode.debug.onDidTerminateDebugSession(refresh),
     vscode.workspace.onDidGrantWorkspaceTrust(refresh),
+    vscode.workspace.onDidOpenTextDocument(refresh),
+    vscode.workspace.onDidCloseTextDocument(refresh),
   );
 }
 
@@ -120,13 +124,14 @@ class OverviewTreeProvider implements vscode.TreeDataProvider<HubNode>, vscode.D
   }
 
   async getChildren(): Promise<HubNode[]> {
-    const { host, experiments, terminals, tasks, debug } = this.#dependencies;
+    const { host, experiments, terminals, tasks, debug, extensionAwareness } = this.#dependencies;
     const installation = await inspectInstallation(this.#context).catch(() => null);
     const activeExperiment = await experiments.getActiveExperiment().catch(() => null);
     const problems = vscode.languages
       .getDiagnostics()
       .reduce((total, [, diagnostics]) => total + diagnostics.length, 0);
     const terminalStats = terminals.getStats();
+    const awarenessStats = extensionAwareness.getStats();
     return [
       {
         label: "Bridge",
@@ -150,6 +155,16 @@ class OverviewTreeProvider implements vscode.TreeDataProvider<HubNode>, vscode.D
         icon: activeExperiment ? "beaker" : "circle-outline",
       },
       { label: "Problems", description: String(problems), icon: problems > 0 ? "warning" : "pass" },
+      {
+        label: "Extensions",
+        description: `${awarenessStats.activeExtensions} active · ${awarenessStats.installedExtensions} installed`,
+        icon: "extensions",
+      },
+      {
+        label: "IDE signals",
+        description: `${awarenessStats.visibleOutputSources} visible output · ${awarenessStats.diagnosticEvents} recent diagnostic event(s)`,
+        icon: "output",
+      },
       {
         label: "Terminals",
         description: `${terminalStats.terminalCount} terminal(s) · ${terminalStats.executionCount} captured execution(s)`,

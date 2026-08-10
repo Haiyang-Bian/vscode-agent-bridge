@@ -109,7 +109,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   registerExperimentUi(context, experiments, onboarding, output);
   registerAgentActivityUi(context, activity);
   registerManagedWorktreeUi(context, managed, output);
-  registerBridgeHubUi(context, { host, experiments, terminals, tasks, debug });
+  registerBridgeHubUi(context, {
+    host,
+    experiments,
+    terminals,
+    tasks,
+    debug,
+    extensionAwareness,
+  });
   registerAcceptanceFixtureProvider(context);
   registerE2ECommands(context, experiments, managed, onboarding, activity);
 
