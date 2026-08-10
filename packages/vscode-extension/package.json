@@ -50,6 +50,26 @@
     "configuration": {
       "title": "VS Code Agent Bridge",
       "properties": {
+        "vscodeAgentBridge.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "machine",
+          "description": "Publish this local trusted VS Code window to configured MCP clients."
+        },
+        "vscodeAgentBridge.executionMode": {
+          "type": "string",
+          "enum": [
+            "explicit",
+            "aggressive"
+          ],
+          "enumDescriptions": [
+            "Allow only workflows explicitly started by the current MCP request.",
+            "Also allow bounded deferred IDE workflows such as tasks configured to run when a folder opens."
+          ],
+          "default": "explicit",
+          "scope": "machine",
+          "description": "Controls whether workspace configuration may introduce deferred IDE execution."
+        },
         "vscodeAgentBridge.autonomyProfile": {
           "type": "string",
           "enum": [
@@ -320,6 +340,7 @@
   },
   "dependencies": {
     "@vscode-agent-bridge/protocol": "workspace:*",
+    "jsonc-parser": "3.3.1",
     "smol-toml": "1.6.1",
     "zod": "4.4.3"
   },

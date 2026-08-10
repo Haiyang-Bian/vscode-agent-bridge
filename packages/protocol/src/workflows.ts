@@ -440,13 +440,22 @@ export const SetDebugVariableResultSchema = z
   .strict();
 
 export type BridgeExecutionMode = z.infer<typeof BridgeExecutionModeSchema>;
+export type WorkspaceConfigurationTarget = z.infer<typeof WorkspaceConfigurationTargetSchema>;
 export type ConfigurationOperation = z.infer<typeof ConfigurationOperationSchema>;
 export type GetWorkspaceConfigurationParams = z.infer<typeof GetWorkspaceConfigurationParamsSchema>;
+export type WorkspaceConfigurationResult = z.infer<typeof WorkspaceConfigurationResultSchema>;
 export type UpdateWorkspaceConfigurationParams = z.infer<typeof UpdateWorkspaceConfigurationParamsSchema>;
+export type UpdateWorkspaceConfigurationResult = z.infer<typeof UpdateWorkspaceConfigurationResultSchema>;
 export type ListTasksParams = z.infer<typeof ListTasksParamsSchema>;
+export type ListTasksResult = z.infer<typeof ListTasksResultSchema>;
+export type TaskSummary = z.infer<typeof TaskSummarySchema>;
+export type TaskExecution = z.infer<typeof TaskExecutionSchema>;
 export type RunTaskParams = z.infer<typeof RunTaskParamsSchema>;
+export type RunTaskResult = z.infer<typeof RunTaskResultSchema>;
 export type ListTaskExecutionsParams = z.infer<typeof ListTaskExecutionsParamsSchema>;
+export type ListTaskExecutionsResult = z.infer<typeof ListTaskExecutionsResultSchema>;
 export type TerminateTaskParams = z.infer<typeof TerminateTaskParamsSchema>;
+export type TerminateTaskResult = z.infer<typeof TerminateTaskResultSchema>;
 export type ListDebugConfigurationsParams = z.infer<typeof ListDebugConfigurationsParamsSchema>;
 export type StartDebugSessionParams = z.infer<typeof StartDebugSessionParamsSchema>;
 export type ListDebugSessionsParams = z.infer<typeof ListDebugSessionsParamsSchema>;

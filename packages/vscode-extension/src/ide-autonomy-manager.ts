@@ -28,6 +28,7 @@ import { ExperimentManager } from "./experiment-manager.js";
 import { AgentEditorVisibility } from "./agent-editor-visibility.js";
 import { toDiagnosticItem } from "./language-services.js";
 import { assertAgentWriteAllowed } from "./policies.js";
+import { validateConfigurationContentForUri } from "./workspace-configuration-manager.js";
 
 interface CodeActionGuard {
   readonly uri: vscode.Uri;
@@ -90,6 +91,7 @@ export class IdeAutonomyManager {
       throw new BridgeError("DOCUMENT_NOT_FOUND", "The file document no longer exists.");
     }
     assertExpectedDocument(document, params.expectedSha256, params.expectedVersion);
+    validateConfigurationContentForUri(uri, document.getText(), document.getText());
     await this.#visibility.reveal(experiment.rootUri, [document.uri]);
     const beforeSha256 = sha256(document.getText());
     const saved = await this.#experiments.saveGuardedDocument(

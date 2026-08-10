@@ -470,7 +470,7 @@ export function createIdeAutonomyRequestHandlers(
   ]);
 }
 
-function toActivityTargets(uris: readonly string[]): string[] {
+export function toActivityTargets(uris: readonly string[]): string[] {
   return uris.map((uri) => {
     try {
       return vscode.workspace.asRelativePath(vscode.Uri.parse(uri, true), false);
@@ -480,7 +480,7 @@ function toActivityTargets(uris: readonly string[]): string[] {
   });
 }
 
-async function ensureSessionWorkspaceEnabled(
+export async function ensureSessionWorkspaceEnabled(
   experiments: ExperimentManager,
   onboarding: WorkspaceOnboardingService,
   sessionId: string,

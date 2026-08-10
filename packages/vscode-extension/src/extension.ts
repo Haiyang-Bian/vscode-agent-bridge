@@ -33,6 +33,8 @@ import {
 } from "./request-handlers.js";
 import { TerminalObserver } from "./terminal-observer.js";
 import { WorkspaceOnboardingService } from "./workspace-onboarding.js";
+import { WorkspaceConfigurationManager } from "./workspace-configuration-manager.js";
+import { createWorkspaceConfigurationRequestHandlers } from "./workspace-configuration-handlers.js";
 
 let activeHost: BridgeHost | undefined;
 let activeExperimentManager: ExperimentManager | undefined;
@@ -50,6 +52,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const changeSets = new ChangeSetManager(host.instanceId, experiments, visibility);
   const managed = new ManagedWorktreeManager(experiments);
   const terminals = new TerminalObserver(host.instanceId);
+  const configurations = new WorkspaceConfigurationManager(host.instanceId, experiments);
   const ideAutonomy = new IdeAutonomyManager(
     host.instanceId,
     experiments,
@@ -67,6 +70,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
   host.registerRequestHandlers(createWorkspaceRequestHandlers(onboarding));
   host.registerRequestHandlers(createTerminalRequestHandlers(terminals));
+  host.registerRequestHandlers(
+    createWorkspaceConfigurationRequestHandlers(configurations, experiments, onboarding, activity),
+  );
   host.registerRequestHandlers(
     createIdeAutonomyRequestHandlers(ideAutonomy, experiments, onboarding, activity),
   );

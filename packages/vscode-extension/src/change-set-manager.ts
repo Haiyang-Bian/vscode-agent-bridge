@@ -29,6 +29,7 @@ import {
   prepareResourcePlan,
   type PreparedResourcePlan,
 } from "./resource-change-executor.js";
+import { validateConfigurationContentForUri } from "./workspace-configuration-manager.js";
 
 interface InternalPreparedDocument {
   readonly uri: vscode.Uri;
@@ -129,6 +130,24 @@ export class ChangeSetManager {
     const experiment = await this.#assertActiveSession(params.sessionId);
     await this.#experiments.assertResourceChangesAllowed(params.sessionId);
     const resourcePlan = await prepareResourcePlan(experiment.rootUri, params.operations);
+    for (const prepared of resourcePlan.operations) {
+      if (prepared.operation.operation === "create" && prepared.operation.kind === "file") {
+        validateConfigurationContentForUri(prepared.uri, prepared.operation.content!);
+      }
+      if (
+        prepared.operation.operation === "rename" &&
+        prepared.operation.kind === "file" &&
+        prepared.targetUri
+      ) {
+        const content = prepared.before.entries[0]?.content;
+        if (content) {
+          validateConfigurationContentForUri(
+            prepared.targetUri,
+            Buffer.from(content).toString("utf8"),
+          );
+        }
+      }
+    }
     const createdAt = new Date();
     const changeSetId = randomUUID();
     const result: PreparedChangeSet = {
@@ -322,6 +341,7 @@ export class ChangeSetManager {
       editCount += edits.length;
       replacementCharacters += edits.reduce((total, edit) => total + edit.newText.length, 0);
       const afterText = applyTextEdits(document, edits);
+      validateConfigurationContentForUri(uri, afterText, document.getText());
       preparedDocuments.push({
         uri: uri.toString(true),
         beforeSha256: raw.expectedSha256,
