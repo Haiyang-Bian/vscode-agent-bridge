@@ -1,6 +1,6 @@
 export const BRIDGE_NAME = "vscode-agent-bridge" as const;
-export const BRIDGE_RELEASE_VERSION = "0.9.0" as const;
-export const BRIDGE_PROTOCOL_VERSION = 8 as const;
+export const BRIDGE_RELEASE_VERSION = "0.10.0" as const;
+export const BRIDGE_PROTOCOL_VERSION = 9 as const;
 export const DEFAULT_BRIDGE_TIMEOUT_MS = 5_000;
 export const INTERACTIVE_BRIDGE_TIMEOUT_MS = 90_000;
 export const MAX_RPC_MESSAGE_BYTES = 1_048_576;
@@ -90,6 +90,11 @@ export const BRIDGE_METHODS = {
   listDiagnosticEvents: "signals/listDiagnosticEvents",
   listDebugOutput: "debug/listOutput",
   readDebugOutput: "debug/readOutput",
+  searchExtensions: "extensions/searchMarketplace",
+  prepareExtensionInstall: "extensions/prepareInstall",
+  applyExtensionInstall: "extensions/applyInstall",
+  getExtensionConfiguration: "extensions/getConfiguration",
+  updateExtensionConfiguration: "extensions/updateConfiguration",
 } as const;
 
 export const BRIDGE_CAPABILITIES = [
@@ -143,6 +148,11 @@ export const BRIDGE_CAPABILITIES = [
   "signals.listDiagnosticEvents",
   "debug.listOutput",
   "debug.readOutput",
+  "extensions.searchMarketplace",
+  "extensions.prepareInstall",
+  "extensions.applyInstall",
+  "extensions.getConfiguration",
+  "extensions.updateConfiguration",
 ] as const;
 
 export const BRIDGE_ERROR_CODES = [
@@ -228,6 +238,13 @@ export const BRIDGE_ERROR_CODES = [
   "OUTPUT_CURSOR_EXPIRED",
   "DEBUG_OUTPUT_UNAVAILABLE",
   "PROFILE_CONTEXT_UNAVAILABLE",
+  "MARKETPLACE_UNAVAILABLE",
+  "EXTENSION_CANDIDATE_NOT_FOUND",
+  "EXTENSION_CANDIDATE_EXPIRED",
+  "EXTENSION_INSTALL_UNSUPPORTED",
+  "EXTENSION_INSTALL_FAILED",
+  "EXTENSION_CONFIGURATION_DENIED",
+  "EXTENSION_CONFIGURATION_STALE",
   "INTERNAL_ERROR",
 ] as const;
 

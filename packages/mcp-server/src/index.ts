@@ -1209,6 +1209,66 @@ registerRoutedWorkflowTool({
   summarize: (result) => `Read ${result.events.length} debug output event(s).`,
 });
 
+registerRoutedWorkflowTool({
+  name: "vscode_search_extensions",
+  title: "Search VS Code extensions",
+  description: "Search the bounded Visual Studio Marketplace compatibility client and rank installed, recommended, official, verified and third-party candidates without installing anything.",
+  method: BRIDGE_METHODS.searchExtensions,
+  inputSchema: WorkflowProtocol.SearchExtensionsInputSchema,
+  paramsSchema: WorkflowProtocol.SearchExtensionsParamsSchema,
+  outputSchema: WorkflowProtocol.SearchExtensionsResultSchema,
+  annotations: annotationsFor("vscode_search_extensions"),
+  summarize: (result) => `Returned ${result.returnedCount} of ${result.totalCount} extension candidate(s).`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_prepare_extension_install",
+  title: "Prepare a VS Code extension install",
+  description: "Resolve an exact Marketplace extension version and its bounded dependency set into a short-lived, one-use installation plan for the current VS Code Profile.",
+  method: BRIDGE_METHODS.prepareExtensionInstall,
+  inputSchema: WorkflowProtocol.PrepareExtensionInstallInputSchema,
+  paramsSchema: WorkflowProtocol.PrepareExtensionInstallParamsSchema,
+  outputSchema: WorkflowProtocol.PreparedExtensionInstallSchema,
+  annotations: annotationsFor("vscode_prepare_extension_install"),
+  summarize: (result) => `Prepared ${result.extension.extensionId} with ${result.dependencies.length} dependency or extension-pack member(s).`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_apply_extension_install",
+  title: "Apply a prepared VS Code extension install",
+  description: "Apply one unexpired extension plan through VS Code's fixed native install command while preserving Publisher Trust and reload prompts. URLs, VSIX paths and arbitrary commands are never accepted.",
+  method: BRIDGE_METHODS.applyExtensionInstall,
+  inputSchema: WorkflowProtocol.ApplyExtensionInstallInputSchema,
+  paramsSchema: WorkflowProtocol.ApplyExtensionInstallParamsSchema,
+  outputSchema: WorkflowProtocol.ApplyExtensionInstallResultSchema,
+  annotations: annotationsFor("vscode_apply_extension_install"),
+  summarize: (result) => `Extension ${result.extensionId} install status: ${result.status}.`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_get_extension_configuration",
+  title: "Get declared extension configuration",
+  description: "Read one non-sensitive setting formally declared by an installed extension, including its current-Profile scope and a canonical value hash.",
+  method: BRIDGE_METHODS.getExtensionConfiguration,
+  inputSchema: WorkflowProtocol.GetExtensionConfigurationInputSchema,
+  paramsSchema: WorkflowProtocol.GetExtensionConfigurationParamsSchema,
+  outputSchema: WorkflowProtocol.ExtensionConfigurationResultSchema,
+  annotations: annotationsFor("vscode_get_extension_configuration"),
+  summarize: (result) => `Read declared configuration metadata for ${result.extensionId}.`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_update_extension_configuration",
+  title: "Update declared extension configuration",
+  description: "Update one non-sensitive setting formally declared by an installed extension in the active Profile, workspace or selected workspace folder after an exact hash precondition.",
+  method: BRIDGE_METHODS.updateExtensionConfiguration,
+  inputSchema: WorkflowProtocol.UpdateExtensionConfigurationInputSchema,
+  paramsSchema: WorkflowProtocol.UpdateExtensionConfigurationParamsSchema,
+  outputSchema: WorkflowProtocol.UpdateExtensionConfigurationResultSchema,
+  annotations: annotationsFor("vscode_update_extension_configuration"),
+  summarize: (result) => `${result.changed ? "Updated" : "Kept"} declared configuration for ${result.extensionId}.`,
+});
+
 function registerLocationsTool(
   name: "vscode_get_definitions" | "vscode_get_references",
   title: string,
