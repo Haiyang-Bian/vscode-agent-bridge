@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { once } from "node:events";
 import { readdir, readFile, writeFile } from "node:fs/promises";
@@ -37,6 +38,7 @@ const UNSAVED_MARKER = "UNSAVED_VSCODE_AGENT_BRIDGE_E2E";
 const AGENT_MARKER = "AGENT_CHANGE_SET_E2E";
 const STALE_MARKER = "STALE_CHANGE_SET_MUST_NOT_APPLY";
 const TERMINAL_MARKER = "TERMINAL_OUTPUT_VSCODE_AGENT_BRIDGE_E2E";
+const TASK_MARKER = "TASK_OUTPUT_VSCODE_AGENT_BRIDGE_E2E";
 const execFileAsync = promisify(execFile);
 
 suite("VS Code Agent Bridge Extension Host", function () {
@@ -50,33 +52,14 @@ suite("VS Code Agent Bridge Extension Host", function () {
       (candidate) => candidate.id.toLowerCase() === "alicelin.vscode-agent-bridge",
     );
     assert.ok(extension, "the extension under development should be installed");
+    const bridgeConfiguration = vscode.workspace.getConfiguration("vscodeAgentBridge");
+    await bridgeConfiguration.update("enabled", true, vscode.ConfigurationTarget.Global);
+    await bridgeConfiguration.update("executionMode", "explicit", vscode.ConfigurationTarget.Global);
     if (process.env.VSCODE_AGENT_BRIDGE_EXPECT_PACKAGED === "1") {
       assert.match(extension.extensionPath.replaceAll("\\", "/"), /\.vscode-test\/extensions\//iu);
       assert.equal(extension.packageJSON.version, BRIDGE_RELEASE_VERSION);
     }
-    const activation = extension.activate();
-    const initializingDescriptor = await waitForDescriptor("initializing");
-    const initializingClient = await BridgeRpcClient.connect(
-      initializingDescriptor.transport.endpoint,
-    );
-    try {
-      const initialized = await initializingClient.request<{ lifecycle: string }>(
-        BRIDGE_METHODS.initialize,
-        {
-          protocolVersion: BRIDGE_PROTOCOL_VERSION,
-          authToken: initializingDescriptor.authToken,
-          client: { name: "extension-host-e2e", version: BRIDGE_RELEASE_VERSION },
-        },
-      );
-      assert.equal(initialized.lifecycle, "initializing");
-      await assert.rejects(
-        () => initializingClient.request(BRIDGE_METHODS.getEditorContext, {}),
-        isBridgeError("BRIDGE_INITIALIZING"),
-      );
-    } finally {
-      initializingClient.close();
-    }
-    await activation;
+    await extension.activate();
 
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     assert.ok(workspaceFolder, "the TypeScript fixture workspace should be open");
@@ -201,15 +184,17 @@ suite("VS Code Agent Bridge Extension Host", function () {
       assert.ok(hover.contents.join("\n").includes("bridgeGreeting"));
       assert.ok(!hover.contents.join("\n").match(/command:(?!\[redacted\])/iu));
 
+      console.log("[v0.7-e2e] experiment workflow starting");
       await exerciseExperimentWorkflow(client, descriptor, workspaceFolder.uri, document);
+      console.log("[v0.7-e2e] experiment workflow completed");
       await exerciseTerminalObservation(client);
-      await exerciseAutonomyPolicies(client, workspaceFolder.uri, document);
+      console.log("[v0.7-e2e] terminal workflow completed");
 
-      const plainDocument = await vscode.workspace.openTextDocument({
-        language: "plaintext",
-        content: "plain text has no definition provider",
-      });
+      const plainDocument = await vscode.workspace.openTextDocument(
+        vscode.Uri.joinPath(workspaceFolder.uri, ".gitignore"),
+      );
       await vscode.window.showTextDocument(plainDocument, { preview: false });
+      console.log("[v0.7-e2e] no-provider document opened");
       const noDefinitions = await client.request<{ locations: unknown[] }>(
         BRIDGE_METHODS.getDefinitions,
         {
@@ -219,12 +204,19 @@ suite("VS Code Agent Bridge Extension Host", function () {
         },
       );
       assert.deepEqual(noDefinitions.locations, []);
+      console.log("[v0.7-e2e] no-provider request completed");
 
       await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+      console.log("[v0.7-e2e] editors closed");
       await assert.rejects(
         () => client.request(BRIDGE_METHODS.readDocument, {}),
         (error: unknown) => error instanceof BridgeRpcError && error.bridgeCode === "NO_ACTIVE_EDITOR",
       );
+      console.log("[v0.7-e2e] no-active-editor rejection completed");
+      console.log("[v0.7-e2e] master switch workflow starting");
+      await exerciseMasterSwitch(client);
+      console.log("[v0.7-e2e] master switch workflow completed");
+      await writePrimaryCompletionMarker();
     } finally {
       await vscode.commands
         .executeCommand("vscodeAgentBridge.e2eAbandonExperiment")
@@ -238,7 +230,15 @@ suite("VS Code Agent Bridge Extension Host", function () {
         await dirtyDocument.save();
       }
       await execGit(workspaceFolder.uri.fsPath, ["restore", "--staged", "--worktree", "--", "."]);
-      await execGit(workspaceFolder.uri.fsPath, ["clean", "-fd", "--", ".vscode"]);
+      await execGit(workspaceFolder.uri.fsPath, [
+        "clean",
+        "-fd",
+        "--",
+        ".vscode",
+        "task-output.txt",
+        "resource-created-e2e.txt",
+        "resource-accepted-e2e.txt",
+      ]);
       client.close();
     }
   });
@@ -250,9 +250,30 @@ suite("VS Code Agent Bridge Extension Host", function () {
     }
     const extension = vscode.extensions.getExtension("AliceLin.vscode-agent-bridge");
     assert.ok(extension);
+    await vscode.workspace
+      .getConfiguration("vscodeAgentBridge")
+      .update("enabled", true, vscode.ConfigurationTarget.Global);
     await extension.activate();
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     assert.ok(workspaceFolder);
+    for (const dirtyDocument of vscode.workspace.textDocuments.filter(
+      (candidate) =>
+        candidate.isDirty &&
+        candidate.uri.scheme === "file" &&
+        isPathWithin(workspaceFolder.uri.fsPath, candidate.uri.fsPath),
+    )) {
+      await dirtyDocument.save();
+    }
+    await execGit(workspaceFolder.uri.fsPath, ["restore", "--staged", "--worktree", "--", "."]);
+    await execGit(workspaceFolder.uri.fsPath, [
+      "clean",
+      "-fd",
+      "--",
+      ".vscode",
+      "task-output.txt",
+      "resource-created-e2e.txt",
+      "resource-accepted-e2e.txt",
+    ]);
     const targetHead = await readGitHead(workspaceFolder.uri.fsPath);
 
     const experiment = await vscode.commands.executeCommand<ExperimentInfo>(
@@ -463,10 +484,15 @@ async function exerciseExperimentWorkflow(
   await vscode.workspace
     .getConfiguration("editor", workspaceUri)
     .update("formatOnSave", true, vscode.ConfigurationTarget.WorkspaceFolder);
-
   const active = await client.request<ExperimentInfo>(BRIDGE_METHODS.getExperiment, {});
   assert.equal(active.sessionId, started.sessionId);
   assert.ok(active.currentCheckpointId, "the experiment should create a baseline checkpoint");
+  const acceptedResourceUri = await exerciseWorkspaceWorkflows(
+    client,
+    active.sessionId,
+    workspaceUri,
+  );
+  console.log("[v0.7-e2e] task, debug, and resource creation completed");
 
   const listed = await client.request<ExperimentsResult>(BRIDGE_METHODS.listExperiments, {
     rootUri: workspaceUri.toString(true),
@@ -823,6 +849,29 @@ async function exerciseExperimentWorkflow(
     "vscodeAgentBridge.e2eMarkCheckpointAccepted",
     actionSaved.checkpointId,
   );
+  const acceptedResourceText = await readFile(acceptedResourceUri.fsPath, "utf8");
+  const preparedDelete = await client.request<PreparedChangeSet>(
+    BRIDGE_METHODS.prepareResourceChanges,
+    {
+      sessionId: active.sessionId,
+      title: "Delete accepted resource temporarily",
+      rationale: "Verify v2 resource recovery writes the accepted structure back to disk",
+      operations: [
+        {
+          operation: "delete",
+          uri: acceptedResourceUri.toString(true),
+          kind: "file",
+          expectedSha256: createHash("sha256").update(acceptedResourceText).digest("hex"),
+          recursive: false,
+        },
+      ],
+    },
+  );
+  await client.request(BRIDGE_METHODS.applyChangeSet, {
+    sessionId: active.sessionId,
+    changeSetId: preparedDelete.changeSetId,
+  });
+  await assert.rejects(() => readFile(acceptedResourceUri.fsPath, "utf8"));
   const bridgeEditor = await vscode.window.showTextDocument(document, { preview: false });
   assert.equal(
     await bridgeEditor.edit((builder) =>
@@ -830,10 +879,13 @@ async function exerciseExperimentWorkflow(
     ),
     true,
   );
+  console.log("[v0.7-e2e] accepted resource restore starting");
   await vscode.commands.executeCommand("vscodeAgentBridge.e2eRestoreAccepted");
+  console.log("[v0.7-e2e] accepted resource restore completed");
   assert.ok(!document.getText().includes("// temporary"));
   assert.ok(document.getText().includes("renamedBridgeGreeting"));
-  assert.equal(document.isDirty, true, "restore must leave editor buffers dirty");
+  assert.equal(document.isDirty, false, "v2 resource restore must save restored documents to disk");
+  assert.equal(await readFile(acceptedResourceUri.fsPath, "utf8"), acceptedResourceText);
 
   for (const dirtyDocument of vscode.workspace.textDocuments.filter(
     (candidate) => candidate.isDirty && candidate.uri.scheme === "file",
@@ -860,7 +912,9 @@ async function exerciseExperimentWorkflow(
     finalCheckpointId,
   );
   await new Promise((resolve) => setTimeout(resolve, 500));
+  console.log("[v0.7-e2e] experiment finalize starting");
   await vscode.commands.executeCommand("vscodeAgentBridge.e2eFinalizeExperiment");
+  console.log("[v0.7-e2e] experiment finalize completed");
   assert.equal(await readGitHead(workspaceUri.fsPath), initialHead, "v0.3 must not create Git commits");
   await assert.rejects(
     () => client.request(BRIDGE_METHODS.getExperiment, {}),
@@ -870,7 +924,6 @@ async function exerciseExperimentWorkflow(
 }
 
 async function exerciseTerminalObservation(client: BridgeRpcClient): Promise<void> {
-  await setAgentPolicies("autonomous", "allow");
   const terminalName = `bridge-e2e-${Date.now()}`;
   const terminal = vscode.window.createTerminal({ name: terminalName, shellPath: "powershell.exe" });
   terminal.show(false);
@@ -937,107 +990,390 @@ async function exerciseTerminalObservation(client: BridgeRpcClient): Promise<voi
       );
     }, "closed terminal retention");
 
-    await setAgentPolicies("autonomous", "metadataOnly");
-    const metadata = await client.request<ListTerminalsResult>(BRIDGE_METHODS.listTerminals, {});
-    const redacted = metadata.terminals.find((candidate) => candidate.terminalId === terminalInfo.terminalId);
-    assert.ok(redacted);
-    assert.equal(redacted.cwd, null);
-    assert.equal(redacted.coverage.output, "redacted");
-    await assert.rejects(
-      () => client.request(BRIDGE_METHODS.listTerminalExecutions, { limit: 20 }),
-      isBridgeError("POLICY_DENIED"),
-    );
-
-    await setAgentPolicies("autonomous", "deny");
-    await assert.rejects(
-      () => client.request(BRIDGE_METHODS.listTerminals, {}),
-      isBridgeError("POLICY_DENIED"),
-    );
   } finally {
     terminal.dispose();
-    await setAgentPolicies("autonomous", "allow");
   }
 }
 
-async function exerciseAutonomyPolicies(
+async function exerciseWorkspaceWorkflows(
   client: BridgeRpcClient,
+  sessionId: string,
   workspaceUri: vscode.Uri,
-  document: vscode.TextDocument,
-): Promise<void> {
-  await setAgentPolicies("autonomous", "allow");
-  const autonomous = await vscode.commands.executeCommand<ExperimentInfo>(
-    "vscodeAgentBridge.e2eStartExperiment",
-    "E2E autonomous finalize",
+): Promise<vscode.Uri> {
+  const rootUri = workspaceUri.toString(true);
+  const settings = await client.request<{
+    exists: boolean;
+    contentSha256: string | null;
+  }>(BRIDGE_METHODS.getWorkspaceConfiguration, { rootUri, target: "settings" });
+  assert.equal(settings.exists, true);
+  const settingsUpdate = await client.request<{ saved: boolean; deferredEffects: boolean }>(
+    BRIDGE_METHODS.updateWorkspaceConfiguration,
+    {
+      sessionId,
+      rootUri,
+      target: "settings",
+      expectedExists: true,
+      expectedSha256: settings.contentSha256,
+      operations: [{ operation: "add", path: "/vscodeAgentBridge.e2eMarker", value: true }],
+      reason: "Verify comment-preserving JSONC workspace settings updates",
+    },
   );
-  assert.ok(autonomous);
-  await vscode.commands.executeCommand("vscodeAgentBridge.e2eFinalizeExperiment");
+  assert.equal(settingsUpdate.saved, true);
+  assert.equal(settingsUpdate.deferredEffects, false);
+
+  const missingTasks = await client.request<{ exists: boolean; contentSha256: string | null }>(
+    BRIDGE_METHODS.getWorkspaceConfiguration,
+    { rootUri, target: "tasks" },
+  );
+  assert.equal(missingTasks.exists, false);
+  const deferredTask = {
+    label: "Bridge deferred E2E task",
+    type: "shell",
+    command: "Write-Output should-not-run-in-explicit-mode",
+    runOptions: { runOn: "folderOpen" },
+  };
   await assert.rejects(
-    () => client.request(BRIDGE_METHODS.getExperiment, {}),
-    isBridgeError("NO_ACTIVE_EXPERIMENT"),
+    () => client.request(BRIDGE_METHODS.updateWorkspaceConfiguration, {
+      sessionId,
+      rootUri,
+      target: "tasks",
+      expectedExists: false,
+      expectedSha256: null,
+      operations: [
+        { operation: "add", path: "/version", value: "2.0.0" },
+        { operation: "add", path: "/tasks", value: [deferredTask] },
+      ],
+      reason: "Explicit mode must reject delayed folder-open execution",
+    }),
+    isBridgeError("DEFERRED_EXECUTION_DENIED"),
   );
 
-  await setAgentPolicies("review", "allow");
-  const review = await vscode.commands.executeCommand<ExperimentInfo>(
-    "vscodeAgentBridge.e2eStartExperiment",
-    "E2E review finalize",
-  );
-  assert.ok(review);
-  await assert.rejects(
-    async () => await vscode.commands.executeCommand("vscodeAgentBridge.e2eFinalizeExperiment"),
-    isObjectErrorCode("INVALID_REQUEST"),
-  );
-  await vscode.commands.executeCommand("vscodeAgentBridge.e2eAbandonExperiment");
+  const taskLabel = "Bridge explicit E2E test";
+  const safeTask = {
+    label: taskLabel,
+    type: "shell",
+    command: "powershell.exe",
+    args: [
+      "-NoProfile",
+      "-Command",
+      `Write-Output '${TASK_MARKER}'; Set-Content -LiteralPath task-output.txt -Value '${TASK_MARKER}'`,
+    ],
+    group: { kind: "test", isDefault: true },
+    problemMatcher: [],
+  };
+  await client.request(BRIDGE_METHODS.updateWorkspaceConfiguration, {
+    sessionId,
+    rootUri,
+    target: "tasks",
+    expectedExists: false,
+    expectedSha256: null,
+    operations: [
+      { operation: "add", path: "/version", value: "2.0.0" },
+      { operation: "add", path: "/tasks", value: [safeTask] },
+    ],
+    reason: "Create an explicit test Task through bounded JSONC operations",
+  });
+  const listedTasks = await waitFor(async () => {
+    const result = await client.request<{
+      tasks: Array<{ taskId: string; fingerprint: string; label: string }>;
+    }>(BRIDGE_METHODS.listTasks, { rootUri, group: "test", offset: 0, limit: 50 });
+    return result.tasks.some((task) => task.label === taskLabel) ? result : undefined;
+  }, "configured VS Code test Task");
+  const task = listedTasks.tasks.find((candidate) => candidate.label === taskLabel)!;
+  const started = await client.request<{ execution: { executionId: string } }>(BRIDGE_METHODS.runTask, {
+    sessionId,
+    rootUri,
+    taskId: task.taskId,
+    expectedFingerprint: task.fingerprint,
+    reason: "Run the explicitly listed test Task",
+  });
+  const finished = await waitFor(async () => {
+    const result = await client.request<{
+      executions: Array<{ executionId: string; status: string; exitCode: number | null }>;
+    }>(BRIDGE_METHODS.listTaskExecutions, { rootUri, activeOnly: false, offset: 0, limit: 50 });
+    return result.executions.find(
+      (execution) => execution.executionId === started.execution.executionId && execution.status === "exited",
+    );
+  }, "completed VS Code test Task", 30_000);
+  assert.equal(finished.exitCode, 0);
+  assert.equal((await readFile(vscode.Uri.joinPath(workspaceUri, "task-output.txt").fsPath, "utf8")).trim(), TASK_MARKER);
 
-  await setAgentPolicies("autonomous", "allow");
-  const readOnly = await vscode.commands.executeCommand<ExperimentInfo>(
-    "vscodeAgentBridge.e2eStartExperiment",
-    "E2E read-only enforcement",
+  const configuration = vscode.workspace.getConfiguration("vscodeAgentBridge");
+  await configuration.update("executionMode", "aggressive", vscode.ConfigurationTarget.Global);
+  const aggressiveTasks = await client.request<{ contentSha256: string }>(
+    BRIDGE_METHODS.getWorkspaceConfiguration,
+    { rootUri, target: "tasks" },
   );
-  assert.ok(readOnly);
-  await setAgentPolicies("readOnly", "metadataOnly");
-  const snapshot = await client.request<DocumentSnapshot>(BRIDGE_METHODS.readDocument, {
-    uri: document.uri.toString(true),
-  });
-  await assert.rejects(
-    () =>
-      client.request(BRIDGE_METHODS.saveDocument, {
-        sessionId: readOnly.sessionId,
-        uri: document.uri.toString(true),
-        expectedVersion: snapshot.documentVersion,
-        expectedSha256: snapshot.contentSha256,
-        reason: "The extension must reject this read-only write",
-      }),
-    isBridgeError("POLICY_DENIED"),
+  const aggressiveUpdate = await client.request<{ deferredEffects: boolean }>(
+    BRIDGE_METHODS.updateWorkspaceConfiguration,
+    {
+      sessionId,
+      rootUri,
+      target: "tasks",
+      expectedExists: true,
+      expectedSha256: aggressiveTasks.contentSha256,
+      operations: [{ operation: "add", path: "/tasks/0/runOptions", value: { runOn: "folderOpen" } }],
+      reason: "Verify aggressive mode reports deferred effects",
+    },
   );
-  const actionUri = vscode.Uri.joinPath(workspaceUri, "action.bridgeaction");
-  const actionSnapshot = await client.request<DocumentSnapshot>(BRIDGE_METHODS.readDocument, {
-    uri: actionUri.toString(true),
+  assert.equal(aggressiveUpdate.deferredEffects, true);
+  const cleanupTasks = await client.request<{ contentSha256: string }>(
+    BRIDGE_METHODS.getWorkspaceConfiguration,
+    { rootUri, target: "tasks" },
+  );
+  await client.request(BRIDGE_METHODS.updateWorkspaceConfiguration, {
+    sessionId,
+    rootUri,
+    target: "tasks",
+    expectedExists: true,
+    expectedSha256: cleanupTasks.contentSha256,
+    operations: [{ operation: "remove", path: "/tasks/0/runOptions" }],
+    reason: "Remove the temporary deferred E2E setting",
   });
-  const actions = await client.request<ListCodeActionsResult>(BRIDGE_METHODS.listCodeActions, {
-    sessionId: readOnly.sessionId,
-    uri: actionUri.toString(true),
-    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
-    expectedVersion: actionSnapshot.documentVersion,
-    expectedSha256: actionSnapshot.contentSha256,
-    limit: 20,
+  await configuration.update("executionMode", "explicit", vscode.ConfigurationTarget.Global);
+
+  await exerciseDebugWorkflow(client, sessionId, workspaceUri);
+
+  const createdUri = vscode.Uri.joinPath(workspaceUri, "resource-created-e2e.txt");
+  const acceptedUri = vscode.Uri.joinPath(workspaceUri, "resource-accepted-e2e.txt");
+  const resourceText = "recoverable resource E2E\n";
+  const preparedCreate = await client.request<PreparedChangeSet>(BRIDGE_METHODS.prepareResourceChanges, {
+    sessionId,
+    title: "Create recoverable text resource",
+    operations: [{ operation: "create", uri: createdUri.toString(true), kind: "file", content: resourceText }],
   });
-  assert.ok(actions.returnedCount > 0, "Code Action discovery remains read-only");
-  await vscode.commands.executeCommand("vscodeAgentBridge.e2eAbandonExperiment");
-  await setAgentPolicies("autonomous", "allow");
+  await client.request(BRIDGE_METHODS.applyChangeSet, { sessionId, changeSetId: preparedCreate.changeSetId });
+  const preparedRename = await client.request<PreparedChangeSet>(BRIDGE_METHODS.prepareResourceChanges, {
+    sessionId,
+    title: "Rename recoverable text resource",
+    operations: [{
+      operation: "rename",
+      uri: createdUri.toString(true),
+      targetUri: acceptedUri.toString(true),
+      kind: "file",
+      expectedSha256: createHash("sha256").update(resourceText).digest("hex"),
+    }],
+  });
+  await client.request(BRIDGE_METHODS.applyChangeSet, { sessionId, changeSetId: preparedRename.changeSetId });
+  assert.equal(await readFile(acceptedUri.fsPath, "utf8"), resourceText);
+  return acceptedUri;
 }
 
-async function setAgentPolicies(
-  autonomyProfile: "autonomous" | "review" | "readOnly",
-  terminalReadPolicy: "allow" | "metadataOnly" | "deny",
+async function exerciseDebugWorkflow(
+  client: BridgeRpcClient,
+  sessionId: string,
+  workspaceUri: vscode.Uri,
 ): Promise<void> {
-  const configuration = vscode.workspace.getConfiguration("vscodeAgentBridge");
-  await configuration.update("autonomyProfile", autonomyProfile, vscode.ConfigurationTarget.Global);
-  await configuration.update(
-    "terminalReadPolicy",
-    terminalReadPolicy,
-    vscode.ConfigurationTarget.Global,
+  const rootUri = workspaceUri.toString(true);
+  const launch = await client.request<{ exists: boolean; contentSha256: string | null }>(
+    BRIDGE_METHODS.getWorkspaceConfiguration,
+    { rootUri, target: "launch" },
   );
-  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.equal(launch.exists, false);
+  const configurationName = "Bridge inline E2E debug";
+  await client.request(BRIDGE_METHODS.updateWorkspaceConfiguration, {
+    sessionId,
+    rootUri,
+    target: "launch",
+    expectedExists: false,
+    expectedSha256: null,
+    operations: [
+      { operation: "add", path: "/version", value: "0.2.0" },
+      {
+        operation: "add",
+        path: "/configurations",
+        value: [
+          {
+            name: configurationName,
+            type: "vscode-agent-bridge-e2e",
+            request: "launch",
+          },
+        ],
+      },
+    ],
+    reason: "Create a static launch configuration for the bounded inline E2E adapter",
+  });
+  const configurations = await waitFor(async () => {
+    const result = await client.request<{
+      configurations: Array<{ name: string; fingerprint: string }>;
+      parseErrors: string[];
+    }>(BRIDGE_METHODS.listDebugConfigurations, { rootUri });
+    assert.deepEqual(result.parseErrors, []);
+    return result.configurations.some((candidate) => candidate.name === configurationName)
+      ? result
+      : undefined;
+  }, "static E2E debug configuration");
+  const selected = configurations.configurations.find((candidate) => candidate.name === configurationName)!;
+
+  const listedBreakpoints = await client.request<{ revision: string }>(
+    BRIDGE_METHODS.listBreakpoints,
+    { rootUri },
+  );
+  const updatedBreakpoints = await client.request<{ breakpoints: unknown[] }>(
+    BRIDGE_METHODS.updateBreakpoints,
+    {
+      sessionId,
+      rootUri,
+      expectedRevision: listedBreakpoints.revision,
+      breakpoints: [
+        {
+          kind: "source",
+          uri: vscode.Uri.joinPath(workspaceUri, "bridge.ts").toString(true),
+          line: 0,
+          character: 0,
+          enabled: true,
+          condition: null,
+          hitCondition: null,
+          logMessage: null,
+        },
+        {
+          kind: "function",
+          functionName: "bridgeGreeting",
+          enabled: true,
+          condition: null,
+          hitCondition: null,
+          logMessage: null,
+        },
+      ],
+      reason: "Exercise bounded source and function breakpoint replacement",
+    },
+  );
+  assert.equal(updatedBreakpoints.breakpoints.length, 2);
+
+  await client.request(BRIDGE_METHODS.startDebugSession, {
+    sessionId,
+    rootUri,
+    configurationName,
+    expectedFingerprint: selected.fingerprint,
+    reason: "Start the selected static E2E debug configuration",
+  });
+  const debugSession = await waitFor(async () => {
+    const result = await client.request<{
+      sessions: Array<{ debugSessionId: string; status: string; name: string }>;
+    }>(BRIDGE_METHODS.listDebugSessions, { rootUri, includeTerminated: false });
+    return result.sessions.find(
+      (candidate) => candidate.name === configurationName && candidate.status === "stopped",
+    );
+  }, "stopped inline E2E debug session");
+
+  const threads = await client.request<{ threads: Array<{ id: number }> }>(
+    BRIDGE_METHODS.getDebugState,
+    { debugSessionId: debugSession.debugSessionId, query: "threads", offset: 0, limit: 20 },
+  );
+  assert.equal(threads.threads[0]?.id, 1);
+  const stack = await client.request<{ stackFrames: Array<{ id: number; sourceUri: string | null }> }>(
+    BRIDGE_METHODS.getDebugState,
+    { debugSessionId: debugSession.debugSessionId, query: "stackTrace", threadId: 1, offset: 0, limit: 20 },
+  );
+  assert.ok(stack.stackFrames[0]?.sourceUri?.endsWith("bridge.ts"));
+  const frameId = stack.stackFrames[0]!.id;
+  const scopes = await client.request<{ scopes: Array<{ variablesReference: number }> }>(
+    BRIDGE_METHODS.getDebugState,
+    { debugSessionId: debugSession.debugSessionId, query: "scopes", frameId, offset: 0, limit: 20 },
+  );
+  const variablesReference = scopes.scopes[0]!.variablesReference;
+  const variables = await client.request<{ variables: Array<{ name: string; value: string }> }>(
+    BRIDGE_METHODS.getDebugState,
+    { debugSessionId: debugSession.debugSessionId, query: "variables", variablesReference, offset: 0, limit: 20 },
+  );
+  assert.deepEqual(variables.variables[0], { name: "counter", value: "1", type: "number", evaluateName: "counter", variablesReference: 0, namedVariables: null, indexedVariables: null });
+  const evaluated = await client.request<{ result: string }>(BRIDGE_METHODS.evaluateDebugExpression, {
+    sessionId,
+    debugSessionId: debugSession.debugSessionId,
+    frameId,
+    context: "watch",
+    expression: "counter",
+    reason: "Evaluate a bounded expression without persisting it",
+  });
+  assert.equal(evaluated.result, "1");
+  const set = await client.request<{ value: string }>(BRIDGE_METHODS.setDebugVariable, {
+    sessionId,
+    debugSessionId: debugSession.debugSessionId,
+    variablesReference,
+    name: "counter",
+    value: "7",
+    reason: "Exercise fixed setVariable routing",
+  });
+  assert.equal(set.value, "7");
+
+  await client.request(BRIDGE_METHODS.controlDebugSession, {
+    sessionId,
+    debugSessionId: debugSession.debugSessionId,
+    action: "continue",
+    threadId: 1,
+    reason: "Continue through the fixed DAP whitelist",
+  });
+  await assert.rejects(
+    () => client.request(BRIDGE_METHODS.getDebugState, {
+      debugSessionId: debugSession.debugSessionId,
+      query: "scopes",
+      frameId,
+      offset: 0,
+      limit: 20,
+    }),
+    isBridgeError("DEBUG_STATE_STALE"),
+  );
+  await waitFor(async () => {
+    const result = await client.request<{ sessions: Array<{ debugSessionId: string; status: string }> }>(
+      BRIDGE_METHODS.listDebugSessions,
+      { rootUri, includeTerminated: false },
+    );
+    return result.sessions.some(
+      (candidate) => candidate.debugSessionId === debugSession.debugSessionId && candidate.status === "stopped",
+    ) ? true : undefined;
+  }, "debug session stopped after continue");
+  await client.request(BRIDGE_METHODS.controlDebugSession, {
+    sessionId,
+    debugSessionId: debugSession.debugSessionId,
+    action: "terminate",
+    reason: "Terminate the bounded E2E debug session",
+  });
+  await waitFor(async () => {
+    const result = await client.request<{ sessions: Array<{ debugSessionId: string; status: string }> }>(
+      BRIDGE_METHODS.listDebugSessions,
+      { rootUri, includeTerminated: true },
+    );
+    return result.sessions.some(
+      (candidate) => candidate.debugSessionId === debugSession.debugSessionId && candidate.status === "terminated",
+    ) ? true : undefined;
+  }, "terminated inline E2E debug session");
+}
+
+async function exerciseMasterSwitch(client: BridgeRpcClient): Promise<void> {
+  const configuration = vscode.workspace.getConfiguration("vscodeAgentBridge");
+  const before = (await listDescriptors()).length;
+  assert.ok(before >= 1);
+  await configuration.update("enabled", false, vscode.ConfigurationTarget.Global);
+  console.log("[v0.7-e2e] master switch disabled setting written");
+  await waitFor(async () => (await listDescriptors()).length === 0 ? true : undefined, "bridge descriptor removal");
+  console.log("[v0.7-e2e] master switch descriptor removed");
+  await assert.rejects(() => client.request(BRIDGE_METHODS.getEditorContext, {}));
+  console.log("[v0.7-e2e] master switch old connection rejected");
+  await configuration.update("enabled", true, vscode.ConfigurationTarget.Global);
+  console.log("[v0.7-e2e] master switch enabled setting written");
+  const descriptor = await waitForDescriptor("ready");
+  console.log("[v0.7-e2e] master switch descriptor restored");
+  const reconnected = await BridgeRpcClient.connect(descriptor.transport.endpoint);
+  try {
+    await reconnected.request(BRIDGE_METHODS.initialize, {
+      protocolVersion: BRIDGE_PROTOCOL_VERSION,
+      authToken: descriptor.authToken,
+      client: { name: "master-switch-e2e", version: BRIDGE_RELEASE_VERSION },
+    });
+    await reconnected.request(BRIDGE_METHODS.getEditorContext, {});
+  } finally {
+    reconnected.close();
+  }
+}
+
+async function writePrimaryCompletionMarker(): Promise<void> {
+  const registryDirectory = process.env.VSCODE_AGENT_BRIDGE_REGISTRY_DIR;
+  assert.ok(registryDirectory, "the E2E registry directory must be configured");
+  await writeFile(
+    path.join(registryDirectory, "primary-e2e-passed.json"),
+    `${JSON.stringify({ protocolVersion: BRIDGE_PROTOCOL_VERSION, toolCount: 42 })}\n`,
+    "utf8",
+  );
 }
 
 function isBridgeError(code: string): (error: unknown) => boolean {
@@ -1097,6 +1433,22 @@ async function waitForDescriptor(
       ? parsed.data
       : undefined;
   }, lifecycle ? `bridge ${lifecycle} instance descriptor` : "bridge instance descriptor");
+}
+
+async function listDescriptors(): Promise<InstanceDescriptor[]> {
+  const instancesDirectory = resolveRegistryDirectories().instances;
+  const descriptors: InstanceDescriptor[] = [];
+  for (const name of (await readdir(instancesDirectory).catch(() => [])).filter((candidate) => candidate.endsWith(".json"))) {
+    try {
+      const parsed = InstanceDescriptorSchema.safeParse(
+        JSON.parse(await readFile(path.join(instancesDirectory, name), "utf8")),
+      );
+      if (parsed.success) descriptors.push(parsed.data);
+    } catch {
+      // Concurrent descriptor replacement is retried by the caller.
+    }
+  }
+  return descriptors;
 }
 
 async function waitForDescriptorForWorkspace(workspacePath: string): Promise<InstanceDescriptor> {
@@ -1176,11 +1528,24 @@ class BridgeRpcClient {
   }
 
   request<T = unknown>(method: string, params: unknown): Promise<T> {
+    if (this.#socket.destroyed) {
+      return Promise.reject(new Error("Bridge socket is already closed."));
+    }
     const id = this.#nextRequestId++;
     const result = new Promise<T>((resolve, reject) => {
       this.#pending.set(id, { resolve: (value) => resolve(value as T), reject });
     });
-    this.#socket.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+    this.#socket.write(
+      `${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`,
+      (error) => {
+        if (!error) {
+          return;
+        }
+        const pending = this.#pending.get(id);
+        this.#pending.delete(id);
+        pending?.reject(error);
+      },
+    );
     return result;
   }
 

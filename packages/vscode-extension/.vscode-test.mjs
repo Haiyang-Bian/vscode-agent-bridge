@@ -2,12 +2,14 @@ import { defineConfig } from "@vscode/test-cli";
 
 const workspaceFolder =
   process.env.VSCODE_AGENT_BRIDGE_E2E_WORKSPACE ?? "test/fixtures/typescript-workspace";
+const extensionDevelopmentPath =
+  process.env.VSCODE_AGENT_BRIDGE_E2E_EXTENSION ?? ".";
 
 export default defineConfig({
   files: "dist-test/e2e/**/*.e2e.js",
   version: "stable",
   workspaceFolder,
-  extensionDevelopmentPath: ".",
+  extensionDevelopmentPath: [extensionDevelopmentPath, "test/harness"],
   launchArgs: [
     "--disable-extensions",
     "--disable-workspace-trust",

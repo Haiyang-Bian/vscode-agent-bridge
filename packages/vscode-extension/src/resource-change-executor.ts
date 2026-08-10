@@ -235,13 +235,15 @@ async function snapshotResource(
     });
   };
   await visit(uri, "");
-  const digest = createHash("sha256")
-    .update(
-      entries
-        .map((entry) => `${entry.kind}:${entry.relativePath}:${entry.sha256 ?? ""}`)
-        .join("\n"),
-    )
-    .digest("hex");
+  const digest = kind === "file"
+    ? entries[0]!.sha256
+    : createHash("sha256")
+        .update(
+          entries
+            .map((entry) => `${entry.kind}:${entry.relativePath}:${entry.sha256 ?? ""}`)
+            .join("\n"),
+        )
+        .digest("hex");
   return { uri, exists: true, kind, digest, entries };
 }
 

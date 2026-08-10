@@ -1,5 +1,16 @@
 # Change Log
 
+## 0.7.0 - 2026-08-10
+
+- Upgraded the authenticated bridge to protocol v6 with exactly 42 bounded IDE workflow tools.
+- Replaced per-capability extension policy with a machine master switch, explicit/aggressive execution modes and an explicit migration gate for restrictive v0.6 selections.
+- Added comment-preserving JSONC reads and guarded JSON Pointer updates for settings, launch, tasks and workspace configuration.
+- Added one-use, hash-guarded text resource creation, rename and deletion plus schema-v2 resource snapshots and disk restoration.
+- Added fingerprinted VS Code Task enumeration, execution, termination, lifecycle tracking and terminal-coverage correlation without arbitrary command input.
+- Added named static Debug launch, bounded thread/stack/scope/variable reads, fixed controls, source/function breakpoints, evaluate and setVariable through a strict DAP whitelist.
+- Extended Activity and Doctor while excluding source, Task commands/output, Debug expressions/values, DAP messages, credentials and absolute paths.
+- Added real Extension Host coverage for JSONC policy, resource recovery, Tasks, an isolated inline Debug Adapter, master-switch restart and the Managed Worktree regression.
+
 ## 0.6.1 - 2026-08-10
 
 - Propagated MCP cancellation through authenticated bridge requests so an abandoned onboarding prompt cannot later commit workspace settings.

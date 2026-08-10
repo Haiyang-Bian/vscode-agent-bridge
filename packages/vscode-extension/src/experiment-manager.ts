@@ -1334,15 +1334,54 @@ export class ExperimentManager implements vscode.Disposable {
         "The accepted checkpoint contains a resource that cannot be reconstructed safely.",
       );
     }
-    await this.createExplicitCheckpoint("Safety checkpoint before restoring accepted resources");
+    const safetyCheckpointId = await this.createExplicitCheckpoint(
+      "Safety checkpoint before restoring accepted resources",
+    );
+    try {
+      await this.#applyResourceSnapshot(resolvedAccepted);
+    } catch {
+      try {
+        const safetyCheckpoint = await this.#store.readCheckpoint(
+          active.manifest.sessionId,
+          safetyCheckpointId,
+        );
+        const resolvedSafety = await this.#resolveCheckpointDocuments(
+          active,
+          safetyCheckpoint.documents,
+        );
+        await this.#applyResourceSnapshot(resolvedSafety);
+      } catch {
+        await this.markResourceRecoveryRequired(active.manifest.sessionId);
+        throw new BridgeError(
+          "RESOURCE_RECOVERY_REQUIRED",
+          "The accepted resource restore and its safety rollback both failed; manual recovery is required.",
+        );
+      }
+      throw new BridgeError(
+        "INTERNAL_ERROR",
+        "The accepted resource restore failed and the safety checkpoint was reapplied.",
+      );
+    }
+
+    await this.#captureUris(
+      active,
+      resolvedAccepted.map(({ state }) => vscode.Uri.parse(state.uri, true)),
+    );
+    await this.#appendCheckpoint(active, "restore", "Restored accepted resource candidate", true);
+  }
+
+  async #applyResourceSnapshot(
+    resolvedDocuments: readonly ResolvedCheckpointDocument[],
+  ): Promise<void> {
     const edit = new vscode.WorkspaceEdit();
-    const directoriesToCreate = resolvedAccepted
+    const directoriesToCreate = resolvedDocuments
       .filter(({ state }) => state.exists && state.resourceType === "directory")
       .sort((left, right) => left.state.uri.length - right.state.uri.length);
-    const resourcesToDelete = resolvedAccepted
+    const resourcesToDelete = resolvedDocuments
       .filter(({ state }) => !state.exists)
       .sort((left, right) => right.state.uri.length - left.state.uri.length);
-    const savedUris: vscode.Uri[] = [];
+    const savedResources: Array<{ uri: vscode.Uri; text: string }> = [];
+    const directWrites: Array<{ uri: vscode.Uri; text: string }> = [];
 
     try {
       for (const { state } of directoriesToCreate) {
@@ -1360,7 +1399,7 @@ export class ExperimentManager implements vscode.Disposable {
         }
       }
 
-      for (const { state, baselineText } of resolvedAccepted) {
+      for (const { state, baselineText } of resolvedDocuments) {
         if (!state.exists || state.resourceType === "directory") {
           continue;
         }
@@ -1376,13 +1415,18 @@ export class ExperimentManager implements vscode.Disposable {
           exists = false;
         }
         if (!exists) {
-          edit.createFile(uri, { ignoreIfExists: false, overwrite: false });
-          edit.insert(uri, new vscode.Position(0, 0), text);
+          directWrites.push({ uri, text });
         } else {
-          const document = await resolveExistingDocument(uri);
-          edit.replace(uri, fullDocumentRange(document), text);
+          const openDocument = vscode.workspace.textDocuments.find(
+            (document) => document.uri.toString(true) === uri.toString(true),
+          );
+          if (openDocument) {
+            edit.replace(uri, fullDocumentRange(openDocument), text);
+            savedResources.push({ uri, text });
+          } else {
+            directWrites.push({ uri, text });
+          }
         }
-        savedUris.push(uri);
       }
 
       for (const { state } of resourcesToDelete) {
@@ -1405,8 +1449,27 @@ export class ExperimentManager implements vscode.Disposable {
         if (!(await vscode.workspace.applyEdit(edit))) {
           throw new BridgeError("RESOURCE_RECOVERY_REQUIRED", "VS Code refused the accepted resource restore plan.");
         }
-        for (const uri of savedUris) {
+        for (const { uri, text } of directWrites) {
+          await vscode.workspace.fs.writeFile(uri, Buffer.from(text, "utf8"));
+        }
+        for (const { uri, text } of savedResources) {
           const document = await resolveExistingDocument(uri);
+          const endOfLine = snapshotEndOfLine(text);
+          if (document.eol !== endOfLine) {
+            const editor = vscode.window.visibleTextEditors.find(
+              (candidate) => candidate.document.uri.toString(true) === uri.toString(true),
+            ) ?? await vscode.window.showTextDocument(document, { preview: false, preserveFocus: true });
+            const changed = await editor.edit(
+              (builder) => builder.setEndOfLine(endOfLine),
+              { undoStopBefore: false, undoStopAfter: false },
+            );
+            if (!changed) {
+              throw new BridgeError(
+                "RESOURCE_RECOVERY_REQUIRED",
+                "A restored document line ending could not be reconstructed.",
+              );
+            }
+          }
           if (document.isDirty && !(await document.save())) {
             throw new BridgeError("RESOURCE_RECOVERY_REQUIRED", "A restored document could not be saved.");
           }
@@ -1415,21 +1478,11 @@ export class ExperimentManager implements vscode.Disposable {
         this.#suppressAutomaticCapture -= 1;
       }
     } catch (error) {
-      await this.markResourceRecoveryRequired(active.manifest.sessionId);
       if (error instanceof BridgeError) {
         throw error;
       }
-      throw new BridgeError(
-        "RESOURCE_RECOVERY_REQUIRED",
-        "The resource restore did not complete; use the safety checkpoint for manual recovery.",
-      );
+      throw new BridgeError("INTERNAL_ERROR", "The resource snapshot could not be applied.");
     }
-
-    await this.#captureUris(
-      active,
-      resolvedAccepted.map(({ state }) => vscode.Uri.parse(state.uri, true)),
-    );
-    await this.#appendCheckpoint(active, "restore", "Restored accepted resource candidate", true);
   }
 
   #requireActive(sessionId?: string): ActiveExperiment {
@@ -1466,6 +1519,13 @@ export class ExperimentManager implements vscode.Disposable {
     );
     return result;
   }
+}
+
+function snapshotEndOfLine(text: string): vscode.EndOfLine {
+  const firstLineFeed = text.indexOf("\n");
+  return firstLineFeed > 0 && text[firstLineFeed - 1] === "\r"
+    ? vscode.EndOfLine.CRLF
+    : vscode.EndOfLine.LF;
 }
 
 function workspaceIdentity(root: vscode.Uri): string {

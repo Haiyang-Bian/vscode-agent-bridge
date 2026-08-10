@@ -3,6 +3,25 @@
   "displayName": "VS Code Agent Bridge Artifact Test Harness",
   "version": "0.0.0",
   "publisher": "vscode-agent-bridge-tests",
+  "main": "./extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "debuggers": [
+      {
+        "type": "vscode-agent-bridge-e2e",
+        "label": "VS Code Agent Bridge E2E",
+        "languages": [],
+        "configurationAttributes": {
+          "launch": {
+            "required": [],
+            "properties": {}
+          }
+        }
+      }
+    ]
+  },
   "engines": {
     "vscode": "^1.95.0"
   }

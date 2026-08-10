@@ -9,7 +9,7 @@ import {
   parseTree,
   printParseErrorCode,
   type ParseError,
-} from "jsonc-parser";
+} from "jsonc-parser/lib/esm/main.js";
 
 import {
   BridgeError,

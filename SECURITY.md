@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Security fixes are provided for the latest side-loaded candidate while Marketplace publication remains disabled. During this cycle, `0.6.x` is the supported line.
+Security fixes are provided for the latest side-loaded candidate while Marketplace publication remains disabled. During this cycle, `0.7.x` is the supported line.
 
 ## Reporting a vulnerability
 
@@ -24,4 +24,8 @@ Version `0.5.1` clarifies zero-edit formatting as a no-op and adds a default-off
 
 Version `0.6.1` permits an Agent to propose and manage bounded ordinary-experiment metadata. Starting requires an explicit instance/root/title/reason and user-confirmed per-root onboarding; every subsequent Agent write is blocked when the root is disabled or the machine policy is read-only. Agent tools cannot accept, restore, Finalize, abandon, pin, delete or manage worktrees. Workspace setup reports presence only, and onboarding writes only Bridge settings through the VS Code Configuration API. Interactive request cancellation is propagated to the extension before durable mutation. The memory-only Activity view excludes source, replacement text, hashes, terminal data, credentials and absolute paths. Editor reveal uses the fixed `showTextDocument` API before mutation and exposes no generic open/close command.
 
-Terminal access is observation-only. The MCP surface cannot create, focus, close or write to a terminal and cannot execute a command. Command lines and sanitized output depend on Shell Integration, remain in memory only, are bounded and report incomplete coverage. Untrusted workspaces and `metadataOnly` redact sensitive fields; `deny` rejects terminal tools and discards retained execution details. Raw command lines/output never enter logs, Doctor, experiment snapshots or crash reports.
+Version `0.7.0` replaces per-capability extension policy with an explicit master switch and accurate MCP annotations. Old restrictive v0.6 selections pause publication until the user chooses; disabling closes bridge sockets and removes the descriptor. Configuration writes use bounded JSON Pointer edits with existence/hash preconditions, block workspace-folder or remote-authority changes, and reject delayed execution in `explicit` mode. Resource changes are limited to existing local experiment roots, text and bounded directories; `.git`, traversal, symbolic links, junctions, binary mutation and arbitrary filesystem access remain unavailable.
+
+Tasks can only be executed after workspace enumeration and fingerprint validation; MCP never supplies an arbitrary Task, command line or shell. Debug launch accepts only named static configurations. Debug Adapter Protocol access is a fixed whitelist with tracked session/frame/reference freshness, bounded pagination and workspace-scoped source breakpoints; generic `customRequest` is never exposed. Task commands/output, debug expressions/values and raw DAP messages never enter logs, Doctor, Activity or experiment Blobs. Task and Debug can have open-world side effects that local snapshots cannot reverse, and their MCP annotations declare that boundary.
+
+Terminal access is observation-only. The MCP surface cannot create, focus, close or write to a terminal and cannot execute a command. Command lines and sanitized output depend on Shell Integration, remain in memory only, are bounded and report incomplete coverage. Untrusted or remote workspaces do not publish the bridge. Raw command lines/output never enter logs, Doctor, experiment snapshots or crash reports.

@@ -41,15 +41,26 @@ try {
       VSCODE_AGENT_BRIDGE_E2E_ONBOARDING_DELAY_MS: "11000",
       VSCODE_AGENT_BRIDGE_EXPECT_PACKAGED: "1",
       VSCODE_AGENT_BRIDGE_E2E_WORKSPACE: workspaceDirectory,
+      VSCODE_AGENT_BRIDGE_E2E_DEBUG_SOURCE: path.join(workspaceDirectory, "bridge.ts"),
       VSCODE_AGENT_BRIDGE_MANAGED_ROOT: path.join(registryDirectory, "managed-worktrees"),
     },
   );
+  await assertPrimaryE2EMarker(registryDirectory);
   await assertManagedE2EMarker(registryDirectory);
 } finally {
   await Promise.all([
     rm(registryDirectory, { recursive: true, force: true }),
     resetIsolatedProfile(),
   ]);
+}
+
+async function assertPrimaryE2EMarker(registryDirectory: string): Promise<void> {
+  const marker = JSON.parse(
+    await readFile(path.join(registryDirectory, "primary-e2e-passed.json"), "utf8"),
+  ) as Record<string, unknown>;
+  if (marker.protocolVersion !== 6 || marker.toolCount !== 42) {
+    throw new Error("Primary packaged IDE workflow E2E completion marker is invalid.");
+  }
 }
 
 async function assertManagedE2EMarker(registryDirectory: string): Promise<void> {
