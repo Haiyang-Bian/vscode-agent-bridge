@@ -74,6 +74,48 @@ describe("experiment store", () => {
     await expect(storeA.assertLease(manifest.sessionId)).rejects.toThrow();
   });
 
+  test("renames ordinary experiments atomically with an expected-title precondition", async () => {
+    const directory = await temporaryDirectory();
+    const store = new ExperimentStore(directory, INSTANCE_A);
+    const manifest = await store.createExperiment({
+      mode: "workspace",
+      title: "Initial title",
+      rootUri: "file:///workspace",
+      workspaceIdentity: "workspace",
+      baseRevision: null,
+      branch: null,
+      health: "partial",
+    });
+
+    const renamed = await store.renameOrdinaryExperiment(
+      manifest.sessionId,
+      "Initial title",
+      "Task-derived title",
+    );
+    expect(renamed.title).toBe("Task-derived title");
+    await expect(
+      store.renameOrdinaryExperiment(manifest.sessionId, "Initial title", "Stale update"),
+    ).rejects.toMatchObject({ code: "EXPERIMENT_STATE_CHANGED" });
+    expect((await store.readManifest(manifest.sessionId)).title).toBe("Task-derived title");
+  });
+
+  test("does not expose managed experiment renaming through the ordinary metadata path", async () => {
+    const directory = await temporaryDirectory();
+    const store = new ExperimentStore(directory, INSTANCE_A);
+    const manifest = await store.createExperiment({
+      mode: "worktree",
+      title: "Managed",
+      rootUri: "file:///managed",
+      workspaceIdentity: "managed",
+      baseRevision: "a".repeat(40),
+      branch: "vscode-agent-bridge/experiment/test",
+      health: "complete",
+    });
+    await expect(
+      store.renameOrdinaryExperiment(manifest.sessionId, "Managed", "Renamed"),
+    ).rejects.toMatchObject({ code: "POLICY_DENIED" });
+  });
+
   test("stores managed metadata separately from checkpoint manifests", async () => {
     const directory = await temporaryDirectory();
     const store = new ExperimentStore(directory, INSTANCE_A);

@@ -16,13 +16,17 @@ import {
   PositionedDocumentParamsSchema,
   AppliedChangeSetSchema,
   ApplyChangeSetParamsSchema,
+  CreateExperimentCheckpointParamsSchema,
+  CreateExperimentCheckpointResultSchema,
   ExperimentCheckpointsResultSchema,
   ExperimentEvidenceSchema,
   ExperimentInfoSchema,
+  ExperimentsResultSchema,
   FormatDocumentParamsSchema,
   FormatDocumentResultSchema,
   GetWorkspaceSetupParamsSchema,
   ListExperimentCheckpointsParamsSchema,
+  ListExperimentsParamsSchema,
   ListCodeActionsParamsSchema,
   ListCodeActionsResultSchema,
   ListTerminalExecutionsParamsSchema,
@@ -36,8 +40,10 @@ import {
   ReadTerminalOutputParamsSchema,
   ReadTerminalOutputResultSchema,
   RecordExperimentEvidenceParamsSchema,
+  RenameExperimentParamsSchema,
   SaveDocumentParamsSchema,
   SaveDocumentResultSchema,
+  StartExperimentParamsSchema,
   WorkspaceSetupResultSchema,
 } from "@vscode-agent-bridge/protocol";
 
@@ -135,6 +141,7 @@ export function createExperimentRequestHandlers(
   instanceId: string,
   experiments: ExperimentManager,
   changeSets: ChangeSetManager,
+  onboarding: WorkspaceOnboardingService,
 ): ReadonlyMap<string, BridgeRequestHandler> {
   return new Map<string, BridgeRequestHandler>([
     [
@@ -142,6 +149,55 @@ export function createExperimentRequestHandlers(
       async (params) => {
         EmptyParamsSchema.parse(params);
         return ExperimentInfoSchema.parse(await experiments.getActiveExperiment());
+      },
+    ],
+    [
+      BRIDGE_METHODS.listExperiments,
+      async (params) => {
+        const parsed = ListExperimentsParamsSchema.parse(params);
+        const root = onboarding.resolveRoot(parsed.rootUri);
+        return ExperimentsResultSchema.parse(
+          await experiments.listExperiments({
+            ...parsed,
+            rootUri: root.uri.toString(true),
+          }),
+        );
+      },
+    ],
+    [
+      BRIDGE_METHODS.startExperiment,
+      async (params) => {
+        assertAgentWriteAllowed();
+        const parsed = StartExperimentParamsSchema.parse(params);
+        const root = onboarding.resolveRoot(parsed.rootUri);
+        await onboarding.ensureEnabled(root, parsed.title, "agent");
+        return ExperimentInfoSchema.parse(
+          await experiments.startWorkspaceExperiment({ title: parsed.title, root: root.uri }),
+        );
+      },
+    ],
+    [
+      BRIDGE_METHODS.renameExperiment,
+      async (params) => {
+        assertAgentWriteAllowed();
+        const parsed = RenameExperimentParamsSchema.parse(params);
+        const root = await experiments.resolveExperimentRoot(parsed.sessionId);
+        await onboarding.ensureEnabled(root, parsed.title, "agent");
+        return ExperimentInfoSchema.parse(await experiments.renameOrdinaryExperiment(parsed));
+      },
+    ],
+    [
+      BRIDGE_METHODS.createExperimentCheckpoint,
+      async (params) => {
+        assertAgentWriteAllowed();
+        const parsed = CreateExperimentCheckpointParamsSchema.parse(params);
+        const root = await experiments.resolveExperimentRoot(parsed.sessionId);
+        await onboarding.ensureEnabled(root, parsed.title, "agent");
+        return CreateExperimentCheckpointResultSchema.parse({
+          instanceId,
+          sessionId: parsed.sessionId,
+          checkpoint: await experiments.createAgentCheckpoint(parsed),
+        });
       },
     ],
     [

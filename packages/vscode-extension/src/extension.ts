@@ -47,7 +47,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const terminals = new TerminalObserver(host.instanceId);
   const ideAutonomy = new IdeAutonomyManager(host.instanceId, experiments, changeSets);
   host.registerRequestHandlers(
-    createExperimentRequestHandlers(host.instanceId, experiments, changeSets),
+    createExperimentRequestHandlers(host.instanceId, experiments, changeSets, onboarding),
   );
   host.registerRequestHandlers(createWorkspaceRequestHandlers(onboarding));
   host.registerRequestHandlers(createTerminalRequestHandlers(terminals));

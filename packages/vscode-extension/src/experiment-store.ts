@@ -16,6 +16,7 @@ import path from "node:path";
 import { z } from "zod";
 
 import {
+  BridgeError,
   CheckpointIdSchema,
   ContentSha256Schema,
   ExperimentCheckpointSchema,
@@ -42,6 +43,7 @@ export const MAX_EXPERIMENT_BLOB_BYTES = 2 * 1024 * 1024;
 export const EXPERIMENT_LEASE_STALE_MS = 30_000;
 const ATOMIC_RENAME_RETRY_DELAYS_MS = [10, 25, 50, 100, 200] as const;
 const atomicWriteQueues = new Map<string, Promise<void>>();
+const manifestMutationQueues = new Map<string, Promise<void>>();
 
 const StoredDocumentSchema = z
   .object({
@@ -245,6 +247,46 @@ export class ExperimentStore {
       }
     }
     return manifests.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
+  async renameOrdinaryExperiment(
+    sessionId: string,
+    expectedTitle: string,
+    title: string,
+  ): Promise<ExperimentManifest> {
+    assertUuid(sessionId);
+    const manifestPath = this.#manifestPath(sessionId);
+    return serializeManifestMutation(manifestPath, async () => {
+      const manifest = await this.readManifest(sessionId);
+      if (manifest.mode !== "workspace") {
+        throw new BridgeError(
+          "POLICY_DENIED",
+          "Managed Worktree experiment metadata remains user-controlled.",
+        );
+      }
+      if (manifest.health === "corrupt") {
+        throw new BridgeError(
+          "EXPERIMENT_NOT_OWNED",
+          "Corrupt experiment metadata cannot be changed by the Agent.",
+        );
+      }
+      if (manifest.lifecycle === "active") {
+        await this.assertLease(sessionId);
+      }
+      if (manifest.title !== expectedTitle) {
+        throw new BridgeError(
+          "EXPERIMENT_STATE_CHANGED",
+          "The experiment title changed after it was inspected.",
+        );
+      }
+      const updated = ExperimentManifestSchema.parse({
+        ...manifest,
+        title,
+        updatedAt: this.#now().toISOString(),
+      });
+      await this.#writeManifest(updated);
+      return updated;
+    });
   }
 
   async appendCheckpoint(
@@ -809,6 +851,27 @@ async function writeAtomic(filePath: string, contents: string): Promise<void> {
     }
   });
   return operation;
+}
+
+async function serializeManifestMutation<Result>(
+  filePath: string,
+  operation: () => Promise<Result>,
+): Promise<Result> {
+  const resolvedPath = path.resolve(filePath);
+  const normalizedPath = process.platform === "win32" ? resolvedPath.toLowerCase() : resolvedPath;
+  const previous = manifestMutationQueues.get(normalizedPath) ?? Promise.resolve();
+  const result = previous.then(operation, operation);
+  const tail = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  manifestMutationQueues.set(normalizedPath, tail);
+  void tail.then(() => {
+    if (manifestMutationQueues.get(normalizedPath) === tail) {
+      manifestMutationQueues.delete(normalizedPath);
+    }
+  });
+  return result;
 }
 
 async function writeAtomicNow(filePath: string, contents: string): Promise<void> {

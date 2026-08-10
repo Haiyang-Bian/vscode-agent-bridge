@@ -224,6 +224,44 @@ export function registerExperimentUi(
       });
     }),
     vscode.commands.registerCommand(
+      "vscodeAgentBridge.renameExperiment",
+      async (node?: SessionNode) => {
+        await runUiCommand(output, async () => {
+          const manifest = node?.kind === "session" ? node.manifest : await pickSession(experiments);
+          if (!manifest) {
+            return;
+          }
+          if (manifest.mode !== "workspace") {
+            throw new BridgeError(
+              "POLICY_DENIED",
+              "Managed Worktree experiment metadata remains user-controlled.",
+            );
+          }
+          const title = await vscode.window.showInputBox({
+            title: "Rename Agent Experiment",
+            value: manifest.title,
+            validateInput: (value) =>
+              value.trim().length === 0
+                ? "Experiment title is required."
+                : value.trim().length > MAX_AGENT_EXPERIMENT_TITLE_CHARACTERS
+                  ? `Experiment title must be at most ${MAX_AGENT_EXPERIMENT_TITLE_CHARACTERS} characters.`
+                  : /[\r\n\u0000-\u001f\u007f]/u.test(value)
+                    ? "Experiment title cannot contain control characters."
+                    : undefined,
+          });
+          if (!title || title.trim() === manifest.title) {
+            return;
+          }
+          await experiments.renameOrdinaryExperiment({
+            sessionId: manifest.sessionId,
+            expectedTitle: manifest.title,
+            title: title.trim(),
+            reason: "User renamed the experiment in VS Code.",
+          });
+        });
+      },
+    ),
+    vscode.commands.registerCommand(
       "vscodeAgentBridge.toggleExperimentPinned",
       async (node?: SessionNode) => {
         await runUiCommand(output, async () => {

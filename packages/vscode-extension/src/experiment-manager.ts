@@ -5,10 +5,15 @@ import * as vscode from "vscode";
 
 import {
   BridgeError,
+  type CreateExperimentCheckpointParams,
   type ExperimentCheckpointsResult,
+  type ExperimentCheckpoint,
   type ExperimentEvidence,
   type ExperimentInfo,
+  type ExperimentsResult,
   type ListExperimentCheckpointsParams,
+  type ListExperimentsParams,
+  type RenameExperimentParams,
   type RecordExperimentEvidenceParams,
 } from "@vscode-agent-bridge/protocol";
 
@@ -184,6 +189,103 @@ export class ExperimentManager implements vscode.Disposable {
     const active = this.#requireActive();
     active.manifest = await this.#store.readManifest(active.manifest.sessionId);
     return this.#store.toExperimentInfo(active.manifest);
+  }
+
+  async listExperiments(
+    params: ListExperimentsParams & { rootUri: string },
+  ): Promise<ExperimentsResult> {
+    const manifests = (await this.#store.listManifests()).filter(
+      (manifest) =>
+        manifest.rootUri === params.rootUri &&
+        (!params.mode || manifest.mode === params.mode) &&
+        (!params.lifecycle || manifest.lifecycle === params.lifecycle),
+    );
+    const visible = manifests.slice(params.offset, params.offset + params.limit);
+    return {
+      instanceId: this.#instanceId,
+      rootUri: params.rootUri,
+      activeSessionId:
+        this.#active?.manifest.rootUri === params.rootUri
+          ? this.#active.manifest.sessionId
+          : null,
+      experiments: await Promise.all(
+        visible.map((manifest) => this.#store.toExperimentInfo(manifest)),
+      ),
+      returnedCount: visible.length,
+      totalCount: manifests.length,
+      truncated: params.offset + visible.length < manifests.length,
+    };
+  }
+
+  async resolveExperimentRoot(sessionId: string): Promise<vscode.WorkspaceFolder> {
+    let manifest: ExperimentManifest;
+    try {
+      manifest = await this.#store.readManifest(sessionId);
+    } catch {
+      throw new BridgeError("EXPERIMENT_NOT_FOUND", "Experiment session was not found.");
+    }
+    const root = (vscode.workspace.workspaceFolders ?? []).find(
+      (folder) => folder.uri.toString(true) === manifest.rootUri,
+    );
+    if (!root) {
+      throw new BridgeError(
+        "EXPERIMENT_NOT_OWNED",
+        "The experiment does not belong to a root in this VS Code window.",
+      );
+    }
+    return root;
+  }
+
+  async renameOrdinaryExperiment(params: RenameExperimentParams): Promise<ExperimentInfo> {
+    this.#assertMutationAllowed();
+    const root = await this.resolveExperimentRoot(params.sessionId);
+    const current = await this.#store.readManifest(params.sessionId);
+    if (current.mode !== "workspace") {
+      throw new BridgeError(
+        "POLICY_DENIED",
+        "Managed Worktree experiment metadata remains user-controlled.",
+      );
+    }
+    if (
+      current.lifecycle === "active" &&
+      this.#active?.manifest.sessionId !== params.sessionId
+    ) {
+      throw new BridgeError(
+        "EXPERIMENT_NOT_OWNED",
+        "The active experiment is owned by another VS Code window.",
+      );
+    }
+    if (current.rootUri !== root.uri.toString(true)) {
+      throw new BridgeError("EXPERIMENT_NOT_OWNED", "Experiment root ownership changed.");
+    }
+    const updated = await this.#store.renameOrdinaryExperiment(
+      params.sessionId,
+      params.expectedTitle,
+      params.title,
+    );
+    if (this.#active?.manifest.sessionId === params.sessionId) {
+      this.#active.manifest = updated;
+    }
+    this.#changeEmitter.fire();
+    return this.#store.toExperimentInfo(updated);
+  }
+
+  async createAgentCheckpoint(
+    params: CreateExperimentCheckpointParams,
+  ): Promise<ExperimentCheckpoint> {
+    this.#assertMutationAllowed();
+    const active = this.#requireActive(params.sessionId);
+    if (active.manifest.mode !== "workspace") {
+      throw new BridgeError(
+        "POLICY_DENIED",
+        "Managed Worktree checkpoints remain user-controlled.",
+      );
+    }
+    const summary = `${params.title}: ${params.reason}`.slice(0, 2_000);
+    const checkpointId = await this.createExplicitCheckpoint(summary);
+    return toPublicCheckpoint(
+      await this.#store.readCheckpoint(active.manifest.sessionId, checkpointId),
+    );
   }
 
   async listCheckpoints(

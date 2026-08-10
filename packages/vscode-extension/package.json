@@ -183,6 +183,11 @@
         "enablement": "isWorkspaceTrusted"
       },
       {
+        "command": "vscodeAgentBridge.renameExperiment",
+        "title": "VS Code Agent Bridge: Rename Agent Experiment",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
         "command": "vscodeAgentBridge.toggleExperimentPinned",
         "title": "VS Code Agent Bridge: Pin or Unpin Experiment"
       },
@@ -268,6 +273,11 @@
           "command": "vscodeAgentBridge.createCheckpoint",
           "when": "view == vscodeAgentBridge.experimentsView && isWorkspaceTrusted",
           "group": "navigation@2"
+        },
+        {
+          "command": "vscodeAgentBridge.configureWorkspaceExperiment",
+          "when": "view == vscodeAgentBridge.experimentsView && isWorkspaceTrusted",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [
@@ -282,9 +292,14 @@
           "group": "navigation"
         },
         {
-          "command": "vscodeAgentBridge.toggleExperimentPinned",
+          "command": "vscodeAgentBridge.renameExperiment",
           "when": "view == vscodeAgentBridge.experimentsView && (viewItem == experiment || viewItem == activeExperiment)",
           "group": "navigation"
+        },
+        {
+          "command": "vscodeAgentBridge.toggleExperimentPinned",
+          "when": "view == vscodeAgentBridge.experimentsView && (viewItem == experiment || viewItem == activeExperiment)",
+          "group": "navigation@2"
         },
         {
           "command": "vscodeAgentBridge.deleteExperiment",
