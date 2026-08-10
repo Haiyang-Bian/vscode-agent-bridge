@@ -26,7 +26,6 @@ import {
   type StoredDocument,
 } from "./experiment-store.js";
 import { ReadOnlyGitBaseline, type GitBaseline } from "./git-baseline.js";
-import { getAutonomyProfile } from "./policies.js";
 
 const MANUAL_CAPTURE_IDLE_MS = 3_000;
 const GIT_POLL_INTERVAL_MS = 5_000;
@@ -521,7 +520,7 @@ export class ExperimentManager implements vscode.Disposable {
             "The current workspace no longer matches the accepted checkpoint. Restore it explicitly first.",
           );
         }
-      } else if (active.manifest.mode === "worktree" || getAutonomyProfile() !== "autonomous") {
+      } else if (active.manifest.mode === "worktree") {
         throw new BridgeError(
           "INVALID_REQUEST",
           "No experiment checkpoint has been accepted under the active review policy.",

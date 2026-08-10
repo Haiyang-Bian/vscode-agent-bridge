@@ -6,8 +6,6 @@ import { parse } from "smol-toml";
 
 import {
   MCP_TOOL_NAMES,
-  type AutonomyProfile,
-  type TerminalReadPolicy,
 } from "@vscode-agent-bridge/protocol";
 
 export const MANAGED_BLOCK_START = "# vscode-agent-bridge:begin";
@@ -20,16 +18,6 @@ export interface CodexConfigChangeResult {
   readonly backupPath?: string;
 }
 
-export interface AgentPolicyOptions {
-  readonly autonomyProfile: AutonomyProfile;
-  readonly terminalReadPolicy: TerminalReadPolicy;
-}
-
-export const DEFAULT_AGENT_POLICIES: AgentPolicyOptions = {
-  autonomyProfile: "autonomous",
-  terminalReadPolicy: "allow",
-};
-
 export class CodexConfigConflictError extends Error {
   constructor(message: string) {
     super(message);
@@ -39,19 +27,16 @@ export class CodexConfigConflictError extends Error {
 
 export function createManagedConfigBlock(
   executablePath: string,
-  policies: AgentPolicyOptions = DEFAULT_AGENT_POLICIES,
 ): string {
   const command = JSON.stringify(normalizeCommandPath(executablePath));
-  const enabledTools = enabledToolsForPolicies(policies)
+  const enabledTools = MCP_TOOL_NAMES
     .map((name) => `  ${JSON.stringify(name)},`)
     .join("\n");
-  const approvalMode = policies.autonomyProfile === "autonomous" ? "approve" : "writes";
   return `${MANAGED_BLOCK_START}
 [mcp_servers.vscode_agent_bridge]
 command = ${command}
 startup_timeout_sec = 10
 tool_timeout_sec = 120
-default_tools_approval_mode = "${approvalMode}"
 enabled_tools = [
 ${enabledTools}
 ]
@@ -61,11 +46,10 @@ ${MANAGED_BLOCK_END}`;
 export function updateManagedConfigText(
   source: string,
   executablePath: string,
-  policies: AgentPolicyOptions = DEFAULT_AGENT_POLICIES,
 ): string {
   validateToml(source);
   const markerRange = findManagedMarkerRange(source);
-  const block = createManagedConfigBlock(executablePath, policies);
+  const block = createManagedConfigBlock(executablePath);
 
   let result: string;
   if (markerRange) {
@@ -110,7 +94,6 @@ export function removeManagedConfigText(source: string): string {
 export function inspectManagedConfigText(
   source: string,
   expectedExecutablePath: string,
-  policies: AgentPolicyOptions = DEFAULT_AGENT_POLICIES,
 ): CodexConfigStatus {
   try {
     validateToml(source);
@@ -134,13 +117,12 @@ export function inspectManagedConfigText(
     return "outdated";
   }
   const command = readConfiguredCommand(bridge);
-  const approvalMode = policies.autonomyProfile === "autonomous" ? "approve" : "writes";
-  const expectedTools = enabledToolsForPolicies(policies);
+  const expectedTools = MCP_TOOL_NAMES;
   const configuredTools = Array.isArray(bridge.enabled_tools)
     ? bridge.enabled_tools.filter((value): value is string => typeof value === "string")
     : [];
   return command === normalizeCommandPath(expectedExecutablePath) &&
-    bridge.default_tools_approval_mode === approvalMode &&
+    !Object.hasOwn(bridge, "default_tools_approval_mode") &&
     configuredTools.length === expectedTools.length &&
     configuredTools.every((value, index) => value === expectedTools[index])
     ? "current"
@@ -150,10 +132,9 @@ export function inspectManagedConfigText(
 export async function updateCodexConfigFile(
   configPath: string,
   executablePath: string,
-  policies: AgentPolicyOptions = DEFAULT_AGENT_POLICIES,
 ): Promise<CodexConfigChangeResult> {
   const source = await readOptionalText(configPath);
-  const result = updateManagedConfigText(source, executablePath, policies);
+  const result = updateManagedConfigText(source, executablePath);
   return writeConfigChange(configPath, source, result);
 }
 
@@ -168,10 +149,9 @@ export async function removeCodexConfigBlock(
 export async function inspectCodexConfigFile(
   configPath: string,
   expectedExecutablePath: string,
-  policies: AgentPolicyOptions = DEFAULT_AGENT_POLICIES,
 ): Promise<CodexConfigStatus> {
   const source = await readOptionalText(configPath);
-  return inspectManagedConfigText(source, expectedExecutablePath, policies);
+  return inspectManagedConfigText(source, expectedExecutablePath);
 }
 
 function findManagedMarkerRange(source: string): { start: number; end: number } | undefined {
@@ -220,38 +200,6 @@ function readBridgeTable(parsed: Record<string, unknown>): Record<string, unknow
 
 function readConfiguredCommand(bridge: Record<string, unknown>): string | undefined {
   return typeof bridge.command === "string" ? bridge.command.replaceAll("\\", "/") : undefined;
-}
-
-export function enabledToolsForPolicies(policies: AgentPolicyOptions): readonly string[] {
-  const terminalTools = new Set([
-    "vscode_list_terminals",
-    "vscode_list_terminal_executions",
-    "vscode_read_terminal_output",
-  ]);
-  const writeWorkflowTools = new Set([
-    "vscode_prepare_text_edits",
-    "vscode_prepare_rename",
-    "vscode_start_experiment",
-    "vscode_rename_experiment",
-    "vscode_create_experiment_checkpoint",
-    "vscode_apply_change_set",
-    "vscode_record_experiment_evidence",
-    "vscode_save_document",
-    "vscode_format_document",
-    "vscode_apply_code_action",
-  ]);
-  return MCP_TOOL_NAMES.filter((name) => {
-    if (terminalTools.has(name)) {
-      if (policies.terminalReadPolicy === "deny") {
-        return false;
-      }
-      if (policies.autonomyProfile === "readOnly" || policies.terminalReadPolicy === "metadataOnly") {
-        return name === "vscode_list_terminals";
-      }
-      return true;
-    }
-    return policies.autonomyProfile !== "readOnly" || !writeWorkflowTools.has(name);
-  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

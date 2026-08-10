@@ -39,7 +39,11 @@ export class TerminalObserver implements vscode.Disposable {
       vscode.window.onDidStartTerminalShellExecution((event) => this.#startExecution(event)),
       vscode.window.onDidEndTerminalShellExecution((event) => this.#endExecution(event)),
       vscode.workspace.onDidChangeConfiguration((event) => {
-        if (event.affectsConfiguration("vscodeAgentBridge.terminalReadPolicy")) {
+        if (
+          event.affectsConfiguration("vscodeAgentBridge.enabled") ||
+          event.affectsConfiguration("vscodeAgentBridge.autonomyProfile") ||
+          event.affectsConfiguration("vscodeAgentBridge.terminalReadPolicy")
+        ) {
           this.#handlePolicyChange();
         }
       }),

@@ -8,7 +8,6 @@ import {
 
 import { ExperimentManager } from "./experiment-manager.js";
 import type { ExperimentManifest, StoredCheckpoint } from "./experiment-store.js";
-import { getAutonomyProfile } from "./policies.js";
 import { WorkspaceOnboardingService } from "./workspace-onboarding.js";
 
 const SNAPSHOT_SCHEME = "vscode-agent-bridge-snapshot";
@@ -192,7 +191,7 @@ export function registerExperimentUi(
         const experiment = await experiments.getActiveExperiment();
         const candidateRule = experiment.acceptedCheckpointId
           ? "Current content must match the accepted checkpoint"
-          : getAutonomyProfile() === "autonomous" && experiment.mode === "workspace"
+          : experiment.mode === "workspace"
             ? "The current saved state will become an explicit final checkpoint"
             : "An accepted checkpoint is required";
         const confirmation = await vscode.window.showWarningMessage(

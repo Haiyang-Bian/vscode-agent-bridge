@@ -1,54 +1,65 @@
 import * as vscode from "vscode";
 
 import {
-  AutonomyProfileSchema,
   BridgeError,
-  TerminalReadPolicySchema,
-  type AutonomyProfile,
-  type TerminalReadPolicy,
+  BridgeExecutionModeSchema,
+  type BridgeExecutionMode,
 } from "@vscode-agent-bridge/protocol";
-
-import type { AgentPolicyOptions } from "./codex-config.js";
 
 const CONFIGURATION_SECTION = "vscodeAgentBridge";
 
-export function getAutonomyProfile(): AutonomyProfile {
-  const value = vscode.workspace
-    .getConfiguration(CONFIGURATION_SECTION)
-    .get<unknown>("autonomyProfile", "autonomous");
-  return AutonomyProfileSchema.catch("autonomous").parse(value);
+export interface BridgePolicyState {
+  readonly enabled: boolean;
+  readonly executionMode: BridgeExecutionMode;
+  readonly legacyMigrationRequired: boolean;
+  readonly workspaceTrusted: boolean;
+  readonly remote: boolean;
+  readonly publishAllowed: boolean;
 }
 
-export function getTerminalReadPolicy(): TerminalReadPolicy {
-  const value = vscode.workspace
-    .getConfiguration(CONFIGURATION_SECTION)
-    .get<unknown>("terminalReadPolicy", "allow");
-  return TerminalReadPolicySchema.catch("allow").parse(value);
-}
-
-export function getAgentPolicyOptions(): AgentPolicyOptions {
+export function getBridgePolicyState(): BridgePolicyState {
+  const configuration = vscode.workspace.getConfiguration(CONFIGURATION_SECTION);
+  const enabledInspection = configuration.inspect<boolean>("enabled");
+  const explicitlySelected = enabledInspection?.globalValue !== undefined;
+  const legacyMigrationRequired = !explicitlySelected && hasRestrictiveLegacyConfiguration(configuration);
+  const enabled = configuration.get<boolean>("enabled", true);
+  const executionMode = BridgeExecutionModeSchema.catch("explicit").parse(
+    configuration.get<unknown>("executionMode", "explicit"),
+  );
+  const workspaceTrusted = vscode.workspace.isTrusted;
+  const remote = Boolean(vscode.env.remoteName);
   return {
-    autonomyProfile: getAutonomyProfile(),
-    terminalReadPolicy: getTerminalReadPolicy(),
+    enabled,
+    executionMode,
+    legacyMigrationRequired,
+    workspaceTrusted,
+    remote,
+    publishAllowed: enabled && !legacyMigrationRequired && workspaceTrusted && !remote,
   };
 }
 
+export function getExecutionMode(): BridgeExecutionMode {
+  return getBridgePolicyState().executionMode;
+}
+
 export function canCaptureTerminalSensitiveData(): boolean {
-  return (
-    getTerminalReadPolicy() === "allow" &&
-    vscode.workspace.isTrusted &&
-    !vscode.env.remoteName
-  );
+  return getBridgePolicyState().publishAllowed;
 }
 
 export function assertAgentWriteAllowed(): void {
-  if (getAutonomyProfile() === "readOnly") {
-    throw new BridgeError("POLICY_DENIED", "Agent writes are disabled by the read-only policy.");
+  const policy = getBridgePolicyState();
+  if (!policy.enabled || policy.legacyMigrationRequired) {
+    throw new BridgeError(
+      policy.legacyMigrationRequired ? "POLICY_DENIED" : "BRIDGE_DISABLED",
+      policy.legacyMigrationRequired
+        ? "A restrictive pre-v0.7 policy requires an explicit bridge migration choice."
+        : "VS Code Agent Bridge is disabled for this machine.",
+    );
   }
-  if (vscode.env.remoteName) {
+  if (policy.remote) {
     throw new BridgeError("UNSUPPORTED_REMOTE", "Remote document mutation is not supported.");
   }
-  if (!vscode.workspace.isTrusted) {
+  if (!policy.workspaceTrusted) {
     throw new BridgeError(
       "WORKSPACE_UNTRUSTED",
       "Trust the workspace before an Agent prepares or applies document changes.",
@@ -56,30 +67,32 @@ export function assertAgentWriteAllowed(): void {
   }
 }
 
-export function assertTerminalMetadataAllowed(): "full" | "metadata" {
-  if (vscode.env.remoteName) {
-    throw new BridgeError("UNSUPPORTED_REMOTE", "Remote VS Code terminal routing is unsupported.");
-  }
-  if (getTerminalReadPolicy() === "deny") {
-    throw new BridgeError("POLICY_DENIED", "Terminal observation is disabled by policy.");
-  }
-  return getTerminalReadPolicy() === "allow" && vscode.workspace.isTrusted ? "full" : "metadata";
+export function assertTerminalMetadataAllowed(): "full" {
+  assertPublishedBridgeAccess();
+  return "full";
 }
 
 export function assertTerminalExecutionAccess(): void {
-  if (vscode.env.remoteName) {
+  assertPublishedBridgeAccess();
+}
+
+function assertPublishedBridgeAccess(): void {
+  const policy = getBridgePolicyState();
+  if (!policy.enabled || policy.legacyMigrationRequired) {
+    throw new BridgeError("BRIDGE_DISABLED", "VS Code Agent Bridge is not currently published.");
+  }
+  if (policy.remote) {
     throw new BridgeError("UNSUPPORTED_REMOTE", "Remote VS Code terminal routing is unsupported.");
   }
-  if (getTerminalReadPolicy() !== "allow") {
-    throw new BridgeError(
-      "POLICY_DENIED",
-      "Terminal execution details are disabled by the active terminal read policy.",
-    );
+  if (!policy.workspaceTrusted) {
+    throw new BridgeError("WORKSPACE_UNTRUSTED", "Terminal observation requires a trusted workspace.");
   }
-  if (!vscode.workspace.isTrusted) {
-    throw new BridgeError(
-      "POLICY_DENIED",
-      "Terminal execution details are unavailable in an untrusted workspace.",
-    );
-  }
+}
+
+function hasRestrictiveLegacyConfiguration(
+  configuration: vscode.WorkspaceConfiguration,
+): boolean {
+  const autonomy = configuration.inspect<string>("autonomyProfile")?.globalValue;
+  const terminal = configuration.inspect<string>("terminalReadPolicy")?.globalValue;
+  return autonomy === "readOnly" || autonomy === "review" || terminal === "metadataOnly" || terminal === "deny";
 }

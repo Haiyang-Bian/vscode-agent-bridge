@@ -13,7 +13,6 @@ import {
 
 import {
   BridgeError,
-  type BridgeExecutionMode,
   type GetWorkspaceConfigurationParams,
   type UpdateWorkspaceConfigurationParams,
   type UpdateWorkspaceConfigurationResult,
@@ -22,6 +21,7 @@ import {
 } from "@vscode-agent-bridge/protocol";
 
 import { ExperimentManager } from "./experiment-manager.js";
+import { getExecutionMode } from "./policies.js";
 
 const MAX_CONFIGURATION_CONTENT_CHARACTERS = 900_000;
 
@@ -330,12 +330,6 @@ function detectFormatting(content: string) {
     tabSize: indentation.includes("\t") ? 1 : Math.max(1, indentation.length),
     eol: content.includes("\r\n") ? "\r\n" : "\n",
   };
-}
-
-function getExecutionMode(): BridgeExecutionMode {
-  return vscode.workspace
-    .getConfiguration("vscodeAgentBridge")
-    .get<BridgeExecutionMode>("executionMode", "explicit");
 }
 
 async function revealInvalidConfiguration(uri: vscode.Uri): Promise<void> {

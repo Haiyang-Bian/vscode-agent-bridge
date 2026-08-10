@@ -149,6 +149,9 @@ export interface ExperimentStoreStats {
   readonly activeCount: number;
   readonly corruptCount: number;
   readonly storageBytes: number;
+  readonly v1Count: number;
+  readonly v2Count: number;
+  readonly recoveryRequiredCount: number;
 }
 
 export class ExperimentStore {
@@ -727,6 +730,11 @@ export class ExperimentStore {
       corruptCount:
         manifests.filter((manifest) => manifest.health === "corrupt").length + unreadableCount,
       storageBytes: manifests.reduce((total, manifest) => total + manifest.storageBytes, 0),
+      v1Count: manifests.filter((manifest) => manifest.schemaVersion === 1).length,
+      v2Count: manifests.filter((manifest) => manifest.schemaVersion === 2).length,
+      recoveryRequiredCount: manifests.filter((manifest) =>
+        manifest.warnings.some((warning) => warning.includes("Resource recovery is required")),
+      ).length,
     };
   }
 
