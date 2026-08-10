@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, test as bunTest } from "bun:te
 
 import {
   BRIDGE_RELEASE_VERSION,
+  BRIDGE_PROTOCOL_VERSION,
   MCP_TOOL_CATALOG,
   MCP_TOOL_NAMES,
   REGISTRY_DIRECTORY_ENV,
@@ -59,7 +60,10 @@ describe("STDIO MCP server", () => {
         arguments: {},
       });
       expect(capabilities.isError).not.toBe(true);
-      expect(capabilities.structuredContent).toMatchObject({ toolCount: 44, protocolVersion: 7 });
+      expect(capabilities.structuredContent).toMatchObject({
+        toolCount: MCP_TOOL_NAMES.length,
+        protocolVersion: BRIDGE_PROTOCOL_VERSION,
+      });
 
       const result = await client.callTool({
         name: "vscode_list_instances",

@@ -11,9 +11,9 @@ import {
 
 describe("authoritative MCP tool catalog", () => {
   test("derives all names from one complete classified catalog", () => {
-    expect(MCP_TOOL_CATALOG).toHaveLength(44);
+    expect(MCP_TOOL_CATALOG).toHaveLength(53);
     expect(MCP_TOOL_NAMES).toEqual(MCP_TOOL_CATALOG.map((tool) => tool.name));
-    expect(new Set(MCP_TOOL_NAMES).size).toBe(44);
+    expect(new Set(MCP_TOOL_NAMES).size).toBe(53);
     const catalogDomains: string[] = [...new Set(MCP_TOOL_CATALOG.map((tool) => tool.domain))].sort();
     expect(catalogDomains).toEqual(Object.keys(MCP_TOOL_DOMAINS).sort());
     for (const tool of publicToolCatalog()) {

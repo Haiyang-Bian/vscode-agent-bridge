@@ -1101,6 +1101,114 @@ registerRoutedWorkflowTool({
   summarize: () => "Updated the debug variable; its name and value were not logged.",
 });
 
+registerRoutedWorkflowTool({
+  name: "vscode_list_extensions",
+  title: "List installed VS Code extensions",
+  description: "List bounded metadata and manifest capability counts for extensions known to the selected VS Code window without activating them.",
+  method: BRIDGE_METHODS.listExtensions,
+  inputSchema: WorkflowProtocol.ListExtensionsInputSchema,
+  paramsSchema: WorkflowProtocol.ListExtensionsParamsSchema,
+  outputSchema: WorkflowProtocol.ListExtensionsResultSchema,
+  annotations: annotationsFor("vscode_list_extensions"),
+  summarize: (result) => `Returned ${result.returnedCount} of ${result.totalCount} installed extension(s).`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_get_extension_details",
+  title: "Get VS Code extension details",
+  description: "Read bounded manifest contributions, dependencies and activation state for one installed extension without activating it or reading exports.",
+  method: BRIDGE_METHODS.getExtensionDetails,
+  inputSchema: WorkflowProtocol.GetExtensionDetailsInputSchema,
+  paramsSchema: WorkflowProtocol.GetExtensionDetailsParamsSchema,
+  outputSchema: WorkflowProtocol.ExtensionDetailsResultSchema,
+  annotations: annotationsFor("vscode_get_extension_details"),
+  summarize: (result) => `Read manifest capabilities for ${result.extension.extensionId}.`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_get_extension_configuration_schema",
+  title: "Get VS Code extension configuration schema",
+  description: "Read bounded declared configuration keys, types, scopes, descriptions and enums for an installed extension without reading current values.",
+  method: BRIDGE_METHODS.getExtensionConfigurationSchema,
+  inputSchema: WorkflowProtocol.GetExtensionConfigurationSchemaInputSchema,
+  paramsSchema: WorkflowProtocol.GetExtensionConfigurationSchemaParamsSchema,
+  outputSchema: WorkflowProtocol.ExtensionConfigurationSchemaResultSchema,
+  annotations: annotationsFor("vscode_get_extension_configuration_schema"),
+  summarize: (result) => `Returned ${result.returnedCount} of ${result.totalCount} declared configuration key(s).`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_get_profile_context",
+  title: "Get current VS Code Profile context",
+  description: "Describe the stable-API coverage and configuration scopes of the current window Profile without reading VS Code private Profile storage.",
+  method: BRIDGE_METHODS.getProfileContext,
+  inputSchema: WorkflowProtocol.GetProfileContextInputSchema,
+  paramsSchema: WorkflowProtocol.GetProfileContextParamsSchema,
+  outputSchema: WorkflowProtocol.ProfileContextResultSchema,
+  annotations: annotationsFor("vscode_get_profile_context"),
+  summarize: (result) => `Current Profile metadata coverage is ${result.stableApiCoverage}.`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_list_output_sources",
+  title: "List observable VS Code output sources",
+  description: "List only reliably observed visible Output documents, captured Terminal/Task/Debug streams, diagnostic sources and manifest capability sources with explicit coverage.",
+  method: BRIDGE_METHODS.listOutputSources,
+  inputSchema: WorkflowProtocol.ListOutputSourcesInputSchema,
+  paramsSchema: WorkflowProtocol.ListOutputSourcesParamsSchema,
+  outputSchema: WorkflowProtocol.ListOutputSourcesResultSchema,
+  annotations: annotationsFor("vscode_list_output_sources"),
+  summarize: (result) => `Returned ${result.returnedCount} of ${result.totalCount} observable output source(s).`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_read_visible_output",
+  title: "Read visible VS Code Output",
+  description: "Read a bounded page from an Output or Log document already opened by the user. The Bridge never switches channels or reads private log storage.",
+  method: BRIDGE_METHODS.readVisibleOutput,
+  inputSchema: WorkflowProtocol.ReadVisibleOutputInputSchema,
+  paramsSchema: WorkflowProtocol.ReadVisibleOutputParamsSchema,
+  outputSchema: WorkflowProtocol.ReadVisibleOutputResultSchema,
+  annotations: annotationsFor("vscode_read_visible_output"),
+  summarize: (result) => `Read ${result.returnedCharacters} visible output character(s).`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_list_diagnostic_events",
+  title: "List VS Code diagnostic change events",
+  description: "Page through bounded diagnostic summary changes observed since extension activation without persisting diagnostic messages.",
+  method: BRIDGE_METHODS.listDiagnosticEvents,
+  inputSchema: WorkflowProtocol.ListDiagnosticEventsInputSchema,
+  paramsSchema: WorkflowProtocol.ListDiagnosticEventsParamsSchema,
+  outputSchema: WorkflowProtocol.ListDiagnosticEventsResultSchema,
+  annotations: annotationsFor("vscode_list_diagnostic_events"),
+  summarize: (result) => `Returned ${result.events.length} diagnostic change event(s).`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_list_debug_output",
+  title: "List captured VS Code Debug Console output",
+  description: "List bounded Debug Adapter output capture sessions observed since extension activation with explicit coverage and loss metadata.",
+  method: BRIDGE_METHODS.listDebugOutput,
+  inputSchema: WorkflowProtocol.ListDebugOutputInputSchema,
+  paramsSchema: WorkflowProtocol.ListDebugOutputParamsSchema,
+  outputSchema: WorkflowProtocol.ListDebugOutputResultSchema,
+  annotations: annotationsFor("vscode_list_debug_output"),
+  summarize: (result) => `Returned ${result.returnedCount} debug output session(s).`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_read_debug_output",
+  title: "Read captured VS Code Debug Console output",
+  description: "Read bounded sanitized stdout, stderr, console or important DAP output observed since extension activation. Telemetry and raw private payloads are discarded.",
+  method: BRIDGE_METHODS.readDebugOutput,
+  inputSchema: WorkflowProtocol.ReadDebugOutputInputSchema,
+  paramsSchema: WorkflowProtocol.ReadDebugOutputParamsSchema,
+  outputSchema: WorkflowProtocol.ReadDebugOutputResultSchema,
+  annotations: annotationsFor("vscode_read_debug_output"),
+  summarize: (result) => `Read ${result.events.length} debug output event(s).`,
+});
+
 function registerLocationsTool(
   name: "vscode_get_definitions" | "vscode_get_references",
   title: string,

@@ -60,7 +60,7 @@ assert(
   Array.isArray(extensionManifest.extensionKind) && extensionManifest.extensionKind.includes("ui"),
   "Extension must run as a desktop UI extension.",
 );
-assert(MCP_TOOL_NAMES.length === 44, "The release must expose exactly forty-four MCP tools.");
+assert(MCP_TOOL_NAMES.length === 53, "The release must expose exactly fifty-three MCP tools.");
 assert(
   rootDevDependencies["@vscode/vsce"] === "3.9.3-4",
   "The release must pin the verified OIDC-capable vsce build exactly.",

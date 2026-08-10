@@ -1,6 +1,6 @@
 export const BRIDGE_NAME = "vscode-agent-bridge" as const;
-export const BRIDGE_RELEASE_VERSION = "0.8.0" as const;
-export const BRIDGE_PROTOCOL_VERSION = 7 as const;
+export const BRIDGE_RELEASE_VERSION = "0.9.0" as const;
+export const BRIDGE_PROTOCOL_VERSION = 8 as const;
 export const DEFAULT_BRIDGE_TIMEOUT_MS = 5_000;
 export const INTERACTIVE_BRIDGE_TIMEOUT_MS = 90_000;
 export const MAX_RPC_MESSAGE_BYTES = 1_048_576;
@@ -81,6 +81,15 @@ export const BRIDGE_METHODS = {
   updateBreakpoints: "debug/updateBreakpoints",
   evaluateDebugExpression: "debug/evaluate",
   setDebugVariable: "debug/setVariable",
+  listExtensions: "extensions/list",
+  getExtensionDetails: "extensions/getDetails",
+  getExtensionConfigurationSchema: "extensions/getConfigurationSchema",
+  getProfileContext: "extensions/getProfileContext",
+  listOutputSources: "signals/listOutputSources",
+  readVisibleOutput: "signals/readVisibleOutput",
+  listDiagnosticEvents: "signals/listDiagnosticEvents",
+  listDebugOutput: "debug/listOutput",
+  readDebugOutput: "debug/readOutput",
 } as const;
 
 export const BRIDGE_CAPABILITIES = [
@@ -125,6 +134,15 @@ export const BRIDGE_CAPABILITIES = [
   "debug.updateBreakpoints",
   "debug.evaluate",
   "debug.setVariable",
+  "extensions.list",
+  "extensions.getDetails",
+  "extensions.getConfigurationSchema",
+  "extensions.getProfileContext",
+  "signals.listOutputSources",
+  "signals.readVisibleOutput",
+  "signals.listDiagnosticEvents",
+  "debug.listOutput",
+  "debug.readOutput",
 ] as const;
 
 export const BRIDGE_ERROR_CODES = [
@@ -203,6 +221,13 @@ export const BRIDGE_ERROR_CODES = [
   "BREAKPOINT_OUT_OF_SCOPE",
   "EXPERIMENT_STATE_CHANGED",
   "EDITOR_REVEAL_FAILED",
+  "EXTENSION_NOT_FOUND",
+  "OUTPUT_SOURCE_NOT_FOUND",
+  "OUTPUT_NOT_VISIBLE",
+  "OUTPUT_UNAVAILABLE",
+  "OUTPUT_CURSOR_EXPIRED",
+  "DEBUG_OUTPUT_UNAVAILABLE",
+  "PROFILE_CONTEXT_UNAVAILABLE",
   "INTERNAL_ERROR",
 ] as const;
 
