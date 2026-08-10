@@ -20,10 +20,10 @@ const ACTION_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const HASH = "a".repeat(64);
 
 describe("protocol v6 IDE workflow contracts", () => {
-  test("registers exactly 42 bounded MCP tools", () => {
-    expect(BRIDGE_PROTOCOL_VERSION).toBe(6);
-    expect(MCP_TOOL_NAMES).toHaveLength(42);
-    expect(new Set(MCP_TOOL_NAMES).size).toBe(42);
+  test("registers exactly 44 bounded MCP tools", () => {
+    expect(BRIDGE_PROTOCOL_VERSION).toBe(7);
+    expect(MCP_TOOL_NAMES).toHaveLength(44);
+    expect(new Set(MCP_TOOL_NAMES).size).toBe(44);
     expect(MCP_TOOL_NAMES).toContain("vscode_save_document");
     expect(MCP_TOOL_NAMES).toContain("vscode_read_terminal_output");
     expect(MCP_TOOL_NAMES).toContain("vscode_get_workspace_setup");
@@ -31,6 +31,8 @@ describe("protocol v6 IDE workflow contracts", () => {
     expect(MCP_TOOL_NAMES).toContain("vscode_update_workspace_configuration");
     expect(MCP_TOOL_NAMES).toContain("vscode_run_task");
     expect(MCP_TOOL_NAMES).toContain("vscode_evaluate_debug_expression");
+    expect(MCP_TOOL_NAMES).toContain("vscode_get_bridge_capabilities");
+    expect(MCP_TOOL_NAMES).toContain("vscode_get_usage_insights");
     expect(Object.values(BRIDGE_METHODS)).not.toContain("terminals/sendInput");
   });
 
