@@ -133,6 +133,14 @@
         "title": "VS Code Agent Bridge: Run Doctor"
       },
       {
+        "command": "vscodeAgentBridge.undoLastAgentProfileChange",
+        "title": "VS Code Agent Bridge: Undo Last Agent Profile Change"
+      },
+      {
+        "command": "vscodeAgentBridge.createCapabilityProfile",
+        "title": "VS Code Agent Bridge: Create Capability Profile"
+      },
+      {
         "command": "vscodeAgentBridge.refreshHub",
         "title": "VS Code Agent Bridge: Refresh Hub"
       },

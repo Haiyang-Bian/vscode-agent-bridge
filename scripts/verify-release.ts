@@ -108,6 +108,23 @@ for (const forbidden of [
     `Forbidden extension installation fallback: ${forbidden}.`,
   );
 }
+const extensionProfileSource = await readFile(
+  path.join(extensionRoot, "src", "extension-profile-manager.ts"),
+  "utf8",
+);
+const extensionProfileCoreSource = await readFile(
+  path.join(extensionRoot, "src", "extension-profile-core.ts"),
+  "utf8",
+);
+assert(
+  extensionProfileCoreSource.includes("token|password|secret|credential|api") &&
+    extensionProfileSource.includes("expectedValueSha256"),
+  "Current-Profile writes must deny sensitive keys and require canonical hash preconditions.",
+);
+assert(
+  !/SecretStorage|globalState|profileName|profileId/iu.test(extensionProfileSource),
+  "Extension Profile management must not access private Profile identity or secret storage.",
+);
 for (const forbidden of [
   /window\.createTerminal/u,
   /\.sendText\s*\(/u,
