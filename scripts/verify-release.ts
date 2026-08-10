@@ -86,6 +86,28 @@ const terminalObserverSource = await readFile(
   path.join(extensionRoot, "src", "terminal-observer.ts"),
   "utf8",
 );
+const extensionMarketplaceSource = await readFile(
+  path.join(extensionRoot, "src", "extension-marketplace-manager.ts"),
+  "utf8",
+);
+assert(
+  extensionMarketplaceSource.includes('"workbench.extensions.installExtension"') &&
+    extensionMarketplaceSource.includes('"workbench.extensions.action.showExtensionsWithIds"'),
+  "Extension installation must use only the reviewed native VS Code command boundary.",
+);
+for (const forbidden of [
+  /--install-extension/iu,
+  /--uninstall-extension/iu,
+  /\.vsix/iu,
+  /child_process/iu,
+  /execFile/iu,
+  /spawn\s*\(/iu,
+]) {
+  assert(
+    !forbidden.test(extensionMarketplaceSource),
+    `Forbidden extension installation fallback: ${forbidden}.`,
+  );
+}
 for (const forbidden of [
   /window\.createTerminal/u,
   /\.sendText\s*\(/u,
