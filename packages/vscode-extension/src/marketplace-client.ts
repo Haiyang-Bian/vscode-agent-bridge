@@ -1,6 +1,7 @@
 import https from "node:https";
+import net, { type Socket } from "node:net";
+import tls, { type TLSSocket } from "node:tls";
 
-import { HttpsProxyAgent } from "https-proxy-agent";
 import { z } from "zod";
 
 import { BridgeError } from "@vscode-agent-bridge/protocol";
@@ -155,13 +156,16 @@ export class MarketplaceClient {
 }
 
 async function requestMarketplace(request: MarketplaceHttpRequest): Promise<string> {
+  const socket = request.proxyUrl
+    ? await createProxyTunnel(new URL(request.proxyUrl), request.url, request.timeoutMs)
+    : undefined;
   return new Promise<string>((resolve, reject) => {
-    const agent = request.proxyUrl ? new HttpsProxyAgent(request.proxyUrl) : undefined;
     const outgoing = https.request(
       request.url,
       {
         method: "POST",
-        agent,
+        agent: false,
+        ...(socket ? { createConnection: () => socket } : {}),
         headers: {
           Accept: "application/json;api-version=7.2-preview.1",
           "Content-Type": "application/json",
@@ -200,6 +204,90 @@ async function requestMarketplace(request: MarketplaceHttpRequest): Promise<stri
     outgoing.on("timeout", () => outgoing.destroy(new Error("Marketplace request timed out.")));
     outgoing.on("error", reject);
     outgoing.end(request.body);
+  });
+}
+
+async function createProxyTunnel(proxy: URL, target: URL, timeoutMs: number): Promise<TLSSocket> {
+  const proxyPort = Number(proxy.port || (proxy.protocol === "https:" ? 443 : 80));
+  const proxySocket: Socket = proxy.protocol === "https:"
+    ? tls.connect({ host: proxy.hostname, port: proxyPort, servername: proxy.hostname })
+    : net.connect({ host: proxy.hostname, port: proxyPort });
+  await waitForSocket(proxySocket, proxy.protocol === "https:" ? "secureConnect" : "connect", timeoutMs);
+  const targetPort = Number(target.port || 443);
+  const authorization = proxy.username || proxy.password
+    ? `Proxy-Authorization: Basic ${Buffer.from(`${decodeURIComponent(proxy.username)}:${decodeURIComponent(proxy.password)}`).toString("base64")}\r\n`
+    : "";
+  proxySocket.write(
+    `CONNECT ${target.hostname}:${targetPort} HTTP/1.1\r\nHost: ${target.hostname}:${targetPort}\r\n${authorization}Proxy-Connection: Keep-Alive\r\nConnection: Keep-Alive\r\n\r\n`,
+  );
+  const header = await readProxyResponseHeader(proxySocket, timeoutMs);
+  if (!/^HTTP\/1\.[01] 200(?: |\r?$)/mu.test(header)) {
+    proxySocket.destroy();
+    throw new Error("The configured proxy rejected the Marketplace CONNECT request.");
+  }
+  const secureSocket = tls.connect({ socket: proxySocket, servername: target.hostname });
+  await waitForSocket(secureSocket, "secureConnect", timeoutMs);
+  return secureSocket;
+}
+
+async function waitForSocket(
+  socket: Socket | TLSSocket,
+  eventName: "connect" | "secureConnect",
+  timeoutMs: number,
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      socket.destroy();
+      reject(new Error("The proxy connection timed out."));
+    }, timeoutMs);
+    const onReady = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    const cleanup = () => {
+      clearTimeout(timer);
+      socket.off(eventName, onReady);
+      socket.off("error", onError);
+    };
+    socket.once(eventName, onReady);
+    socket.once("error", onError);
+  });
+}
+
+async function readProxyResponseHeader(socket: Socket, timeoutMs: number): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    let buffered = Buffer.alloc(0);
+    const timer = setTimeout(() => finish(new Error("The proxy response timed out.")), timeoutMs);
+    const onData = (chunk: Buffer) => {
+      buffered = Buffer.concat([buffered, chunk]);
+      if (buffered.length > 16_384) {
+        finish(new Error("The proxy response header exceeded the configured limit."));
+        return;
+      }
+      const boundary = buffered.indexOf("\r\n\r\n");
+      if (boundary < 0) return;
+      const remainder = buffered.subarray(boundary + 4);
+      if (remainder.length > 0) socket.unshift(remainder);
+      finish(undefined, buffered.subarray(0, boundary + 4).toString("latin1"));
+    };
+    const onError = (error: Error) => finish(error);
+    const onEnd = () => finish(new Error("The proxy closed the CONNECT response early."));
+    const finish = (error?: Error, value?: string) => {
+      clearTimeout(timer);
+      socket.off("data", onData);
+      socket.off("error", onError);
+      socket.off("end", onEnd);
+      if (error) reject(error);
+      else resolve(value ?? "");
+    };
+    socket.on("data", onData);
+    socket.once("error", onError);
+    socket.once("end", onEnd);
   });
 }
 

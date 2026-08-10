@@ -25,9 +25,6 @@ export class ExtensionProfileManager {
   readonly #journal: GlobalProfileChangeJournal;
 
   constructor(instanceId: string, experiments: ExperimentManager, globalStorageUri: vscode.Uri) {
-    if (globalStorageUri.scheme !== "file") {
-      throw new BridgeError("PROFILE_CONTEXT_UNAVAILABLE", "The current Profile storage is not local.");
-    }
     this.#instanceId = instanceId;
     this.#experiments = experiments;
     this.#journal = new GlobalProfileChangeJournal(globalStorageUri.fsPath);

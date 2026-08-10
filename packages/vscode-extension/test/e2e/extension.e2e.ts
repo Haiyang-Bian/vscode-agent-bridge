@@ -21,6 +21,7 @@ import {
   type DocumentSnapshot,
   type ExperimentCheckpointsResult,
   type ExperimentInfo,
+  type ExtensionConfigurationResult,
   type ExperimentsResult,
   type FormatDocumentResult,
   type InstanceDescriptor,
@@ -492,6 +493,7 @@ async function exerciseExperimentWorkflow(
   const active = await client.request<ExperimentInfo>(BRIDGE_METHODS.getExperiment, {});
   assert.equal(active.sessionId, started.sessionId);
   assert.ok(active.currentCheckpointId, "the experiment should create a baseline checkpoint");
+  await exerciseExtensionProfileConfiguration(client, active.sessionId, workspaceUri);
   const acceptedResourceUri = await exerciseWorkspaceWorkflows(
     client,
     active.sessionId,
@@ -926,6 +928,60 @@ async function exerciseExperimentWorkflow(
     (error: unknown) =>
       error instanceof BridgeRpcError && error.bridgeCode === "NO_ACTIVE_EXPERIMENT",
   );
+}
+
+async function exerciseExtensionProfileConfiguration(
+  client: BridgeRpcClient,
+  sessionId: string,
+  workspaceUri: vscode.Uri,
+): Promise<void> {
+  const extensionId = "AliceLin.vscode-agent-bridge";
+  const key = "vscodeAgentBridge.enableAcceptanceFixtures";
+  const rootUri = workspaceUri.toString(true);
+  const before = await client.request<ExtensionConfigurationResult>(
+    BRIDGE_METHODS.getExtensionConfiguration,
+    { extensionId, key, target: "global", rootUri },
+  );
+  assert.equal(before.sensitive, false);
+  const changed = await client.request<{
+    changed: boolean;
+    globalChangeId: string | null;
+    recoverability: string;
+  }>(BRIDGE_METHODS.updateExtensionConfiguration, {
+    sessionId,
+    rootUri,
+    extensionId,
+    key,
+    target: "global",
+    expectedValueSha256: before.targetValueSha256,
+    newValue: true,
+    reason: "Exercise a declared current-Profile setting update",
+  });
+  assert.equal(changed.changed, true);
+  assert.ok(changed.globalChangeId);
+  assert.equal(changed.recoverability, "globalJournal");
+  await assert.rejects(
+    () => client.request(BRIDGE_METHODS.updateExtensionConfiguration, {
+      sessionId,
+      rootUri,
+      extensionId,
+      key,
+      target: "global",
+      expectedValueSha256: before.targetValueSha256,
+      newValue: false,
+      reason: "Reject a stale Profile setting update",
+    }),
+    isBridgeError("EXTENSION_CONFIGURATION_STALE"),
+  );
+  assert.equal(
+    await vscode.commands.executeCommand<boolean>("vscodeAgentBridge.e2eUndoLastProfileChange"),
+    true,
+  );
+  const restored = await client.request<ExtensionConfigurationResult>(
+    BRIDGE_METHODS.getExtensionConfiguration,
+    { extensionId, key, target: "global", rootUri },
+  );
+  assert.equal(restored.targetValueSha256, before.targetValueSha256);
 }
 
 async function exerciseTerminalObservation(client: BridgeRpcClient): Promise<void> {

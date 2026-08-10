@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { parse } from "jsonc-parser";
+import { parse } from "jsonc-parser/lib/esm/main.js";
 
 import {
   BridgeError,

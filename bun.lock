@@ -16,7 +16,7 @@
     },
     "packages/mcp-server": {
       "name": "@vscode-agent-bridge/mcp-server",
-      "version": "0.9.0",
+      "version": "0.10.0",
       "bin": {
         "vscode-agent-bridge-mcp": "./dist/index.js",
       },
@@ -28,17 +28,16 @@
     },
     "packages/protocol": {
       "name": "@vscode-agent-bridge/protocol",
-      "version": "0.9.0",
+      "version": "0.10.0",
       "dependencies": {
         "zod": "4.4.3",
       },
     },
     "packages/vscode-extension": {
       "name": "vscode-agent-bridge",
-      "version": "0.9.0",
+      "version": "0.10.0",
       "dependencies": {
         "@vscode-agent-bridge/protocol": "workspace:*",
-        "https-proxy-agent": "7.0.6",
         "jsonc-parser": "3.3.1",
         "smol-toml": "1.6.1",
         "zod": "4.4.3",

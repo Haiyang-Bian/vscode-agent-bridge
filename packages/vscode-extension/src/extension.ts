@@ -130,7 +130,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     extensionAwareness,
   });
   registerAcceptanceFixtureProvider(context);
-  registerE2ECommands(context, experiments, managed, onboarding, activity);
+  registerE2ECommands(context, experiments, managed, onboarding, activity, extensionProfiles);
 
   context.subscriptions.push(
     output,
@@ -298,6 +298,7 @@ function registerE2ECommands(
   managed: ManagedWorktreeManager,
   onboarding: WorkspaceOnboardingService,
   activity: AgentActivityTracker,
+  extensionProfiles: ExtensionProfileManager,
 ): void {
   if (process.env.VSCODE_AGENT_BRIDGE_E2E !== "1") {
     return;
@@ -377,6 +378,9 @@ function registerE2ECommands(
       },
     ),
     vscode.commands.registerCommand("vscodeAgentBridge.e2eGetAgentActivity", () => activity.entries),
+    vscode.commands.registerCommand("vscodeAgentBridge.e2eUndoLastProfileChange", () =>
+      extensionProfiles.undoLastGlobalChange(),
+    ),
     vscode.commands.registerCommand(
       "vscodeAgentBridge.e2eMarkCheckpointAccepted",
       (checkpointId: string) => experiments.markAccepted(checkpointId),
@@ -617,6 +621,7 @@ async function runDoctorCommand(
       )).filter((result) => result.deferredEffects).length
     : 0;
   const terminalStats = terminals.getStats();
+  const commandIds = new Set(await vscode.commands.getCommands(true));
   const lines = [
     `releaseVersion=${report.releaseVersion}`,
     `extensionVersion=${report.extensionVersion}`,
@@ -649,6 +654,8 @@ async function runDoctorCommand(
     `activeTaskExecutions=${tasks.activeCount}`,
     `activeDebugSessions=${debug.activeCount}`,
     `deferredWorkflowConfigurations=${deferredConfigurations}`,
+    `nativeExtensionInstall=${commandIds.has("workbench.extensions.installExtension") ? "available" : "user-action-only"}`,
+    `nativeProfilesManager=${commandIds.has("workbench.profiles.actions.manageProfiles") ? "available" : "unavailable"}`,
   ];
   output.info(`Doctor report:\n${lines.join("\n")}`);
   output.show(true);
