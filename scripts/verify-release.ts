@@ -60,7 +60,7 @@ assert(
   Array.isArray(extensionManifest.extensionKind) && extensionManifest.extensionKind.includes("ui"),
   "Extension must run as a desktop UI extension.",
 );
-assert(MCP_TOOL_NAMES.length === 58, "The release must expose exactly fifty-eight MCP tools.");
+assert(MCP_TOOL_NAMES.length === 60, "The release must expose exactly sixty MCP tools.");
 assert(
   rootDevDependencies["@vscode/vsce"] === "3.9.3-4",
   "The release must pin the verified OIDC-capable vsce build exactly.",
@@ -116,6 +116,14 @@ const extensionProfileCoreSource = await readFile(
   path.join(extensionRoot, "src", "extension-profile-core.ts"),
   "utf8",
 );
+const extensionIntegrationSource = await readFile(
+  path.join(extensionRoot, "src", "extension-integration-manager.ts"),
+  "utf8",
+);
+const integrationRegistrySource = await readFile(
+  path.join(extensionRoot, "src", "extension-integration-registry.ts"),
+  "utf8",
+);
 assert(
   extensionProfileCoreSource.includes("token|password|secret|credential|api") &&
     extensionProfileSource.includes("expectedValueSha256"),
@@ -125,6 +133,24 @@ assert(
   !/SecretStorage|globalState|profileName|profileId/iu.test(extensionProfileSource),
   "Extension Profile management must not access private Profile identity or secret storage.",
 );
+assert(
+  (extensionManifest.dependencies as Record<string, unknown>)["@vscode/python-extension"] === "1.0.6"
+    && extensionIntegrationSource.includes("PythonExtension.api()")
+    && integrationRegistrySource.includes('extensionId: PYTHON_EXTENSION_ID'),
+  "The Python adapter must use the pinned official facade and the fixed reviewed extension ID.",
+);
+for (const forbidden of [
+  /\.exports\b/u,
+  /getEnvironmentVariables/u,
+  /updateActiveEnvironmentPath/u,
+  /refreshEnvironments/u,
+  /commands\.executeCommand/u,
+]) {
+  assert(
+    !forbidden.test(extensionIntegrationSource),
+    `Forbidden Python adapter capability: ${forbidden}.`,
+  );
+}
 for (const forbidden of [
   /window\.createTerminal/u,
   /\.sendText\s*\(/u,
@@ -183,9 +209,11 @@ assert(
       "vscode_prepare_extension_install",
       "vscode_apply_extension_install",
       "vscode_get_extension_configuration",
+      "vscode_list_extension_integrations",
+      "vscode_get_extension_integration_state",
       "vscode_update_extension_configuration",
     ].join(","),
-  "The extension surface must remain the eight bounded discovery, install and configuration tools.",
+  "The extension surface must remain the ten bounded discovery, install, configuration and integration tools.",
 );
 assert(
   MCP_TOOL_NAMES.filter((name) => name.includes("terminal")).join(",") ===

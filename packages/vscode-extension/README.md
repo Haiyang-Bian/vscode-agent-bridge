@@ -2,7 +2,7 @@
 
 Connect Codex to guarded IDE workflow autonomy, recoverable Agent experiments, VS Code Tasks, bounded debugging and read-only terminal observation in local VS Code windows.
 
-`0.10.0` is an unpublished Windows x64 desktop candidate distributed by side-loaded VSIX and upgrades directly over `0.9.0`. The package contains a standalone MCP server, so testers do not need Bun, Node.js or the source repository.
+`0.11.0` is an unpublished Windows x64 desktop candidate distributed by side-loaded VSIX and upgrades directly over `0.10.0`. The package contains a standalone MCP server, so testers do not need Bun, Node.js or the source repository.
 
 ## Setup
 
@@ -15,13 +15,15 @@ Configuration creates a timestamped backup when the file exists, refuses malform
 
 ## Bridge and experiment workflow
 
-The bridge exposes 58 bounded IDE tools. v0.10 adds fixed-endpoint Marketplace search, two-phase native extension installation and manifest-declared current-Profile configuration on top of v0.9 extension/IDE-signal awareness. Starting an experiment still triggers first-use workspace onboarding. Agent acceptance, restore, Finalize, abandon, deletion and all Managed Worktree actions remain unavailable through MCP.
+The bridge exposes 60 bounded IDE tools. v0.11 adds a static reviewed extension adapter catalog and official Python active-environment state on top of v0.10 Marketplace/current-Profile orchestration. Listing integrations never activates extensions; only an explicit state request may activate the fixed supported extension. Starting an experiment still triggers first-use workspace onboarding. Agent acceptance, restore, Finalize, abandon, deletion and all Managed Worktree actions remain unavailable through MCP.
 
 Marketplace results distinguish a versioned Bridge-maintained `official` directory from the Marketplace's separate Verified Publisher signal. Install plans expire, are one-use, lock exact stable versions and resolve at most 20 dependency or extension-pack members. Apply uses only VS Code's native install command and preserves Publisher Trust/reload UI; there is no CLI, URL, VSIX, downgrade, uninstall or automatic-update fallback. Configuration reads and writes are limited to non-sensitive keys declared by an installed extension. Global current-Profile changes are locally undoable for 30 days/100 records; Workspace/Folder changes are captured by the active experiment. Use **Undo Last Agent Profile Change** for the latest unchanged Global value and **Create Capability Profile** to open VS Code's native Profiles manager.
 
 The Activity Bar container is named **VS Code Agent Bridge** and presents Overview, Experiments, Agent Activity, Capabilities and Usage Insights as native views. Local insight events contain only tool/category, outcome, timing and size buckets, truncation and stable error codes. They never contain parameters, results, paths, source, hashes, terminal output, debug expressions/values, environment variables or credentials; they remain local for 30 days with a 20 MiB cap and can be cleared or exported as aggregates.
 
 Installed extensions and manifest contributions can be inspected without activating the extension, reading exports or executing contributed commands. Profile name/ID are reported as unavailable because stable VS Code APIs do not expose them. Problems events are summary-only and memory-bound. Output reads require an already opened Output document; the Bridge never forces channel selection or reads private logs. Debug Console capture starts with Bridge activation, discards telemetry and variable/evaluate data, sanitizes controls and reports bounded-loss coverage.
+
+The reviewed `python.environment` adapter uses Microsoft's pinned `@vscode/python-extension` facade for `ms-python.python`. It reports only the active interpreter path, environment type/name, Python version and bitness. It does not expose environment variables, packages, credentials, raw Python logs, arbitrary exports or extension actions. Missing and incompatible extensions fail closed; install Python support through the v0.10 Marketplace workflow first when needed.
 
 - The machine master switch stops RPC and removes the instance descriptor when disabled.
 - `explicit` rejects delayed execution such as folder-open Tasks.
@@ -59,9 +61,9 @@ Source, issues, checksums and release artifacts are available at [GitHub](https:
 
 # 中文说明
 
-VS Code Agent Bridge 将 Codex 连接到本机 VS Code 的 IDE 原生状态，提供受实验保护的配置/资源修改、VS Code Tasks、受限调试和终端只读观测。`0.10.0` 是暂未发布 Marketplace 的 Windows x64 候选版本，可直接覆盖升级 `0.9.0`；旁加载测试不需要 Bun、Node.js 或源码。
+VS Code Agent Bridge 将 Codex 连接到本机 VS Code 的 IDE 原生状态，提供受实验保护的配置/资源修改、VS Code Tasks、受限调试和终端只读观测。`0.11.0` 是暂未发布 Marketplace 的 Windows x64 候选版本，可直接覆盖升级 `0.10.0`；旁加载测试不需要 Bun、Node.js 或源码。
 
-侧栏以插件全名 **VS Code Agent Bridge** 展示 Overview、Experiments、Agent Activity、Capabilities 和 Usage Insights。58 个工具的名称、分类、注解、恢复边界和敏感级别来自同一权威目录。v0.10 增加固定 Marketplace 端点搜索、两阶段原生安装，以及仅针对已安装插件 manifest 声明的非敏感键的当前 Profile 配置。官方维护者目录与 Verified Publisher 分开呈现；安装保留 VS Code Publisher Trust，不接受 URL/VSIX、不调用 CLI、不降级、不卸载或自动更新。Global Profile 修改可通过本地日志撤销，Workspace/Folder 修改进入实验检查点。
+侧栏以插件全名 **VS Code Agent Bridge** 展示 Overview、Experiments、Agent Activity、Capabilities 和 Usage Insights。60 个工具的名称、分类、注解、恢复边界和敏感级别来自同一权威目录。v0.11 增加静态审核的扩展适配器目录和官方 Python 活动环境状态；目录盘点不会激活插件，只有明确的状态请求才可能激活该适配器固定绑定的插件。首个 `python.environment` 适配器使用 Microsoft 官方 facade，只返回解释器路径、环境类型/名称、Python 版本与位数，不读取环境变量、包列表、凭据或原始日志，也不开放任意 exports 或动作。
 
 安装后先运行 **Configure Bridge**。机器总开关默认启用；`explicit`（默认）只允许运行 MCP 当前明确请求的工作流，`aggressive` 才允许 folder-open Task 等延迟效果。工具审批由 Codex、用户配置或监督 Agent 根据 MCP 注解决定，**Configure Codex** 不再写审批档位。旧版显式限制策略不会被静默扩权，升级后必须由用户选择。
 

@@ -1,5 +1,13 @@
 # Change Log
 
+## 0.11.0 - 2026-08-10
+
+- Added two bounded extension-integration tools, raising the catalog to 60 tools on protocol v10.
+- Added a static reviewed adapter catalog; listing adapters never activates an extension and arbitrary extension IDs, commands, exports or arguments are unavailable.
+- Added the first production adapter for the official `ms-python.python` extension through Microsoft's pinned `@vscode/python-extension` facade.
+- Added bounded active-environment state containing only interpreter path, environment type/name, Python version and bitness.
+- Added fail-closed handling for missing, version-incompatible, activation-failed and API-incompatible extensions plus unit, STDIO and real Extension Host coverage.
+
 ## 0.10.0 - 2026-08-10
 
 - Added five bounded Marketplace and current-Profile tools, raising the catalog to 58 tools on protocol v9.

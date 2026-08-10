@@ -3,6 +3,7 @@ export * from "./errors.js";
 export * from "./experiments.js";
 export * from "./extension-awareness.js";
 export * from "./extension-orchestration.js";
+export * from "./extension-integrations.js";
 export * from "./ide.js";
 export * from "./insights.js";
 export * from "./registry.js";

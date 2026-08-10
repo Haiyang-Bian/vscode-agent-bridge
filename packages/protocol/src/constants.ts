@@ -1,6 +1,6 @@
 export const BRIDGE_NAME = "vscode-agent-bridge" as const;
-export const BRIDGE_RELEASE_VERSION = "0.10.0" as const;
-export const BRIDGE_PROTOCOL_VERSION = 9 as const;
+export const BRIDGE_RELEASE_VERSION = "0.11.0" as const;
+export const BRIDGE_PROTOCOL_VERSION = 10 as const;
 export const DEFAULT_BRIDGE_TIMEOUT_MS = 5_000;
 export const INTERACTIVE_BRIDGE_TIMEOUT_MS = 90_000;
 export const MAX_RPC_MESSAGE_BYTES = 1_048_576;
@@ -95,6 +95,8 @@ export const BRIDGE_METHODS = {
   applyExtensionInstall: "extensions/applyInstall",
   getExtensionConfiguration: "extensions/getConfiguration",
   updateExtensionConfiguration: "extensions/updateConfiguration",
+  listExtensionIntegrations: "extensions/listIntegrations",
+  getExtensionIntegrationState: "extensions/getIntegrationState",
 } as const;
 
 export const BRIDGE_CAPABILITIES = [
@@ -153,6 +155,8 @@ export const BRIDGE_CAPABILITIES = [
   "extensions.applyInstall",
   "extensions.getConfiguration",
   "extensions.updateConfiguration",
+  "extensions.listIntegrations",
+  "extensions.getIntegrationState",
 ] as const;
 
 export const BRIDGE_ERROR_CODES = [
@@ -245,6 +249,10 @@ export const BRIDGE_ERROR_CODES = [
   "EXTENSION_INSTALL_FAILED",
   "EXTENSION_CONFIGURATION_DENIED",
   "EXTENSION_CONFIGURATION_STALE",
+  "EXTENSION_INTEGRATION_NOT_FOUND",
+  "EXTENSION_VERSION_UNSUPPORTED",
+  "EXTENSION_ACTIVATION_FAILED",
+  "EXTENSION_INTEGRATION_UNAVAILABLE",
   "INTERNAL_ERROR",
 ] as const;
 

@@ -35,3 +35,4 @@ Each report should include:
 | 2026-08-10 | v0.8.0 Bridge Hub release candidate | `completed_with_findings` | [v0.8.0 Bridge Hub release audit](2026-08-10-v0.8.0-bridge-hub-release.md) |
 | 2026-08-10 | v0.9.0 extension awareness release candidate | `completed_with_findings` | [v0.9.0 extension awareness release audit](2026-08-10-v0.9.0-extension-awareness-release.md) |
 | 2026-08-10 | v0.10.0 extension orchestration release candidate | `completed_with_findings` | [v0.10.0 extension orchestration release audit](2026-08-10-v0.10.0-extension-orchestration-release.md) |
+| 2026-08-10 | v0.11.0 reviewed extension integrations release candidate | `completed_with_findings` | [v0.11.0 extension integrations release audit](2026-08-10-v0.11.0-extension-integrations-release.md) |
