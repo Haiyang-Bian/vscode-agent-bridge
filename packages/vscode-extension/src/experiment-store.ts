@@ -796,6 +796,7 @@ export class ExperimentStore {
   }
 
   async #recoverSessions(): Promise<void> {
+    const validatedBlobs = new Set<string>();
     for (const sessionId of await safeReadDirectories(this.#sessionsDirectory)) {
       if (!ExperimentIdSchema.safeParse(sessionId).success) {
         continue;
@@ -810,8 +811,9 @@ export class ExperimentStore {
         for (const checkpointId of manifest.checkpointIds) {
           const checkpoint = await this.readCheckpoint(sessionId, checkpointId);
           for (const document of checkpoint.documents) {
-            if (document.blobSha256) {
+            if (document.blobSha256 && !validatedBlobs.has(document.blobSha256)) {
               await this.readBlob(document.blobSha256);
+              validatedBlobs.add(document.blobSha256);
             }
           }
         }

@@ -47,6 +47,7 @@ describe("VS Code instance discovery", () => {
     expect(publicInstance).not.toHaveProperty("authToken");
     expect(publicInstance).not.toHaveProperty("transport");
     expect(publicInstance.transportKind).toBe("named-pipe");
+    expect(publicInstance.lifecycle).toBe("ready");
   });
 
   test("requires an explicit ID when multiple windows are registered", () => {
@@ -76,6 +77,7 @@ function makeDescriptor(instanceId: string): InstanceDescriptor {
     appHost: "desktop",
     remoteName: null,
     workspaceTrusted: true,
+    lifecycle: "ready",
     workspaceFolders: [],
     transport: {
       kind: "named-pipe",

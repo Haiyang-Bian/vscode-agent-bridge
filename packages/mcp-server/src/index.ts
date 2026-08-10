@@ -9,6 +9,7 @@ import {
   BRIDGE_NAME,
   BRIDGE_PROTOCOL_VERSION,
   BRIDGE_RELEASE_VERSION,
+  INTERACTIVE_BRIDGE_TIMEOUT_MS,
   AppliedChangeSetSchema,
   ApplyCodeActionInputSchema,
   ApplyCodeActionParamsSchema,
@@ -429,7 +430,7 @@ server.registerTool(
     outputSchema: ExperimentInfoSchema,
     annotations: guardedWriteAnnotations,
   },
-  async ({ instanceId, ...rawParams }) => {
+  async ({ instanceId, ...rawParams }, { signal }) => {
     try {
       const descriptor = await resolveInstance(instanceId);
       const params = StartExperimentParamsSchema.parse(rawParams);
@@ -438,6 +439,7 @@ server.registerTool(
         BRIDGE_METHODS.startExperiment,
         params,
         (value) => ExperimentInfoSchema.parse(value),
+        { signal, timeoutMilliseconds: INTERACTIVE_BRIDGE_TIMEOUT_MS },
       );
       return toolSuccess(`Started experiment ${result.title} (${result.sessionId}).`, result);
     } catch (error) {
@@ -456,7 +458,7 @@ server.registerTool(
     outputSchema: ExperimentInfoSchema,
     annotations: guardedWriteAnnotations,
   },
-  async ({ instanceId, ...rawParams }) => {
+  async ({ instanceId, ...rawParams }, { signal }) => {
     try {
       const descriptor = await resolveInstance(instanceId);
       const params = RenameExperimentParamsSchema.parse(rawParams);
@@ -465,6 +467,7 @@ server.registerTool(
         BRIDGE_METHODS.renameExperiment,
         params,
         (value) => ExperimentInfoSchema.parse(value),
+        { signal, timeoutMilliseconds: INTERACTIVE_BRIDGE_TIMEOUT_MS },
       );
       return toolSuccess(`Renamed experiment to ${result.title}.`, result);
     } catch (error) {
@@ -483,7 +486,7 @@ server.registerTool(
     outputSchema: CreateExperimentCheckpointResultSchema,
     annotations: guardedWriteAnnotations,
   },
-  async ({ instanceId, ...rawParams }) => {
+  async ({ instanceId, ...rawParams }, { signal }) => {
     try {
       const descriptor = await resolveInstance(instanceId);
       const params = CreateExperimentCheckpointParamsSchema.parse(rawParams);
@@ -492,6 +495,7 @@ server.registerTool(
         BRIDGE_METHODS.createExperimentCheckpoint,
         params,
         (value) => CreateExperimentCheckpointResultSchema.parse(value),
+        { signal, timeoutMilliseconds: INTERACTIVE_BRIDGE_TIMEOUT_MS },
       );
       return toolSuccess(
         `Created explicit checkpoint ${result.checkpoint.checkpointId}.`,
@@ -603,7 +607,7 @@ server.registerTool(
     outputSchema: AppliedChangeSetSchema,
     annotations: guardedWriteAnnotations,
   },
-  async ({ instanceId, ...rawParams }) => {
+  async ({ instanceId, ...rawParams }, { signal }) => {
     try {
       const descriptor = await resolveInstance(instanceId);
       const params = ApplyChangeSetParamsSchema.parse(rawParams);
@@ -612,6 +616,7 @@ server.registerTool(
         BRIDGE_METHODS.applyChangeSet,
         params,
         (value) => AppliedChangeSetSchema.parse(value),
+        { signal, timeoutMilliseconds: INTERACTIVE_BRIDGE_TIMEOUT_MS },
       );
       return toolSuccess(
         `Applied change set to ${result.documents.length} dirty VS Code buffer(s) and created checkpoint ${result.checkpointId}.`,
@@ -633,7 +638,7 @@ server.registerTool(
     outputSchema: ExperimentEvidenceSchema,
     annotations: guardedWriteAnnotations,
   },
-  async ({ instanceId, ...rawParams }) => {
+  async ({ instanceId, ...rawParams }, { signal }) => {
     try {
       const descriptor = await resolveInstance(instanceId);
       const params = RecordExperimentEvidenceParamsSchema.parse(rawParams);
@@ -642,6 +647,7 @@ server.registerTool(
         BRIDGE_METHODS.recordExperimentEvidence,
         params,
         (value) => ExperimentEvidenceSchema.parse(value),
+        { signal, timeoutMilliseconds: INTERACTIVE_BRIDGE_TIMEOUT_MS },
       );
       return toolSuccess(
         `Recorded client-reported ${result.kind} evidence with status ${result.status}.`,
@@ -663,7 +669,7 @@ server.registerTool(
     outputSchema: SaveDocumentResultSchema,
     annotations: guardedWriteAnnotations,
   },
-  async ({ instanceId, ...rawParams }) => {
+  async ({ instanceId, ...rawParams }, { signal }) => {
     try {
       const descriptor = await resolveInstance(instanceId);
       const params = SaveDocumentParamsSchema.parse(rawParams);
@@ -672,6 +678,7 @@ server.registerTool(
         BRIDGE_METHODS.saveDocument,
         params,
         (value) => SaveDocumentResultSchema.parse(value),
+        { signal, timeoutMilliseconds: INTERACTIVE_BRIDGE_TIMEOUT_MS },
       );
       return toolSuccess(
         `Saved ${result.uri} and created checkpoint ${result.checkpointId}.`,
@@ -693,7 +700,7 @@ server.registerTool(
     outputSchema: FormatDocumentResultSchema,
     annotations: guardedWriteAnnotations,
   },
-  async ({ instanceId, ...rawParams }) => {
+  async ({ instanceId, ...rawParams }, { signal }) => {
     try {
       const descriptor = await resolveInstance(instanceId);
       const params = FormatDocumentParamsSchema.parse(rawParams);
@@ -702,6 +709,7 @@ server.registerTool(
         BRIDGE_METHODS.formatDocument,
         params,
         (value) => FormatDocumentResultSchema.parse(value),
+        { signal, timeoutMilliseconds: INTERACTIVE_BRIDGE_TIMEOUT_MS },
       );
       return toolSuccess(
         result.applied
@@ -755,7 +763,7 @@ server.registerTool(
     outputSchema: ApplyCodeActionResultSchema,
     annotations: guardedWriteAnnotations,
   },
-  async ({ instanceId, ...rawParams }) => {
+  async ({ instanceId, ...rawParams }, { signal }) => {
     try {
       const descriptor = await resolveInstance(instanceId);
       const params = ApplyCodeActionParamsSchema.parse(rawParams);
@@ -764,6 +772,7 @@ server.registerTool(
         BRIDGE_METHODS.applyCodeAction,
         params,
         (value) => ApplyCodeActionResultSchema.parse(value),
+        { signal, timeoutMilliseconds: INTERACTIVE_BRIDGE_TIMEOUT_MS },
       );
       return toolSuccess(
         `Applied Code Action to ${result.documents.length} dirty buffer(s) and created checkpoint ${result.checkpointId}.`,

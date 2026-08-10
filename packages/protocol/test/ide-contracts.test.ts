@@ -92,6 +92,9 @@ describe("protocol v5 workspace reflexivity contracts", () => {
       "WORKSPACE_CONFIGURATION_INVALID",
       "EXPERIMENT_STATE_CHANGED",
       "EDITOR_REVEAL_FAILED",
+      "BRIDGE_INITIALIZING",
+      "BRIDGE_DEGRADED",
+      "REQUEST_CANCELLED",
     ] as const) {
       expect(BRIDGE_ERROR_CODES).toContain(code);
     }

@@ -70,7 +70,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   host.registerRequestHandlers(
     createIdeAutonomyRequestHandlers(ideAutonomy, experiments, onboarding, activity),
   );
-  await experiments.initialize();
+  await host.start();
+  try {
+    await experiments.initialize();
+    await host.markReady();
+  } catch (error) {
+    await host.markDegraded();
+    output.error("Experiment storage initialization failed; the bridge is degraded.", error);
+  }
   terminals.start();
   activeHost = host;
   activeExperimentManager = experiments;
@@ -80,8 +87,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   registerManagedWorktreeUi(context, managed, output);
   registerAcceptanceFixtureProvider(context);
   registerE2ECommands(context, experiments, managed, onboarding, activity);
-
-  await host.start();
 
   context.subscriptions.push(
     output,

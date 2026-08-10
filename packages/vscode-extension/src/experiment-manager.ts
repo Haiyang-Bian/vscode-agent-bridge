@@ -46,9 +46,15 @@ interface ResolvedCheckpointDocument {
   readonly baselineText: string | null;
 }
 
+interface PendingExternalChange {
+  readonly uri: vscode.Uri;
+  readonly resourceChange: boolean;
+}
+
 export interface StartExperimentOptions {
   readonly title: string;
   readonly root: vscode.Uri;
+  readonly signal?: AbortSignal;
 }
 
 export interface CreateManagedExperimentOptions {
@@ -65,7 +71,7 @@ export class ExperimentManager implements vscode.Disposable {
   readonly #changeEmitter = new vscode.EventEmitter<void>();
   readonly #disposables: vscode.Disposable[] = [];
   readonly #pendingManualUris = new Set<string>();
-  readonly #pendingExternalUris = new Set<string>();
+  readonly #pendingExternalUris = new Map<string, boolean>();
   #active: ActiveExperiment | undefined;
   #manualTimer: ReturnType<typeof setTimeout> | undefined;
   #externalTimer: ReturnType<typeof setTimeout> | undefined;
@@ -96,6 +102,10 @@ export class ExperimentManager implements vscode.Disposable {
   }
 
   async initialize(): Promise<void> {
+    const e2eDelay = getE2EInitializationDelay();
+    if (e2eDelay > 0) {
+      await new Promise((resolve) => setTimeout(resolve, e2eDelay));
+    }
     await this.#store.initialize();
     await this.#store.enforceRetention();
     this.#registerDocumentListeners();
@@ -103,6 +113,7 @@ export class ExperimentManager implements vscode.Disposable {
   }
 
   async startWorkspaceExperiment(options: StartExperimentOptions): Promise<ExperimentInfo> {
+    assertExperimentStartActive(options.signal);
     this.#assertMutationAllowed();
     if (this.#active) {
       throw new BridgeError(
@@ -118,6 +129,7 @@ export class ExperimentManager implements vscode.Disposable {
     }
 
     const inspected = await ReadOnlyGitBaseline.inspect(options.root.fsPath);
+    assertExperimentStartActive(options.signal);
     const git = inspected?.git ?? null;
     const baseline = inspected?.baseline ?? null;
     const warnings: string[] = [];
@@ -133,7 +145,9 @@ export class ExperimentManager implements vscode.Disposable {
       git,
       baseline,
       warnings,
+      options.signal,
     );
+    assertExperimentStartActive(options.signal);
     const created = await this.#store.createExperiment({
       mode: "workspace",
       title: options.title,
@@ -594,14 +608,12 @@ export class ExperimentManager implements vscode.Disposable {
       this.#externalTimer = undefined;
     }
     const manualUris = drainSet(this.#pendingManualUris).map((value) => vscode.Uri.parse(value, true));
-    const externalUris = drainSet(this.#pendingExternalUris).map((value) => vscode.Uri.parse(value, true));
+    const externalChanges = drainExternalChanges(this.#pendingExternalUris);
     if (manualUris.length > 0) {
       await this.#enqueue(() => this.#captureCheckpoint("manualEdit", "Manual editor changes", manualUris));
     }
-    if (externalUris.length > 0) {
-      await this.#enqueue(() =>
-        this.#captureCheckpoint("externalChange", "External workspace changes", externalUris),
-      );
+    if (externalChanges.length > 0) {
+      await this.#enqueue(() => this.#captureExternalChanges(externalChanges));
     }
     await this.#operationQueue;
   }
@@ -728,31 +740,19 @@ export class ExperimentManager implements vscode.Disposable {
       if (!this.#active || uri.path.includes("/.git/")) {
         return;
       }
-      this.#pendingExternalUris.add(uri.toString(true));
-      if (resourceChange) {
-        void this.#store
-          .addWarning(
-            this.#active.manifest.sessionId,
-            "Resource-level changes were observed; v0.3 whole-session restore is limited.",
-          )
-          .then((manifest) => {
-            if (this.#active) {
-              this.#active.manifest = manifest;
-              this.#changeEmitter.fire();
-            }
-          })
-          .catch(() => undefined);
-      }
+      const key = uri.toString(true);
+      this.#pendingExternalUris.set(
+        key,
+        resourceChange || (this.#pendingExternalUris.get(key) ?? false),
+      );
       if (this.#externalTimer) {
         clearTimeout(this.#externalTimer);
       }
       this.#externalTimer = setTimeout(() => {
         this.#externalTimer = undefined;
-        const uris = drainSet(this.#pendingExternalUris).map((value) => vscode.Uri.parse(value, true));
-        if (uris.length > 0) {
-          void this.#enqueue(() =>
-            this.#captureCheckpoint("externalChange", "External workspace changes", uris),
-          );
+        const changes = drainExternalChanges(this.#pendingExternalUris);
+        if (changes.length > 0) {
+          void this.#enqueue(() => this.#captureExternalChanges(changes));
         }
       }, 500);
     };
@@ -779,9 +779,11 @@ export class ExperimentManager implements vscode.Disposable {
     git: ReadOnlyGitBaseline | null,
     baseline: GitBaseline | null,
     warnings: string[],
+    signal?: AbortSignal,
   ): Promise<Map<string, StoredDocument>> {
     const documents = new Map<string, StoredDocument>();
     for (const relativePath of baseline?.dirtyPaths ?? []) {
+      assertExperimentStartActive(signal);
       const uri = vscode.Uri.file(git!.resolvePath(relativePath));
       if (!isUriWithin(root, uri)) {
         continue;
@@ -794,6 +796,7 @@ export class ExperimentManager implements vscode.Disposable {
       }
     }
     for (const document of vscode.workspace.textDocuments) {
+      assertExperimentStartActive(signal);
       if (!isUriWithin(root, document.uri) || (!document.isDirty && document.uri.scheme !== "untitled")) {
         continue;
       }
@@ -818,6 +821,45 @@ export class ExperimentManager implements vscode.Disposable {
       return active.manifest.currentCheckpointId ?? "";
     }
     return this.#appendCheckpoint(active, source, summary, source !== "externalChange");
+  }
+
+  async #captureExternalChanges(changes: readonly PendingExternalChange[]): Promise<string> {
+    const active = this.#requireActive();
+    let selected = [...changes];
+    if (active.git) {
+      try {
+        const dirtyPaths = new Set(await active.git.dirtyPaths());
+        const openUris = new Set(
+          vscode.workspace.textDocuments.map((document) => document.uri.toString(true)),
+        );
+        selected = selected.filter((change) => {
+          if (openUris.has(change.uri.toString(true))) {
+            return true;
+          }
+          return change.uri.scheme === "file" &&
+            dirtyPaths.has(active.git!.relativePath(change.uri.fsPath) ?? "");
+        });
+      } catch {
+        this.#output.warn(
+          "Git external-change filtering failed; capturing bounded events conservatively.",
+        );
+      }
+    }
+    if (selected.length === 0) {
+      return active.manifest.currentCheckpointId ?? "";
+    }
+    if (selected.some((change) => change.resourceChange)) {
+      active.manifest = await this.#store.addWarning(
+        active.manifest.sessionId,
+        "Resource-level changes were observed; v0.3 whole-session restore is limited.",
+      );
+      this.#changeEmitter.fire();
+    }
+    return this.#captureCheckpoint(
+      "externalChange",
+      "External workspace changes",
+      selected.map((change) => change.uri),
+    );
   }
 
   async #captureUris(active: ActiveExperiment, uris: readonly vscode.Uri[]): Promise<boolean> {
@@ -1170,6 +1212,23 @@ function workspaceIdentity(root: vscode.Uri): string {
   return createHash("sha256").update(root.toString(true)).digest("hex");
 }
 
+function getE2EInitializationDelay(): number {
+  if (process.env.VSCODE_AGENT_BRIDGE_E2E !== "1") {
+    return 0;
+  }
+  const value = Number(process.env.VSCODE_AGENT_BRIDGE_E2E_INITIALIZATION_DELAY_MS ?? "0");
+  return Number.isSafeInteger(value) && value > 0 ? value : 0;
+}
+
+function assertExperimentStartActive(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new BridgeError(
+      "REQUEST_CANCELLED",
+      "Experiment startup was cancelled before its baseline was committed.",
+    );
+  }
+}
+
 function isUriWithin(root: vscode.Uri, candidate: vscode.Uri): boolean {
   if (candidate.scheme === "untitled") {
     return true;
@@ -1205,6 +1264,15 @@ function uniqueUris(uris: readonly vscode.Uri[]): vscode.Uri[] {
 
 function drainSet(values: Set<string>): string[] {
   const drained = [...values];
+  values.clear();
+  return drained;
+}
+
+function drainExternalChanges(values: Map<string, boolean>): PendingExternalChange[] {
+  const drained = [...values].map(([uri, resourceChange]) => ({
+    uri: vscode.Uri.parse(uri, true),
+    resourceChange,
+  }));
   values.clear();
   return drained;
 }

@@ -59,7 +59,10 @@ import {
   assertTerminalMetadataAllowed,
 } from "./policies.js";
 import { TerminalObserver } from "./terminal-observer.js";
-import { WorkspaceOnboardingService } from "./workspace-onboarding.js";
+import {
+  WorkspaceOnboardingService,
+  assertRequestActive,
+} from "./workspace-onboarding.js";
 import {
   getDefinitions,
   getDiagnostics,
@@ -69,7 +72,14 @@ import {
   readDocument,
 } from "./language-services.js";
 
-export type BridgeRequestHandler = (params: unknown) => Promise<unknown> | unknown;
+export interface BridgeRequestContext {
+  readonly signal: AbortSignal;
+}
+
+export type BridgeRequestHandler = (
+  params: unknown,
+  context: BridgeRequestContext,
+) => Promise<unknown> | unknown;
 
 const EmptyParamsSchema = z.object({}).strict();
 
@@ -169,7 +179,7 @@ export function createExperimentRequestHandlers(
     ],
     [
       BRIDGE_METHODS.startExperiment,
-      async (params) => {
+      async (params, context) => {
         const parsed = StartExperimentParamsSchema.parse(params);
         return activity.track(
           {
@@ -180,9 +190,14 @@ export function createExperimentRequestHandlers(
           async () => {
             assertAgentWriteAllowed();
             const root = onboarding.resolveRoot(parsed.rootUri);
-            await onboarding.ensureEnabled(root, parsed.title, "agent");
+            await onboarding.ensureEnabled(root, parsed.title, "agent", context.signal);
+            assertRequestActive(context.signal);
             return ExperimentInfoSchema.parse(
-              await experiments.startWorkspaceExperiment({ title: parsed.title, root: root.uri }),
+              await experiments.startWorkspaceExperiment({
+                title: parsed.title,
+                root: root.uri,
+                signal: context.signal,
+              }),
             );
           },
         );
@@ -190,7 +205,7 @@ export function createExperimentRequestHandlers(
     ],
     [
       BRIDGE_METHODS.renameExperiment,
-      async (params) => {
+      async (params, context) => {
         const parsed = RenameExperimentParamsSchema.parse(params);
         return activity.track(
           {
@@ -201,7 +216,8 @@ export function createExperimentRequestHandlers(
           async () => {
             assertAgentWriteAllowed();
             const root = await experiments.resolveExperimentRoot(parsed.sessionId);
-            await onboarding.ensureEnabled(root, parsed.title, "agent");
+            await onboarding.ensureEnabled(root, parsed.title, "agent", context.signal);
+            assertRequestActive(context.signal);
             return ExperimentInfoSchema.parse(await experiments.renameOrdinaryExperiment(parsed));
           },
         );
@@ -209,7 +225,7 @@ export function createExperimentRequestHandlers(
     ],
     [
       BRIDGE_METHODS.createExperimentCheckpoint,
-      async (params) => {
+      async (params, context) => {
         const parsed = CreateExperimentCheckpointParamsSchema.parse(params);
         return activity.track(
           {
@@ -220,7 +236,8 @@ export function createExperimentRequestHandlers(
           async () => {
             assertAgentWriteAllowed();
             const root = await experiments.resolveExperimentRoot(parsed.sessionId);
-            await onboarding.ensureEnabled(root, parsed.title, "agent");
+            await onboarding.ensureEnabled(root, parsed.title, "agent", context.signal);
+            assertRequestActive(context.signal);
             return CreateExperimentCheckpointResultSchema.parse({
               instanceId,
               sessionId: parsed.sessionId,
@@ -254,7 +271,7 @@ export function createExperimentRequestHandlers(
     ],
     [
       BRIDGE_METHODS.applyChangeSet,
-      async (params) => {
+      async (params, context) => {
         const parsed = ApplyChangeSetParamsSchema.parse(params);
         return activity.track(
           {
@@ -262,7 +279,13 @@ export function createExperimentRequestHandlers(
             title: "Apply prepared text changes",
           },
           async () => {
-            await ensureSessionWorkspaceEnabled(experiments, onboarding, parsed.sessionId);
+            await ensureSessionWorkspaceEnabled(
+              experiments,
+              onboarding,
+              parsed.sessionId,
+              context.signal,
+            );
+            assertRequestActive(context.signal);
             return AppliedChangeSetSchema.parse(await changeSets.apply(parsed));
           },
           (result) => ({
@@ -275,7 +298,7 @@ export function createExperimentRequestHandlers(
     ],
     [
       BRIDGE_METHODS.recordExperimentEvidence,
-      async (params) => {
+      async (params, context) => {
         const parsed = RecordExperimentEvidenceParamsSchema.parse(params);
         return activity.track(
           {
@@ -285,7 +308,13 @@ export function createExperimentRequestHandlers(
           },
           async () => {
             assertAgentWriteAllowed();
-            await ensureSessionWorkspaceEnabled(experiments, onboarding, parsed.sessionId);
+            await ensureSessionWorkspaceEnabled(
+              experiments,
+              onboarding,
+              parsed.sessionId,
+              context.signal,
+            );
+            assertRequestActive(context.signal);
             return ExperimentEvidenceSchema.parse(
               await experiments.recordClientEvidence(parsed),
             );
@@ -306,7 +335,7 @@ export function createIdeAutonomyRequestHandlers(
   return new Map<string, BridgeRequestHandler>([
     [
       BRIDGE_METHODS.saveDocument,
-      async (params) => {
+      async (params, context) => {
         const parsed = SaveDocumentParamsSchema.parse(params);
         return activity.track(
           {
@@ -316,7 +345,13 @@ export function createIdeAutonomyRequestHandlers(
             targets: toActivityTargets([parsed.uri]),
           },
           async () => {
-            await ensureSessionWorkspaceEnabled(experiments, onboarding, parsed.sessionId);
+            await ensureSessionWorkspaceEnabled(
+              experiments,
+              onboarding,
+              parsed.sessionId,
+              context.signal,
+            );
+            assertRequestActive(context.signal);
             return SaveDocumentResultSchema.parse(await manager.saveDocument(parsed));
           },
           (result) => ({ targets: toActivityTargets([result.uri]), fileCount: 1, checkpointId: result.checkpointId }),
@@ -325,7 +360,7 @@ export function createIdeAutonomyRequestHandlers(
     ],
     [
       BRIDGE_METHODS.formatDocument,
-      async (params) => {
+      async (params, context) => {
         const parsed = FormatDocumentParamsSchema.parse(params);
         return activity.track(
           {
@@ -335,7 +370,13 @@ export function createIdeAutonomyRequestHandlers(
             targets: toActivityTargets([parsed.uri]),
           },
           async () => {
-            await ensureSessionWorkspaceEnabled(experiments, onboarding, parsed.sessionId);
+            await ensureSessionWorkspaceEnabled(
+              experiments,
+              onboarding,
+              parsed.sessionId,
+              context.signal,
+            );
+            assertRequestActive(context.signal);
             return FormatDocumentResultSchema.parse(await manager.formatDocument(parsed));
           },
           (result) => ({
@@ -357,7 +398,7 @@ export function createIdeAutonomyRequestHandlers(
     ],
     [
       BRIDGE_METHODS.applyCodeAction,
-      async (params) => {
+      async (params, context) => {
         const parsed = ApplyCodeActionParamsSchema.parse(params);
         return activity.track(
           {
@@ -366,7 +407,13 @@ export function createIdeAutonomyRequestHandlers(
             reason: parsed.reason,
           },
           async () => {
-            await ensureSessionWorkspaceEnabled(experiments, onboarding, parsed.sessionId);
+            await ensureSessionWorkspaceEnabled(
+              experiments,
+              onboarding,
+              parsed.sessionId,
+              context.signal,
+            );
+            assertRequestActive(context.signal);
             return ApplyCodeActionResultSchema.parse(await manager.applyCodeAction(parsed));
           },
           (result) => ({
@@ -394,6 +441,7 @@ async function ensureSessionWorkspaceEnabled(
   experiments: ExperimentManager,
   onboarding: WorkspaceOnboardingService,
   sessionId: string,
+  signal?: AbortSignal,
 ): Promise<void> {
   const root = await experiments.resolveExperimentRoot(sessionId);
   let title = "Agent experiment";
@@ -402,7 +450,7 @@ async function ensureSessionWorkspaceEnabled(
   } catch {
     // The downstream operation returns the precise lifecycle error.
   }
-  await onboarding.ensureEnabled(root, title, "agent");
+  await onboarding.ensureEnabled(root, title, "agent", signal);
 }
 
 export function createTerminalRequestHandlers(

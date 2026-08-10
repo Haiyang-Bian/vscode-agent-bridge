@@ -18,6 +18,7 @@ import {
   resolveInstanceDescriptorPath,
   resolveRegistryDirectories,
   resolveTransportDescriptor,
+  type BridgeLifecycle,
   type InstanceDescriptor,
   type JsonRpcId,
 } from "@vscode-agent-bridge/protocol";
@@ -28,6 +29,7 @@ import { createRequestHandlers, type BridgeRequestHandler } from "./request-hand
 interface ConnectionState {
   authenticated: boolean;
   readonly decoder: NdjsonDecoder;
+  readonly pendingRequests: Map<JsonRpcId, AbortController>;
 }
 
 export class BridgeHost {
@@ -43,11 +45,16 @@ export class BridgeHost {
   readonly #server: Server;
   readonly #sockets = new Set<Socket>();
   #refreshQueue = Promise.resolve();
+  #lifecycle: BridgeLifecycle = "initializing";
   #started = false;
   #stopped = false;
 
   get isListening(): boolean {
     return this.#started && !this.#stopped;
+  }
+
+  get lifecycle(): BridgeLifecycle {
+    return this.#lifecycle;
   }
 
   constructor(output: vscode.LogOutputChannel) {
@@ -111,6 +118,16 @@ export class BridgeHost {
     return nextRefresh;
   }
 
+  async markReady(): Promise<void> {
+    this.#lifecycle = "ready";
+    await this.refreshDescriptor();
+  }
+
+  async markDegraded(): Promise<void> {
+    this.#lifecycle = "degraded";
+    await this.refreshDescriptor();
+  }
+
   async stop(): Promise<void> {
     if (this.#stopped) {
       return;
@@ -135,6 +152,7 @@ export class BridgeHost {
     const state: ConnectionState = {
       authenticated: false,
       decoder: new NdjsonDecoder(),
+      pendingRequests: new Map(),
     };
     this.#sockets.add(socket);
     socket.setTimeout(10_000);
@@ -154,6 +172,10 @@ export class BridgeHost {
       this.#output.debug(`Bridge socket error: ${error.message}`);
     });
     socket.on("close", () => {
+      for (const controller of state.pendingRequests.values()) {
+        controller.abort();
+      }
+      state.pendingRequests.clear();
       this.#sockets.delete(socket);
     });
   }
@@ -202,6 +224,7 @@ export class BridgeHost {
       this.#sendResult(socket, request.id, {
         protocolVersion: BRIDGE_PROTOCOL_VERSION,
         instanceId: this.instanceId,
+        lifecycle: this.#lifecycle,
         capabilities: [...BRIDGE_CAPABILITIES],
       });
       return;
@@ -217,12 +240,39 @@ export class BridgeHost {
       return;
     }
 
+    if (this.#lifecycle !== "ready") {
+      this.#sendError(
+        socket,
+        request.id,
+        new BridgeError(
+          this.#lifecycle === "initializing" ? "BRIDGE_INITIALIZING" : "BRIDGE_DEGRADED",
+          this.#lifecycle === "initializing"
+            ? "The VS Code bridge is discoverable while experiment storage initializes."
+            : "The VS Code bridge is degraded because experiment storage initialization failed.",
+        ),
+      );
+      return;
+    }
+
     const handler = this.#requestHandlers.get(request.method);
     if (handler) {
+      const controller = new AbortController();
+      state.pendingRequests.set(request.id, controller);
+      socket.setTimeout(0);
       try {
-        this.#sendResult(socket, request.id, await handler(request.params ?? {}));
+        const result = await handler(request.params ?? {}, { signal: controller.signal });
+        if (!controller.signal.aborted && !socket.destroyed) {
+          this.#sendResult(socket, request.id, result);
+        }
       } catch (error) {
-        this.#sendError(socket, request.id, toBridgeError(error));
+        if (!controller.signal.aborted && !socket.destroyed) {
+          this.#sendError(socket, request.id, toBridgeError(error));
+        }
+      } finally {
+        state.pendingRequests.delete(request.id);
+        if (state.pendingRequests.size === 0 && !socket.destroyed) {
+          socket.setTimeout(10_000);
+        }
       }
       return;
     }
@@ -283,6 +333,7 @@ export class BridgeHost {
       appHost: vscode.env.appHost,
       remoteName: vscode.env.remoteName ?? null,
       workspaceTrusted: vscode.workspace.isTrusted,
+      lifecycle: this.#lifecycle,
       workspaceFolders: getWorkspaceFolders(),
       transport: this.#transport,
       authToken: this.#authToken,

@@ -37,6 +37,8 @@ try {
       ...process.env,
       VSCODE_AGENT_BRIDGE_REGISTRY_DIR: registryDirectory,
       VSCODE_AGENT_BRIDGE_E2E: "1",
+      VSCODE_AGENT_BRIDGE_E2E_INITIALIZATION_DELAY_MS: "10000",
+      VSCODE_AGENT_BRIDGE_E2E_ONBOARDING_DELAY_MS: "11000",
       VSCODE_AGENT_BRIDGE_EXPECT_PACKAGED: "1",
       VSCODE_AGENT_BRIDGE_E2E_WORKSPACE: workspaceDirectory,
       VSCODE_AGENT_BRIDGE_MANAGED_ROOT: path.join(registryDirectory, "managed-worktrees"),

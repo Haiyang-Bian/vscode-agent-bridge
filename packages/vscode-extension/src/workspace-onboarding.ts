@@ -87,7 +87,9 @@ export class WorkspaceOnboardingService {
     root: vscode.WorkspaceFolder,
     proposedTitle: string,
     source: OnboardingSource,
+    signal?: AbortSignal,
   ): Promise<boolean> {
+    assertRequestActive(signal);
     if (source === "agent") {
       assertAgentWriteAllowed();
     } else {
@@ -95,6 +97,7 @@ export class WorkspaceOnboardingService {
     }
     assertLocalRoot(root);
     const setup = await this.getSetup({ rootUri: root.uri.toString(true) });
+    assertRequestActive(signal);
     if (setup.onboarding === "enabled") {
       return false;
     }
@@ -113,7 +116,8 @@ export class WorkspaceOnboardingService {
       if (choice !== "Enable Experiments") {
         throw new BridgeError("WORKSPACE_ONBOARDING_DECLINED", "Workspace onboarding was declined.");
       }
-      await this.#writeSettings(root, "focusFirst", true);
+      assertRequestActive(signal);
+      await this.#writeSettings(root, "focusFirst", true, signal);
       return true;
     }
 
@@ -125,7 +129,15 @@ export class WorkspaceOnboardingService {
       );
     }
 
+    const acceptanceDelay = getE2EOnboardingAcceptanceDelay();
+    if (source === "agent" && acceptanceDelay > 0) {
+      await delayWithSignal(acceptanceDelay, signal);
+      await this.#writeSettings(root, "focusFirst", true, signal);
+      return true;
+    }
+
     while (true) {
+      assertRequestActive(signal);
       const titleSuffix = proposedTitle ? ` Proposed experiment: “${proposedTitle}”.` : "";
       const choice = await vscode.window.showInformationMessage(
         `VS Code Agent Bridge found an unconfigured workspace root.${titleSuffix} Creating the experiment adds only durable Bridge settings under .vscode/settings.json and starts a local recovery journal whose snapshots may contain source code.`,
@@ -134,12 +146,14 @@ export class WorkspaceOnboardingService {
         "Review Setup",
         "Not Now",
       );
+      assertRequestActive(signal);
       if (choice === "Review Setup") {
         await this.showSetupReview(root.uri);
+        assertRequestActive(signal);
         continue;
       }
       if (choice === "Create Experiment") {
-        await this.#writeSettings(root, "focusFirst", true);
+        await this.#writeSettings(root, "focusFirst", true, signal);
         this.#declinedRoots.delete(rootKey);
         return true;
       }
@@ -242,10 +256,13 @@ export class WorkspaceOnboardingService {
     root: vscode.WorkspaceFolder,
     visibility: AgentEditVisibility,
     preserveExplicitVisibility: boolean,
+    signal?: AbortSignal,
   ): Promise<void> {
     try {
+      assertRequestActive(signal);
       const configuration = vscode.workspace.getConfiguration(CONFIGURATION_SECTION, root.uri);
       await configuration.update(ENABLED_SETTING, true, vscode.ConfigurationTarget.WorkspaceFolder);
+      assertRequestActive(signal);
       if (
         !preserveExplicitVisibility ||
         configuration.inspect(VISIBILITY_SETTING)?.workspaceFolderValue === undefined
@@ -255,6 +272,7 @@ export class WorkspaceOnboardingService {
           visibility,
           vscode.ConfigurationTarget.WorkspaceFolder,
         );
+        assertRequestActive(signal);
       }
     } catch (error) {
       await openSettingsIfPresent(root.uri);
@@ -272,6 +290,44 @@ export class WorkspaceOnboardingService {
       throw configurationError(error);
     }
   }
+}
+
+export function assertRequestActive(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new BridgeError(
+      "REQUEST_CANCELLED",
+      "The Agent request was cancelled before the workspace mutation completed.",
+    );
+  }
+}
+
+function getE2EOnboardingAcceptanceDelay(): number {
+  if (process.env.VSCODE_AGENT_BRIDGE_E2E !== "1") {
+    return 0;
+  }
+  const value = Number(process.env.VSCODE_AGENT_BRIDGE_E2E_ONBOARDING_DELAY_MS ?? "0");
+  return Number.isSafeInteger(value) && value > 0 ? value : 0;
+}
+
+async function delayWithSignal(delayMilliseconds: number, signal?: AbortSignal): Promise<void> {
+  assertRequestActive(signal);
+  await new Promise<void>((resolve, reject) => {
+    const handleAbort = (): void => {
+      clearTimeout(timeout);
+      reject(
+        new BridgeError(
+          "REQUEST_CANCELLED",
+          "The Agent request was cancelled while workspace confirmation was pending.",
+        ),
+      );
+    };
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", handleAbort);
+      resolve();
+    }, delayMilliseconds);
+    signal?.addEventListener("abort", handleAbort, { once: true });
+  });
+  assertRequestActive(signal);
 }
 
 async function pickWorkspaceRoot(): Promise<vscode.WorkspaceFolder | undefined> {
