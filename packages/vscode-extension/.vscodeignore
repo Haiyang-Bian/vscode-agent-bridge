@@ -1,0 +1,13 @@
+.vscode-test.mjs
+.vscode-test-artifact.mjs
+src/**
+test/**
+tsconfig.json
+node_modules/**
+dist-test/**
+dist/**/*.map
+**/*.ts
+**/*.map
+**/*.tmp
+.codex/**
+.idea/**

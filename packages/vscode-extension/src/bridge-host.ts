@@ -1,13 +1,15 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import net, { type Server, type Socket } from "node:net";
 
 import * as vscode from "vscode";
+import { z } from "zod";
 
 import {
   BRIDGE_CAPABILITIES,
   BRIDGE_METHODS,
   BRIDGE_PROTOCOL_VERSION,
+  BRIDGE_RELEASE_VERSION,
   BridgeError,
   BridgeInitializeParamsSchema,
   JsonRpcRequestSchema,
@@ -20,7 +22,8 @@ import {
   type JsonRpcId,
 } from "@vscode-agent-bridge/protocol";
 
-import { getEditorContext, getWorkspaceFolders } from "./editor-context.js";
+import { getWorkspaceFolders } from "./editor-context.js";
+import { createRequestHandlers, type BridgeRequestHandler } from "./request-handlers.js";
 
 interface ConnectionState {
   authenticated: boolean;
@@ -36,15 +39,33 @@ export class BridgeHost {
   readonly #transport = resolveTransportDescriptor(this.instanceId, this.#directories);
   readonly #descriptorPath = resolveInstanceDescriptorPath(this.instanceId, this.#directories);
   readonly #output: vscode.LogOutputChannel;
+  readonly #requestHandlers: Map<string, BridgeRequestHandler>;
   readonly #server: Server;
   readonly #sockets = new Set<Socket>();
   #refreshQueue = Promise.resolve();
   #started = false;
   #stopped = false;
 
+  get isListening(): boolean {
+    return this.#started && !this.#stopped;
+  }
+
   constructor(output: vscode.LogOutputChannel) {
     this.#output = output;
+    this.#requestHandlers = new Map(createRequestHandlers(this.instanceId));
     this.#server = net.createServer((socket) => this.#acceptConnection(socket));
+  }
+
+  registerRequestHandlers(handlers: ReadonlyMap<string, BridgeRequestHandler>): void {
+    if (this.#started) {
+      throw new Error("Bridge request handlers must be registered before the host starts.");
+    }
+    for (const [method, handler] of handlers) {
+      if (this.#requestHandlers.has(method)) {
+        throw new Error(`Bridge request handler is already registered: ${method}`);
+      }
+      this.#requestHandlers.set(method, handler);
+    }
   }
 
   async start(): Promise<void> {
@@ -196,8 +217,13 @@ export class BridgeHost {
       return;
     }
 
-    if (request.method === BRIDGE_METHODS.getEditorContext) {
-      this.#sendResult(socket, request.id, getEditorContext(this.instanceId));
+    const handler = this.#requestHandlers.get(request.method);
+    if (handler) {
+      try {
+        this.#sendResult(socket, request.id, await handler(request.params ?? {}));
+      } catch (error) {
+        this.#sendError(socket, request.id, toBridgeError(error));
+      }
       return;
     }
 
@@ -248,6 +274,7 @@ export class BridgeHost {
 
     const descriptor: InstanceDescriptor = {
       protocolVersion: BRIDGE_PROTOCOL_VERSION,
+      extensionVersion: BRIDGE_RELEASE_VERSION,
       instanceId: this.instanceId,
       pid: process.pid,
       createdAt: this.#createdAt,
@@ -261,10 +288,16 @@ export class BridgeHost {
       authToken: this.#authToken,
     };
 
-    await writeFile(this.#descriptorPath, `${JSON.stringify(descriptor, null, 2)}\n`, {
-      encoding: "utf8",
-      mode: 0o600,
-    });
+    const temporaryPath = `${this.#descriptorPath}.${process.pid}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporaryPath, `${JSON.stringify(descriptor, null, 2)}\n`, {
+        encoding: "utf8",
+        mode: 0o600,
+      });
+      await rename(temporaryPath, this.#descriptorPath);
+    } finally {
+      await rm(temporaryPath, { force: true }).catch(() => undefined);
+    }
   }
 }
 
@@ -281,8 +314,11 @@ function toBridgeError(error: unknown): BridgeError {
     return error;
   }
 
-  return new BridgeError(
-    "INTERNAL_ERROR",
-    error instanceof Error ? error.message : "Unexpected bridge host error.",
-  );
+  if (error instanceof z.ZodError) {
+    return new BridgeError("INVALID_REQUEST", "Bridge request parameters are invalid.", {
+      issues: error.issues.map((issue) => ({ path: issue.path, message: issue.message })),
+    });
+  }
+
+  return new BridgeError("INTERNAL_ERROR", "Unexpected bridge host error.");
 }

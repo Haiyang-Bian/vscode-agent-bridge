@@ -4,7 +4,12 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { BridgeError, type InstanceDescriptor } from "@vscode-agent-bridge/protocol";
+import {
+  BRIDGE_PROTOCOL_VERSION,
+  BRIDGE_RELEASE_VERSION,
+  BridgeError,
+  type InstanceDescriptor,
+} from "@vscode-agent-bridge/protocol";
 
 import { discoverInstances, selectInstance, toPublicInstance } from "../src/instances.js";
 
@@ -61,7 +66,8 @@ describe("VS Code instance discovery", () => {
 
 function makeDescriptor(instanceId: string): InstanceDescriptor {
   return {
-    protocolVersion: 1,
+    protocolVersion: BRIDGE_PROTOCOL_VERSION,
+    extensionVersion: BRIDGE_RELEASE_VERSION,
     instanceId,
     pid: 1234,
     createdAt: "2026-08-02T00:00:00.000Z",

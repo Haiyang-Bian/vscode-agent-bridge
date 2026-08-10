@@ -1,0 +1,45 @@
+# Change Log
+
+## 0.5.1 - 2026-08-09
+
+- Treat formatter responses with zero edits as successful no-ops instead of reporting `FORMAT_PROVIDER_UNAVAILABLE`.
+- Added a default-off deterministic pure-text Code Action fixture for positive acceptance testing.
+
+## 0.5.0 - 2026-08-09
+
+- Added autonomous, review and read-only machine profiles with extension-side enforcement and policy-aware Codex configuration.
+- Added guarded save, fixed-provider formatting and expiring pure-text Code Action tools for existing experiment documents.
+- Added read-only terminal metadata, Shell Integration execution and sanitized output tools with explicit coverage and memory limits.
+- Added autonomous Finalize from current saved state while preserving accepted-candidate precedence and review-mode acceptance.
+- Positioned ordinary experiment branches plus user-controlled Git squash as the default and managed worktrees as an advanced mode.
+- Extended real Extension Host coverage through format-on-save, Code Actions, terminal output pagination, policy transitions and v0.4 promotion regression.
+
+## 0.4.0 - 2026-08-09
+
+- Added user-created, locked managed Git worktrees with private experiment branches.
+- Added fixed `execFile` Git boundaries, repository/worktree validation and no remote/config operations.
+- Added user-only private checkpoint commits that preserve normal hooks and signing.
+- Added explicit target-drift refusal and sync/rebase preview, continue and abort flows.
+- Added accepted-commit validation and one-commit promotion with parent/tree invariants and guarded cherry-pick recovery.
+- Added explicit abandon, exact-path cleanup, optional force confirmation, expected-old-SHA branch deletion and repair reports.
+- Added temporary-repository boundary tests and real two-window E2E proving ten private commits become one target commit after explicit sync.
+
+## 0.3.0 - 2026-08-09
+
+- Added recoverable local Agent experiments with content-addressed snapshots, immutable events, leases, retention and crash recovery.
+- Added native history, evidence, snapshot diffs, accepted candidates, guarded restore, pinning, deletion and Finalize without Git commits.
+- Added expiring, one-use text Change Sets with version plus SHA-256 preconditions and atomic multi-document application.
+- Added text-only rename through the fixed VS Code provider; resource operations remain forbidden.
+- Added six MCP tools for experiments, Change Sets and explicitly client-reported evidence.
+- Added protocol v3 hashes/timestamps, stable experiment errors, Doctor storage summaries and trusted-workspace enforcement.
+- Extended real Extension Host tests through stale all-or-nothing rejection, rename, evidence, restore and Finalize while verifying Git HEAD is unchanged.
+
+## 0.2.0 - 2026-08-09
+
+- Added a Bun-compiled Windows x64 baseline MCP executable bundled in the platform VSIX.
+- Added one-command, confirmed Codex configuration with TOML validation, timestamped backup, atomic replacement, conflict refusal, upgrade detection and marker-scoped removal.
+- Added `vscode_read_document`, `vscode_get_diagnostics`, `vscode_get_document_symbols`, `vscode_get_definitions`, `vscode_get_references` and `vscode_get_hover`.
+- Upgraded the internal authenticated bridge protocol to v2 with bounded results, stable errors and normalized IDE data.
+- Added live instance probing, stale descriptor cleanup, atomic descriptor writes, remote-host rejection and Doctor.
+- Added real Extension Host E2E, standalone EXE/VSIX smoke tests, content auditing, checksums and GitHub release automation.
+- Changed the project license to MIT.

@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-x64:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+          # Run the baseline runtime itself so --target=bun-windows-x64-baseline
+          # can reuse the current executable instead of downloading it mid-build.
+          bun-download-url: https://github.com/oven-sh/bun/releases/download/bun-v1.3.11/bun-windows-x64-baseline.zip
+
+      - name: Set up Node for vsce
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Install frozen dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check workspaces
+        run: bun run check
+
+      - name: Run VS Code Extension Host E2E
+        run: bun run test:e2e
+
+      - name: Package platform VSIX
+        run: bun run package:vsix
+
+      - name: Create checksums
+        run: bun run release:checksums
+
+      - name: Create cross-machine test bundle
+        run: bun run package:test-bundle
+
+      - name: Smoke-test release artifacts
+        run: bun run test:artifact
+
+      - name: Upload CI artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: vscode-agent-bridge-windows-x64
+          path: artifacts/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

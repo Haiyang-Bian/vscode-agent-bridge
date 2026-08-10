@@ -7,7 +7,7 @@ import {
   StdioClientTransport,
   getDefaultEnvironment,
 } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test as bunTest } from "bun:test";
 
 import { REGISTRY_DIRECTORY_ENV } from "@vscode-agent-bridge/protocol";
 
@@ -22,15 +22,16 @@ afterEach(async () => {
 });
 
 describe("STDIO MCP server", () => {
-  test("advertises the initial tools and lists an empty registry", async () => {
+  bunTest("advertises bounded read and experiment tools", async () => {
     const client = new Client(
-      { name: "vscode-agent-bridge-test", version: "0.1.0" },
+      { name: "vscode-agent-bridge-test", version: "0.5.1" },
       { capabilities: {} },
     );
+    const compiledExecutable = process.env.VSCODE_AGENT_BRIDGE_TEST_EXE;
     const transport = new StdioClientTransport({
-      command: "bun",
-      args: ["run", "src/index.ts"],
-      cwd: path.resolve(import.meta.dir, ".."),
+      command: compiledExecutable ?? "bun",
+      args: compiledExecutable ? [] : ["run", "src/index.ts"],
+      ...(compiledExecutable ? {} : { cwd: path.resolve(import.meta.dir, "..") }),
       env: {
         ...getDefaultEnvironment(),
         [REGISTRY_DIRECTORY_ENV]: temporaryRegistry,
@@ -42,9 +43,73 @@ describe("STDIO MCP server", () => {
     try {
       const tools = await client.listTools();
       expect(tools.tools.map((tool) => tool.name).sort()).toEqual([
+        "vscode_apply_change_set",
+        "vscode_apply_code_action",
+        "vscode_format_document",
+        "vscode_get_definitions",
+        "vscode_get_diagnostics",
+        "vscode_get_document_symbols",
         "vscode_get_editor_context",
+        "vscode_get_experiment",
+        "vscode_get_hover",
+        "vscode_get_references",
+        "vscode_list_code_actions",
+        "vscode_list_experiment_checkpoints",
         "vscode_list_instances",
+        "vscode_list_terminal_executions",
+        "vscode_list_terminals",
+        "vscode_prepare_rename",
+        "vscode_prepare_text_edits",
+        "vscode_read_document",
+        "vscode_read_terminal_output",
+        "vscode_record_experiment_evidence",
+        "vscode_save_document",
       ]);
+      for (const tool of tools.tools.filter((item) =>
+        ![
+          "vscode_prepare_text_edits",
+          "vscode_prepare_rename",
+          "vscode_list_code_actions",
+          "vscode_apply_change_set",
+          "vscode_apply_code_action",
+          "vscode_format_document",
+          "vscode_record_experiment_evidence",
+          "vscode_save_document",
+        ].includes(item.name),
+      )) {
+        expect(tool.annotations).toEqual({
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        });
+      }
+      for (const name of [
+        "vscode_prepare_text_edits",
+        "vscode_prepare_rename",
+        "vscode_list_code_actions",
+      ]) {
+        expect(tools.tools.find((tool) => tool.name === name)?.annotations).toEqual({
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: false,
+        });
+      }
+      for (const name of [
+        "vscode_apply_change_set",
+        "vscode_apply_code_action",
+        "vscode_format_document",
+        "vscode_record_experiment_evidence",
+        "vscode_save_document",
+      ]) {
+        expect(tools.tools.find((tool) => tool.name === name)?.annotations).toEqual({
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: false,
+        });
+      }
 
       const result = await client.callTool({
         name: "vscode_list_instances",
@@ -59,6 +124,16 @@ describe("STDIO MCP server", () => {
       });
       expect(missingInstance.isError).toBe(true);
       expect(JSON.stringify(missingInstance.content)).toContain("NO_VSCODE_INSTANCE");
+
+      for (const name of [
+        "vscode_read_document",
+        "vscode_get_diagnostics",
+        "vscode_get_document_symbols",
+      ]) {
+        const missing = await client.callTool({ name, arguments: {} });
+        expect(missing.isError).toBe(true);
+        expect(JSON.stringify(missing.content)).toContain("NO_VSCODE_INSTANCE");
+      }
     } finally {
       await client.close();
     }

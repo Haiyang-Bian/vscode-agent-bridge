@@ -2,21 +2,94 @@
   "name": "vscode-agent-bridge",
   "displayName": "VS Code Agent Bridge",
   "description": "Expose IDE-native VS Code context to local MCP clients through an authenticated bridge.",
-  "version": "0.1.0",
-  "publisher": "local",
-  "private": true,
-  "license": "UNLICENSED",
+  "version": "0.5.1",
+  "publisher": "AliceLin",
+  "license": "MIT",
+  "icon": "resources/icon.png",
+  "pricing": "Free",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Haiyang-Bian/vscode-agent-bridge.git"
+  },
+  "homepage": "https://github.com/Haiyang-Bian/vscode-agent-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/Haiyang-Bian/vscode-agent-bridge/issues"
+  },
+  "keywords": [
+    "mcp",
+    "codex",
+    "agent",
+    "language-service",
+    "developer-tools"
+  ],
   "engines": {
     "vscode": "^1.95.0"
   },
   "categories": [
     "Other"
   ],
+  "galleryBanner": {
+    "color": "#071B33",
+    "theme": "dark"
+  },
   "activationEvents": [
     "onStartupFinished"
   ],
   "main": "./dist/extension.js",
+  "extensionKind": [
+    "ui"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Read-only editor context and terminal metadata remain available. Experiment sessions, guarded edits, terminal command/output access, restore, and Git inspection require a trusted workspace."
+    },
+    "virtualWorkspaces": false
+  },
   "contributes": {
+    "configuration": {
+      "title": "VS Code Agent Bridge",
+      "properties": {
+        "vscodeAgentBridge.autonomyProfile": {
+          "type": "string",
+          "enum": [
+            "autonomous",
+            "review",
+            "readOnly"
+          ],
+          "enumDescriptions": [
+            "Allow guarded IDE writes without per-tool approval and permit Agent saves.",
+            "Require Codex write approval and an explicitly accepted checkpoint for Finalize.",
+            "Reject all Agent writes and configure Codex with read tools only."
+          ],
+          "default": "autonomous",
+          "scope": "machine",
+          "description": "Controls the capability-limited Agent write policy for this machine."
+        },
+        "vscodeAgentBridge.terminalReadPolicy": {
+          "type": "string",
+          "enum": [
+            "allow",
+            "metadataOnly",
+            "deny"
+          ],
+          "enumDescriptions": [
+            "Allow trusted local workspaces to expose captured terminal command lines and sanitized output.",
+            "Expose only terminal names, process IDs, lifecycle and coverage metadata.",
+            "Do not expose terminal tools or retain new command output."
+          ],
+          "default": "allow",
+          "scope": "machine",
+          "description": "Controls read-only terminal observation for this machine."
+        },
+        "vscodeAgentBridge.enableAcceptanceFixtures": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine",
+          "description": "Register a deterministic pure-text Code Action fixture for acceptance testing. Keep disabled during normal use."
+        }
+      }
+    },
     "commands": [
       {
         "command": "vscodeAgentBridge.showStatus",
@@ -25,15 +98,182 @@
       {
         "command": "vscodeAgentBridge.copyInstanceId",
         "title": "VS Code Agent Bridge: Copy Instance ID"
+      },
+      {
+        "command": "vscodeAgentBridge.configureCodex",
+        "title": "VS Code Agent Bridge: Configure Codex"
+      },
+      {
+        "command": "vscodeAgentBridge.configureAgentPolicies",
+        "title": "VS Code Agent Bridge: Configure Agent Policies"
+      },
+      {
+        "command": "vscodeAgentBridge.removeCodexConfiguration",
+        "title": "VS Code Agent Bridge: Remove Codex Configuration"
+      },
+      {
+        "command": "vscodeAgentBridge.runDoctor",
+        "title": "VS Code Agent Bridge: Run Doctor"
+      },
+      {
+        "command": "vscodeAgentBridge.startExperiment",
+        "title": "VS Code Agent Bridge: Start Agent Experiment",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.reviewExperiment",
+        "title": "VS Code Agent Bridge: Review Agent Experiment"
+      },
+      {
+        "command": "vscodeAgentBridge.createCheckpoint",
+        "title": "VS Code Agent Bridge: Create Experiment Checkpoint",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.markCheckpointAccepted",
+        "title": "VS Code Agent Bridge: Mark Checkpoint as Accepted",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.reviewCheckpoint",
+        "title": "VS Code Agent Bridge: Review Checkpoint"
+      },
+      {
+        "command": "vscodeAgentBridge.restoreAccepted",
+        "title": "VS Code Agent Bridge: Restore Accepted Candidate",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.finalizeExperiment",
+        "title": "VS Code Agent Bridge: Finalize Agent Experiment",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.abandonExperiment",
+        "title": "VS Code Agent Bridge: Abandon Agent Experiment",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.toggleExperimentPinned",
+        "title": "VS Code Agent Bridge: Pin or Unpin Experiment"
+      },
+      {
+        "command": "vscodeAgentBridge.deleteExperiment",
+        "title": "VS Code Agent Bridge: Delete Experiment Data"
+      },
+      {
+        "command": "vscodeAgentBridge.startManagedExperiment",
+        "title": "VS Code Agent Bridge: Start Managed Worktree Experiment (Advanced)",
+        "enablement": "isWindows && isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.openManagedExperiment",
+        "title": "VS Code Agent Bridge: Open Managed Experiment (Advanced)"
+      },
+      {
+        "command": "vscodeAgentBridge.createPrivateCheckpointCommit",
+        "title": "VS Code Agent Bridge: Create Private Checkpoint Commit",
+        "enablement": "isWindows && isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.syncManagedExperiment",
+        "title": "VS Code Agent Bridge: Sync Managed Experiment",
+        "enablement": "isWindows && isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.continueManagedSync",
+        "title": "VS Code Agent Bridge: Continue Experiment Sync",
+        "enablement": "isWindows && isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.abortManagedSync",
+        "title": "VS Code Agent Bridge: Abort Experiment Sync",
+        "enablement": "isWindows && isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.finalizeManagedExperiment",
+        "title": "VS Code Agent Bridge: Finalize Managed Experiment (Advanced)",
+        "enablement": "isWindows && isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.abandonManagedExperiment",
+        "title": "VS Code Agent Bridge: Abandon Managed Experiment",
+        "enablement": "isWindows && isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.deleteManagedWorktree",
+        "title": "VS Code Agent Bridge: Delete Managed Worktree",
+        "enablement": "isWindows && isWorkspaceTrusted"
+      },
+      {
+        "command": "vscodeAgentBridge.repairManagedExperiments",
+        "title": "VS Code Agent Bridge: Repair Managed Experiments",
+        "enablement": "isWindows && isWorkspaceTrusted"
       }
-    ]
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "vscodeAgentBridgeExperiments",
+          "title": "Agent Experiments",
+          "icon": "resources/experiment.svg"
+        }
+      ]
+    },
+    "views": {
+      "vscodeAgentBridgeExperiments": [
+        {
+          "id": "vscodeAgentBridge.experimentsView",
+          "name": "Experiments"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "vscodeAgentBridge.startExperiment",
+          "when": "view == vscodeAgentBridge.experimentsView && isWorkspaceTrusted",
+          "group": "navigation"
+        },
+        {
+          "command": "vscodeAgentBridge.createCheckpoint",
+          "when": "view == vscodeAgentBridge.experimentsView && isWorkspaceTrusted",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "vscodeAgentBridge.markCheckpointAccepted",
+          "when": "view == vscodeAgentBridge.experimentsView && viewItem == experimentCheckpoint",
+          "group": "inline"
+        },
+        {
+          "command": "vscodeAgentBridge.reviewCheckpoint",
+          "when": "view == vscodeAgentBridge.experimentsView && viewItem == experimentCheckpoint",
+          "group": "navigation"
+        },
+        {
+          "command": "vscodeAgentBridge.toggleExperimentPinned",
+          "when": "view == vscodeAgentBridge.experimentsView && (viewItem == experiment || viewItem == activeExperiment)",
+          "group": "navigation"
+        },
+        {
+          "command": "vscodeAgentBridge.deleteExperiment",
+          "when": "view == vscodeAgentBridge.experimentsView && viewItem == experiment",
+          "group": "navigation@2"
+        }
+      ]
+    }
   },
   "scripts": {
     "build": "bun build src/extension.ts --outdir dist --target node --format cjs --external vscode --sourcemap=external",
+    "build:test:e2e": "bun build ./test/e2e/extension.e2e.ts --outdir=dist-test/e2e --target=node --format=cjs --external=vscode",
     "typecheck": "tsc --project tsconfig.json"
   },
   "dependencies": {
-    "@vscode-agent-bridge/protocol": "workspace:*"
+    "@vscode-agent-bridge/protocol": "workspace:*",
+    "smol-toml": "1.6.1",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@types/vscode": "1.95.0"
