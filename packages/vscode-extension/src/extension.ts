@@ -8,6 +8,8 @@ import { registerAgentActivityUi } from "./agent-activity-ui.js";
 import { AgentEditorVisibility } from "./agent-editor-visibility.js";
 import { ChangeSetManager } from "./change-set-manager.js";
 import { CodexConfigConflictError, createManagedConfigBlock } from "./codex-config.js";
+import { DebugManager } from "./debug-manager.js";
+import { createDebugRequestHandlers } from "./debug-request-handlers.js";
 import {
   configureCodexIntegration,
   inspectInstallation,
@@ -56,6 +58,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const terminals = new TerminalObserver(host.instanceId);
   const configurations = new WorkspaceConfigurationManager(host.instanceId, experiments);
   const tasks = new TaskManager(host.instanceId, experiments, terminals, activity);
+  const debug = new DebugManager(host.instanceId, experiments, activity, configurations);
   const ideAutonomy = new IdeAutonomyManager(
     host.instanceId,
     experiments,
@@ -77,6 +80,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     createWorkspaceConfigurationRequestHandlers(configurations, experiments, onboarding, activity),
   );
   host.registerRequestHandlers(createTaskRequestHandlers(tasks, experiments, onboarding, activity));
+  host.registerRequestHandlers(createDebugRequestHandlers(debug, experiments, onboarding, activity));
   host.registerRequestHandlers(
     createIdeAutonomyRequestHandlers(ideAutonomy, experiments, onboarding, activity),
   );
@@ -103,6 +107,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     experiments,
     terminals,
     tasks,
+    debug,
     vscode.commands.registerCommand("vscodeAgentBridge.showStatus", async () => {
       const remoteLabel = vscode.env.remoteName ? `, remote=${vscode.env.remoteName}` : "";
       await vscode.window.showInformationMessage(
