@@ -64,6 +64,25 @@ export class TerminalObserver implements vscode.Disposable {
     return this.#capture.getStats();
   }
 
+  findExecutionByProcessId(
+    processId: number,
+  ): { readonly terminalId: string; readonly executionId: string | null } | null {
+    const terminal = this.#capture
+      .listTerminals("metadata")
+      .terminals.find((candidate) => candidate.processId === processId);
+    if (!terminal) {
+      return null;
+    }
+    const execution = this.#capture.listExecutions({
+      terminalId: terminal.terminalId,
+      limit: 1,
+    }).executions[0];
+    return {
+      terminalId: terminal.terminalId,
+      executionId: execution?.executionId ?? null,
+    };
+  }
+
   dispose(): void {
     if (this.#cleanupTimer) {
       clearInterval(this.#cleanupTimer);

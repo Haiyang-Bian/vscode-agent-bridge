@@ -59,6 +59,32 @@ export class AgentActivityTracker {
     return { dispose: () => this.#listeners.delete(listener) };
   }
 
+  record(
+    input: AgentActivityInput,
+    status: AgentActivityStatus,
+    completion: AgentActivityCompletion & { readonly errorCode?: string | null } = {},
+  ): string {
+    const operationId = randomUUID();
+    const completed = status !== "queued" && status !== "running";
+    this.#entries.unshift({
+      operationId,
+      toolName: sanitizeText(input.toolName, 80),
+      title: sanitizeText(input.title, 160),
+      reason: input.reason ? sanitizeText(input.reason, 240) : null,
+      status,
+      startedAt: new Date().toISOString(),
+      completedAt: completed ? new Date().toISOString() : null,
+      targets: sanitizeTargets(completion.targets ?? input.targets ?? []),
+      fileCount: completion.fileCount ?? null,
+      editCount: completion.editCount ?? null,
+      checkpointId: completion.checkpointId ?? null,
+      errorCode: completion.errorCode ?? null,
+    });
+    this.#entries.splice(this.#limit);
+    this.#emit();
+    return operationId;
+  }
+
   async track<Result>(
     input: AgentActivityInput,
     operation: () => Promise<Result>,

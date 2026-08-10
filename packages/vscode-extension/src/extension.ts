@@ -31,6 +31,8 @@ import {
   createTerminalRequestHandlers,
   createWorkspaceRequestHandlers,
 } from "./request-handlers.js";
+import { TaskManager } from "./task-manager.js";
+import { createTaskRequestHandlers } from "./task-request-handlers.js";
 import { TerminalObserver } from "./terminal-observer.js";
 import { WorkspaceOnboardingService } from "./workspace-onboarding.js";
 import { WorkspaceConfigurationManager } from "./workspace-configuration-manager.js";
@@ -53,6 +55,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const managed = new ManagedWorktreeManager(experiments);
   const terminals = new TerminalObserver(host.instanceId);
   const configurations = new WorkspaceConfigurationManager(host.instanceId, experiments);
+  const tasks = new TaskManager(host.instanceId, experiments, terminals, activity);
   const ideAutonomy = new IdeAutonomyManager(
     host.instanceId,
     experiments,
@@ -73,6 +76,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   host.registerRequestHandlers(
     createWorkspaceConfigurationRequestHandlers(configurations, experiments, onboarding, activity),
   );
+  host.registerRequestHandlers(createTaskRequestHandlers(tasks, experiments, onboarding, activity));
   host.registerRequestHandlers(
     createIdeAutonomyRequestHandlers(ideAutonomy, experiments, onboarding, activity),
   );
@@ -98,6 +102,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     output,
     experiments,
     terminals,
+    tasks,
     vscode.commands.registerCommand("vscodeAgentBridge.showStatus", async () => {
       const remoteLabel = vscode.env.remoteName ? `, remote=${vscode.env.remoteName}` : "";
       await vscode.window.showInformationMessage(
