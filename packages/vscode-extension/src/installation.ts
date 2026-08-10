@@ -16,8 +16,6 @@ import {
   updateCodexConfigFile,
   type CodexConfigChangeResult,
   type CodexConfigStatus,
-  type AgentPolicyOptions,
-  DEFAULT_AGENT_POLICIES,
 } from "./codex-config.js";
 
 const EXECUTABLE_NAME = "vscode-agent-bridge-mcp.exe";
@@ -40,13 +38,11 @@ export interface InstallationDoctorResult {
 
 export async function configureCodexIntegration(
   context: vscode.ExtensionContext,
-  policies: AgentPolicyOptions = DEFAULT_AGENT_POLICIES,
 ): Promise<InstallationResult> {
   const installation = await installBundledExecutable(context);
   const configResult = await updateCodexConfigFile(
     resolveCodexConfigPath(),
     installation.executablePath,
-    policies,
   );
   return {
     ...configResult,
@@ -60,7 +56,6 @@ export async function removeCodexIntegration(): Promise<CodexConfigChangeResult>
 
 export async function inspectInstallation(
   context: vscode.ExtensionContext,
-  policies: AgentPolicyOptions = DEFAULT_AGENT_POLICIES,
 ): Promise<InstallationDoctorResult> {
   const bundledExecutable = await validateExecutableWithSidecar(
     resolveBundledExecutablePath(context),
@@ -70,7 +65,6 @@ export async function inspectInstallation(
   const codexConfig = await inspectCodexConfigFile(
     resolveCodexConfigPath(),
     installedExecutablePath,
-    policies,
   );
 
   return {

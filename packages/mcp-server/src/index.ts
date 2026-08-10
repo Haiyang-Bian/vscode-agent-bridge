@@ -81,6 +81,7 @@ import {
   type BridgeError,
   type InstanceDescriptor,
 } from "@vscode-agent-bridge/protocol";
+import * as WorkflowProtocol from "@vscode-agent-bridge/protocol";
 
 import { discoverLiveInstances, selectInstance, toPublicInstance } from "./instances.js";
 import { requestBridgeResult, requestEditorContext } from "./rpc-client.js";
@@ -122,7 +123,7 @@ const server = new McpServer(
   },
   {
     instructions:
-      "Prefer this VS Code Bridge over filesystem or shell tools whenever it offers the needed IDE capability. Inspect workspace setup before starting work, and use a concise experiment title derived from the user's task. The Bridge exposes unsaved buffers, language services, guarded text edits, formatting, pure-text Code Actions, saving existing documents, bounded experiment management, and read-only terminal observation. The Agent may start, rename, and checkpoint ordinary experiments, but acceptance, restore, finalization, abandonment, deletion, pinning, Managed Worktree operations, formal Git history, and terminal input remain user-only. Call vscode_list_instances before targeting a window when multiple VS Code instances may be open. Every mutation is constrained by explicit routing, state or document preconditions, workspace trust, and active policy. Remote VS Code extension hosts are unsupported.",
+      "Prefer this VS Code Bridge over filesystem or shell tools whenever it offers the needed IDE capability. Inspect workspace setup, start a recoverable experiment, and use VS Code-native configuration, Tasks, language services, and Debug workflows. Tool annotations describe side effects so the MCP client or supervising agent can decide approvals. Acceptance, restore, finalization, Managed Worktree operations, formal Git history, and terminal input remain user-only. Call vscode_list_instances before targeting a window when multiple VS Code instances may be open. Every mutation or execution requires explicit routing, an active experiment, workspace trust, and state preconditions. Remote extension hosts are unsupported.",
   },
 );
 
@@ -145,6 +146,20 @@ const guardedWriteAnnotations = {
   destructiveHint: false,
   idempotentHint: false,
   openWorldHint: false,
+} as const;
+
+const destructiveLocalWriteAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: false,
+  openWorldHint: false,
+} as const;
+
+const openWorldWriteAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: false,
+  openWorldHint: true,
 } as const;
 
 server.registerTool(
@@ -605,7 +620,7 @@ server.registerTool(
       "Consume one prepared change set after revalidating every document, apply text edits to VS Code buffers, leave them unsaved, and create an experiment checkpoint.",
     inputSchema: ApplyChangeSetInputSchema,
     outputSchema: AppliedChangeSetSchema,
-    annotations: guardedWriteAnnotations,
+    annotations: destructiveLocalWriteAnnotations,
   },
   async ({ instanceId, ...rawParams }, { signal }) => {
     try {
@@ -868,6 +883,198 @@ server.registerTool(
   },
 );
 
+registerRoutedWorkflowTool({
+  name: "vscode_get_workspace_configuration",
+  title: "Read structured VS Code workspace configuration",
+  description: "Read bounded JSONC from the selected settings, launch, tasks, or workspace file with a content hash and parse diagnostics.",
+  method: BRIDGE_METHODS.getWorkspaceConfiguration,
+  inputSchema: WorkflowProtocol.GetWorkspaceConfigurationInputSchema,
+  paramsSchema: WorkflowProtocol.GetWorkspaceConfigurationParamsSchema,
+  outputSchema: WorkflowProtocol.WorkspaceConfigurationResultSchema,
+  annotations: readOnlyAnnotations,
+  summarize: (result) => `Read ${result.target} configuration (${result.returnedCharacters} character(s)).`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_update_workspace_configuration",
+  title: "Update structured VS Code workspace configuration",
+  description: "Apply guarded JSON Pointer operations to settings, launch, tasks, or the workspace file, preserve JSONC formatting, save, and checkpoint the result.",
+  method: BRIDGE_METHODS.updateWorkspaceConfiguration,
+  inputSchema: WorkflowProtocol.UpdateWorkspaceConfigurationInputSchema,
+  paramsSchema: WorkflowProtocol.UpdateWorkspaceConfigurationParamsSchema,
+  outputSchema: WorkflowProtocol.UpdateWorkspaceConfigurationResultSchema,
+  annotations: guardedWriteAnnotations,
+  summarize: (result) => `Updated and saved ${result.target} configuration${result.deferredEffects ? " with deferred effects" : ""}.`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_prepare_resource_changes",
+  title: "Prepare guarded VS Code resource changes",
+  description: "Validate workspace-local text file and directory creation, rename, or deletion and return a one-time change set without modifying resources.",
+  method: BRIDGE_METHODS.prepareResourceChanges,
+  inputSchema: WorkflowProtocol.PrepareResourceChangesInputSchema,
+  paramsSchema: WorkflowProtocol.PrepareResourceChangesParamsSchema,
+  outputSchema: WorkflowProtocol.PreparedChangeSetSchema,
+  annotations: prepareAnnotations,
+  summarize: (result) => `Prepared ${result.resourceOperationCount} resource operation(s); no resource was changed.`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_list_tasks",
+  title: "List VS Code workspace tasks",
+  description: "List bounded tasks from tasks.json and VS Code Task Providers for one explicit workspace root without exposing raw execution objects.",
+  method: BRIDGE_METHODS.listTasks,
+  inputSchema: WorkflowProtocol.ListTasksInputSchema,
+  paramsSchema: WorkflowProtocol.ListTasksParamsSchema,
+  outputSchema: WorkflowProtocol.ListTasksResultSchema,
+  annotations: readOnlyAnnotations,
+  summarize: (result) => `Returned ${result.returnedCount} of ${result.totalCount} task(s).`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_run_task",
+  title: "Run fingerprinted VS Code task",
+  description: "Run a previously listed workspace task after revalidating its fingerprint and active experiment. The task may have external side effects.",
+  method: BRIDGE_METHODS.runTask,
+  inputSchema: WorkflowProtocol.RunTaskInputSchema,
+  paramsSchema: WorkflowProtocol.RunTaskParamsSchema,
+  outputSchema: WorkflowProtocol.RunTaskResultSchema,
+  annotations: openWorldWriteAnnotations,
+  summarize: (result) => `Started task ${result.execution.taskLabel} (${result.execution.executionId}).`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_list_task_executions",
+  title: "List VS Code task executions",
+  description: "Return bounded in-memory task execution status, process exits, and terminal output coverage without returning raw commands.",
+  method: BRIDGE_METHODS.listTaskExecutions,
+  inputSchema: WorkflowProtocol.ListTaskExecutionsInputSchema,
+  paramsSchema: WorkflowProtocol.ListTaskExecutionsParamsSchema,
+  outputSchema: WorkflowProtocol.ListTaskExecutionsResultSchema,
+  annotations: readOnlyAnnotations,
+  summarize: (result) => `Returned ${result.returnedCount} task execution(s).`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_terminate_task",
+  title: "Terminate VS Code task",
+  description: "Terminate one active task execution selected by its bridge execution ID. External side effects already produced by the task are not reverted.",
+  method: BRIDGE_METHODS.terminateTask,
+  inputSchema: WorkflowProtocol.TerminateTaskInputSchema,
+  paramsSchema: WorkflowProtocol.TerminateTaskParamsSchema,
+  outputSchema: WorkflowProtocol.TerminateTaskResultSchema,
+  annotations: openWorldWriteAnnotations,
+  summarize: (result) => `Requested termination of task ${result.execution.taskLabel}.`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_list_debug_configurations",
+  title: "List VS Code debug configurations",
+  description: "List static launch configurations and compounds for one workspace root with stable fingerprints.",
+  method: BRIDGE_METHODS.listDebugConfigurations,
+  inputSchema: WorkflowProtocol.ListDebugConfigurationsInputSchema,
+  paramsSchema: WorkflowProtocol.ListDebugConfigurationsParamsSchema,
+  outputSchema: WorkflowProtocol.ListDebugConfigurationsResultSchema,
+  annotations: readOnlyAnnotations,
+  summarize: (result) => `Returned ${result.configurations.length} debug configuration(s).`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_start_debug_session",
+  title: "Start named VS Code debug session",
+  description: "Start a fingerprinted named launch configuration or compound under an active experiment. Debug targets may have external side effects.",
+  method: BRIDGE_METHODS.startDebugSession,
+  inputSchema: WorkflowProtocol.StartDebugSessionInputSchema,
+  paramsSchema: WorkflowProtocol.StartDebugSessionParamsSchema,
+  outputSchema: WorkflowProtocol.StartDebugSessionResultSchema,
+  annotations: openWorldWriteAnnotations,
+  summarize: (result) => result.debugSession ? `Started debug session ${result.debugSession.name}.` : "VS Code accepted the debug start request.",
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_list_debug_sessions",
+  title: "List VS Code debug sessions",
+  description: "List active and recently terminated debug sessions observed since extension activation.",
+  method: BRIDGE_METHODS.listDebugSessions,
+  inputSchema: WorkflowProtocol.ListDebugSessionsInputSchema,
+  paramsSchema: WorkflowProtocol.ListDebugSessionsParamsSchema,
+  outputSchema: WorkflowProtocol.ListDebugSessionsResultSchema,
+  annotations: readOnlyAnnotations,
+  summarize: (result) => `Returned ${result.sessions.length} debug session(s).`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_get_debug_state",
+  title: "Read bounded VS Code debug state",
+  description: "Read typed threads, stack frames, scopes, or variables through a fixed Debug Adapter Protocol request whitelist.",
+  method: BRIDGE_METHODS.getDebugState,
+  inputSchema: WorkflowProtocol.GetDebugStateInputSchema,
+  paramsSchema: WorkflowProtocol.GetDebugStateParamsSchema,
+  outputSchema: WorkflowProtocol.GetDebugStateResultSchema,
+  annotations: readOnlyAnnotations,
+  summarize: (result) => `Returned ${result.returnedCount} ${result.query} item(s).`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_control_debug_session",
+  title: "Control VS Code debug session",
+  description: "Pause, continue, step, restart, or terminate one debug session through a fixed action enum. No arbitrary DAP request is accepted.",
+  method: BRIDGE_METHODS.controlDebugSession,
+  inputSchema: WorkflowProtocol.ControlDebugSessionInputSchema,
+  paramsSchema: WorkflowProtocol.ControlDebugSessionParamsSchema,
+  outputSchema: WorkflowProtocol.ControlDebugSessionResultSchema,
+  annotations: openWorldWriteAnnotations,
+  summarize: (result) => `VS Code accepted debug action ${result.action}.`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_list_breakpoints",
+  title: "List VS Code breakpoints",
+  description: "List source and function breakpoints applicable to one selected workspace root.",
+  method: BRIDGE_METHODS.listBreakpoints,
+  inputSchema: WorkflowProtocol.ListBreakpointsInputSchema,
+  paramsSchema: WorkflowProtocol.ListBreakpointsParamsSchema,
+  outputSchema: WorkflowProtocol.ListBreakpointsResultSchema,
+  annotations: readOnlyAnnotations,
+  summarize: (result) => `Returned ${result.breakpoints.length} breakpoint(s).`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_update_breakpoints",
+  title: "Update VS Code breakpoints",
+  description: "Replace the source and function breakpoint set after validating its revision and workspace scope.",
+  method: BRIDGE_METHODS.updateBreakpoints,
+  inputSchema: WorkflowProtocol.UpdateBreakpointsInputSchema,
+  paramsSchema: WorkflowProtocol.UpdateBreakpointsParamsSchema,
+  outputSchema: WorkflowProtocol.UpdateBreakpointsResultSchema,
+  annotations: guardedWriteAnnotations,
+  summarize: (result) => `Updated VS Code to ${result.breakpoints.length} breakpoint(s).`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_evaluate_debug_expression",
+  title: "Evaluate VS Code debug expression",
+  description: "Evaluate an expression in an explicit debug session and frame. Evaluation may execute target code and have external side effects.",
+  method: BRIDGE_METHODS.evaluateDebugExpression,
+  inputSchema: WorkflowProtocol.EvaluateDebugExpressionInputSchema,
+  paramsSchema: WorkflowProtocol.EvaluateDebugExpressionParamsSchema,
+  outputSchema: WorkflowProtocol.EvaluateDebugExpressionResultSchema,
+  annotations: openWorldWriteAnnotations,
+  summarize: () => "Evaluated the debug expression; the expression and result were not logged.",
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_set_debug_variable",
+  title: "Set VS Code debug variable",
+  description: "Set one variable through the fixed DAP setVariable request after selecting an explicit session and variables reference.",
+  method: BRIDGE_METHODS.setDebugVariable,
+  inputSchema: WorkflowProtocol.SetDebugVariableInputSchema,
+  paramsSchema: WorkflowProtocol.SetDebugVariableParamsSchema,
+  outputSchema: WorkflowProtocol.SetDebugVariableResultSchema,
+  annotations: openWorldWriteAnnotations,
+  summarize: () => "Updated the debug variable; its name and value were not logged.",
+});
+
 function registerLocationsTool(
   name: "vscode_get_definitions" | "vscode_get_references",
   title: string,
@@ -894,6 +1101,54 @@ function registerLocationsTool(
           `Returned ${result.returnedCount} of ${result.totalCount} location(s) for ${result.uri}.`,
           result,
         );
+      } catch (error) {
+        return toolError(asBridgeError(error));
+      }
+    },
+  );
+}
+
+interface RoutedWorkflowToolRegistration {
+  readonly name: string;
+  readonly title: string;
+  readonly description: string;
+  readonly method: string;
+  readonly inputSchema: z.ZodTypeAny;
+  readonly paramsSchema: z.ZodTypeAny;
+  readonly outputSchema: z.ZodTypeAny;
+  readonly annotations: {
+    readonly readOnlyHint: boolean;
+    readonly destructiveHint: boolean;
+    readonly idempotentHint: boolean;
+    readonly openWorldHint: boolean;
+  };
+  readonly summarize: (result: any) => string;
+}
+
+function registerRoutedWorkflowTool(registration: RoutedWorkflowToolRegistration): void {
+  server.registerTool(
+    registration.name,
+    {
+      title: registration.title,
+      description: registration.description,
+      inputSchema: registration.inputSchema as any,
+      outputSchema: registration.outputSchema as any,
+      annotations: registration.annotations,
+    },
+    async (rawInput: any, context: any) => {
+      try {
+        const input = registration.inputSchema.parse(rawInput) as Record<string, unknown>;
+        const { instanceId, ...rawParams } = input;
+        const descriptor = await resolveInstance(instanceId as string | undefined);
+        const params = registration.paramsSchema.parse(rawParams);
+        const result = await requestBridgeResult(
+          descriptor,
+          registration.method,
+          params,
+          (value) => registration.outputSchema.parse(value) as Record<string, unknown>,
+          { signal: context.signal as AbortSignal, timeoutMilliseconds: INTERACTIVE_BRIDGE_TIMEOUT_MS },
+        );
+        return toolSuccess(registration.summarize(result), result);
       } catch (error) {
         return toolError(asBridgeError(error));
       }

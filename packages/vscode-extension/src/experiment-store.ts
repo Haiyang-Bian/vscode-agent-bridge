@@ -36,7 +36,7 @@ import {
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
 
-export const EXPERIMENT_STORAGE_SCHEMA_VERSION = 1;
+export const EXPERIMENT_STORAGE_SCHEMA_VERSION = 2;
 export const DEFAULT_EXPERIMENT_RETENTION_DAYS = 30;
 export const DEFAULT_EXPERIMENT_STORAGE_LIMIT_BYTES = 500 * 1024 * 1024;
 export const MAX_EXPERIMENT_BLOB_BYTES = 2 * 1024 * 1024;
@@ -54,6 +54,9 @@ const StoredDocumentSchema = z
     exists: z.boolean(),
     blobSha256: ContentSha256Schema.nullable(),
     contentSha256: ContentSha256Schema.nullable(),
+    resourceType: z.enum(["file", "directory"]).optional(),
+    recoverable: z.boolean().optional(),
+    unrecoverableReason: z.string().min(1).nullable().optional(),
   })
   .strict();
 
@@ -71,7 +74,7 @@ const StoredEvidenceEventSchema = z
 
 const ExperimentManifestSchema = z
   .object({
-    schemaVersion: z.literal(EXPERIMENT_STORAGE_SCHEMA_VERSION),
+    schemaVersion: z.union([z.literal(1), z.literal(EXPERIMENT_STORAGE_SCHEMA_VERSION)]),
     sessionId: ExperimentIdSchema,
     mode: ExperimentModeSchema,
     lifecycle: ExperimentLifecycleSchema,
@@ -146,6 +149,9 @@ export interface ExperimentStoreStats {
   readonly activeCount: number;
   readonly corruptCount: number;
   readonly storageBytes: number;
+  readonly v1Count: number;
+  readonly v2Count: number;
+  readonly recoveryRequiredCount: number;
 }
 
 export class ExperimentStore {
@@ -230,6 +236,17 @@ export class ExperimentStore {
     assertUuid(sessionId);
     const value = JSON.parse(await readFile(this.#manifestPath(sessionId), "utf8"));
     return ExperimentManifestSchema.parse(value);
+  }
+
+  async assertResourceHistorySupported(sessionId: string): Promise<ExperimentManifest> {
+    const manifest = await this.readManifest(sessionId);
+    if (manifest.schemaVersion < EXPERIMENT_STORAGE_SCHEMA_VERSION) {
+      throw new BridgeError(
+        "EXPERIMENT_UPGRADE_REQUIRED",
+        "This experiment predates recoverable resource history. End it and start a new experiment before changing resources.",
+      );
+    }
+    return manifest;
   }
 
   async listManifests(): Promise<ExperimentManifest[]> {
@@ -713,6 +730,11 @@ export class ExperimentStore {
       corruptCount:
         manifests.filter((manifest) => manifest.health === "corrupt").length + unreadableCount,
       storageBytes: manifests.reduce((total, manifest) => total + manifest.storageBytes, 0),
+      v1Count: manifests.filter((manifest) => manifest.schemaVersion === 1).length,
+      v2Count: manifests.filter((manifest) => manifest.schemaVersion === 2).length,
+      recoveryRequiredCount: manifests.filter((manifest) =>
+        manifest.warnings.some((warning) => warning.includes("Resource recovery is required")),
+      ).length,
     };
   }
 

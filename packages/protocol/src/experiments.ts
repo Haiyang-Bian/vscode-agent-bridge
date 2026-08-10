@@ -10,6 +10,8 @@ import {
   MAX_EXPERIMENT_EVIDENCE_CHARACTERS,
   MAX_EXPERIMENT_RATIONALE_CHARACTERS,
   MAX_EXPERIMENT_TITLE_CHARACTERS,
+  MAX_RESOURCE_CHANGE_CHARACTERS,
+  MAX_RESOURCE_OPERATIONS,
 } from "./constants.js";
 import { PositionSchema, RangeSchema } from "./schemas.js";
 
@@ -310,6 +312,77 @@ export const PrepareRenameInputSchema = PrepareRenameParamsSchema.extend({
   instanceId: z.uuid(),
 }).strict();
 
+export const ResourceKindSchema = z.enum(["file", "directory"]);
+export const ResourceChangeSchema = z.discriminatedUnion("operation", [
+  z
+    .object({
+      operation: z.literal("create"),
+      uri: z.string().min(1),
+      kind: ResourceKindSchema,
+      content: z.string().max(MAX_RESOURCE_CHANGE_CHARACTERS).optional(),
+    })
+    .strict()
+    .superRefine((value, context) => {
+      if (value.kind === "file" && value.content === undefined) {
+        context.addIssue({ code: "custom", path: ["content"], message: "Text file creation requires content." });
+      }
+      if (value.kind === "directory" && value.content !== undefined) {
+        context.addIssue({ code: "custom", path: ["content"], message: "Directories cannot have text content." });
+      }
+    }),
+  z
+    .object({
+      operation: z.literal("rename"),
+      uri: z.string().min(1),
+      targetUri: z.string().min(1),
+      kind: ResourceKindSchema,
+      expectedSha256: ContentSha256Schema.nullable(),
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("delete"),
+      uri: z.string().min(1),
+      kind: ResourceKindSchema,
+      expectedSha256: ContentSha256Schema.nullable(),
+      recursive: z.boolean().default(false),
+    })
+    .strict(),
+]);
+export const PrepareResourceChangesParamsSchema = z
+  .object({
+    sessionId: ExperimentIdSchema,
+    title: z.string().trim().min(1).max(MAX_EXPERIMENT_TITLE_CHARACTERS),
+    rationale: z.string().max(MAX_EXPERIMENT_RATIONALE_CHARACTERS).optional(),
+    operations: z.array(ResourceChangeSchema).min(1).max(MAX_RESOURCE_OPERATIONS),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const targets = new Set<string>();
+    let characters = 0;
+    for (const [index, operation] of value.operations.entries()) {
+      if (targets.has(operation.uri)) {
+        context.addIssue({ code: "custom", path: ["operations", index, "uri"], message: "Resource operation source URIs must be unique." });
+      }
+      targets.add(operation.uri);
+      if (operation.operation === "rename") {
+        if (targets.has(operation.targetUri)) {
+          context.addIssue({ code: "custom", path: ["operations", index, "targetUri"], message: "Resource operation target URIs must be unique." });
+        }
+        targets.add(operation.targetUri);
+      }
+      if (operation.operation === "create" && operation.content) {
+        characters += operation.content.length;
+      }
+    }
+    if (characters > MAX_RESOURCE_CHANGE_CHARACTERS) {
+      context.addIssue({ code: "custom", message: "Resource creation text exceeds the total character limit." });
+    }
+  });
+export const PrepareResourceChangesInputSchema = PrepareResourceChangesParamsSchema.safeExtend({
+  instanceId: z.uuid(),
+});
+
 export const PreparedDocumentChangeSchema = z
   .object({
     uri: z.string().min(1),
@@ -326,13 +399,15 @@ export const PreparedChangeSetSchema = z
     instanceId: z.uuid(),
     sessionId: ExperimentIdSchema,
     changeSetId: ChangeSetIdSchema,
-    kind: z.enum(["text-edits", "rename"]),
+    kind: z.enum(["text-edits", "rename", "resource-changes"]),
     title: z.string().min(1).max(MAX_EXPERIMENT_TITLE_CHARACTERS),
     rationale: z.string().nullable(),
     createdAt: z.string().min(1),
     expiresAt: z.string().min(1),
     documents: z.array(PreparedDocumentChangeSchema),
-    editCount: z.number().int().positive(),
+    resources: z.array(ResourceChangeSchema).default([]),
+    editCount: z.number().int().nonnegative(),
+    resourceOperationCount: z.number().int().nonnegative().default(0),
     replacementCharacters: z.number().int().nonnegative(),
   })
   .strict();
@@ -362,6 +437,7 @@ export const AppliedChangeSetSchema = z
     checkpointId: CheckpointIdSchema,
     appliedAt: z.string().min(1),
     documents: z.array(AppliedDocumentSchema),
+    resources: z.array(ResourceChangeSchema).default([]),
   })
   .strict();
 
@@ -399,6 +475,8 @@ export type ManagedExperimentInfo = z.infer<typeof ManagedExperimentInfoSchema>;
 export type PreparedChangeSet = z.infer<typeof PreparedChangeSetSchema>;
 export type PreparedDocumentChange = z.infer<typeof PreparedDocumentChangeSchema>;
 export type PrepareRenameParams = z.infer<typeof PrepareRenameParamsSchema>;
+export type PrepareResourceChangesParams = z.infer<typeof PrepareResourceChangesParamsSchema>;
+export type ResourceChange = z.infer<typeof ResourceChangeSchema>;
 export type PrepareTextEditsParams = z.infer<typeof PrepareTextEditsParamsSchema>;
 export type RecordExperimentEvidenceParams = z.infer<
   typeof RecordExperimentEvidenceParamsSchema

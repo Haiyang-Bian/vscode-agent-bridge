@@ -2,7 +2,7 @@
 
 VS Code Agent Bridge connects local MCP clients such as Codex to IDE-native VS Code state. It has two runtime layers: a standalone STDIO MCP server and a VS Code desktop extension. `packages/protocol` contains their shared RPC contracts and is not a third service.
 
-The unpublished `0.6.1` candidate targets Windows x64 and is distributed as a side-loaded VSIX. It upgrades directly over `0.5.1` or `0.6.0`; testers do not need Bun, Node.js or this repository because the package contains a Bun-compiled MCP executable and installs a versioned copy only after explicit confirmation.
+The unpublished `0.7.0` candidate targets Windows x64 and is distributed as a side-loaded VSIX. It upgrades directly over `0.6.1`; testers do not need Bun, Node.js or this repository because the package contains a Bun-compiled MCP executable and installs a versioned copy only after explicit confirmation.
 
 ## MCP tools
 
@@ -25,7 +25,7 @@ The unpublished `0.6.1` candidate targets Windows x64 and is distributed as a si
 | `vscode_list_experiment_checkpoints` | Read bounded checkpoint history and verification evidence. |
 | `vscode_prepare_text_edits` | Validate an expiring, one-use multi-document text Change Set without changing buffers. |
 | `vscode_prepare_rename` | Ask the fixed VS Code rename provider for a text-only Change Set. |
-| `vscode_apply_change_set` | Revalidate versions and hashes, then atomically apply text edits to dirty buffers. |
+| `vscode_apply_change_set` | Revalidate versions, hashes and resource state, then apply a one-use text/resource Change Set. |
 | `vscode_record_experiment_evidence` | Attach explicitly client-reported test, build or lint evidence. |
 | `vscode_save_document` | Save one guarded existing file document and capture the final format/code-action-on-save text. |
 | `vscode_format_document` | Apply edits from the fixed VS Code formatting provider while leaving the buffer dirty. |
@@ -34,17 +34,35 @@ The unpublished `0.6.1` candidate targets Windows x64 and is distributed as a si
 | `vscode_list_terminals` | Read terminal lifecycle, PID, activity and explicit capture coverage. |
 | `vscode_list_terminal_executions` | Page through Shell Integration executions observed since extension activation. |
 | `vscode_read_terminal_output` | Page through bounded, sanitized in-memory output with loss metadata. |
+| `vscode_get_workspace_configuration` | Read bounded settings, launch, tasks or workspace JSONC with hashes and parse diagnostics. |
+| `vscode_update_workspace_configuration` | Apply guarded JSON Pointer updates while preserving JSONC comments and unrelated fields. |
+| `vscode_prepare_resource_changes` | Prepare bounded creation, rename or deletion of in-root text files and directories. |
+| `vscode_list_tasks` | List workspace-scoped VS Code Tasks with stable IDs and fingerprints. |
+| `vscode_run_task` | Run a previously listed, fingerprint-matched Task inside the active experiment. |
+| `vscode_list_task_executions` | Page through bounded in-memory Task lifecycle and terminal-coverage metadata. |
+| `vscode_terminate_task` | Terminate one active Task execution. |
+| `vscode_list_debug_configurations` | List static launch configurations and compounds without exposing raw command objects. |
+| `vscode_start_debug_session` | Start a named, fingerprint-matched launch configuration or compound. |
+| `vscode_list_debug_sessions` | List active and recently ended tracked debug sessions. |
+| `vscode_get_debug_state` | Page through bounded threads, stack frames, scopes and variables. |
+| `vscode_control_debug_session` | Invoke one fixed pause/continue/step/restart/terminate action. |
+| `vscode_list_breakpoints` | List workspace source and function breakpoints. |
+| `vscode_update_breakpoints` | Replace guarded source/function breakpoints with workspace scope checks. |
+| `vscode_evaluate_debug_expression` | Evaluate within an explicit tracked session/frame/context without retaining the expression. |
+| `vscode_set_debug_variable` | Set one variable through a current variables reference without retaining its value. |
 
-The original read tools and experiment-history tools are read-only. Every document write requires an active trusted local experiment, explicit `instanceId`/`sessionId`, and fresh document version plus SHA-256 guards. Starting is the sole write without a session ID and requires an explicit instance, root, title, reason and user-confirmed workspace onboarding. There is no generic VS Code command, terminal input, shell, filesystem or Git tool.
+The original read tools and experiment-history tools remain read-only. Every mutation requires an active trusted local experiment, explicit instance/session routing, root scope and the relevant version, hash, fingerprint or revision precondition. Starting is the sole write without a session ID and still requires an explicit instance, root, title, reason and user-confirmed workspace onboarding. There is no generic VS Code command, arbitrary DAP request, terminal input, shell, unrestricted filesystem or Agent-callable Git tool.
 
-## Agent policies
+## Bridge controls
 
-Run **Configure Agent Policies**, then rerun **Configure Codex** whenever a policy changes.
+Run **Configure Bridge** to choose the machine-level master switch and workflow mode, then rerun **Configure Codex** after upgrading the MCP executable.
 
-- `autonomous` (default) allows guarded IDE edits, formatting, pure-text Code Actions and saves without per-tool prompts.
-- `review` asks Codex for write approval and requires an explicitly accepted checkpoint before Finalize.
-- `readOnly` removes write tools from the managed Codex block and makes extension handlers reject writes even if the block is stale.
-- Terminal read policy `allow` exposes captured command lines/output only in trusted local workspaces; `metadataOnly` exposes lifecycle metadata; `deny` rejects all terminal tools.
+- `vscodeAgentBridge.enabled` defaults to `true`. Turning it off closes RPC connections and removes the instance descriptor; local Doctor and configuration commands remain available.
+- `explicit` (default) permits only workflows explicitly requested through MCP and rejects delayed execution such as `runOn: folderOpen`.
+- `aggressive` also permits bounded deferred IDE configuration and reports `deferredEffects` in results, Doctor and Activity.
+- Existing v0.6 users who explicitly selected `readOnly`, `review`, `metadataOnly` or `deny` are not silently widened: bridge publication pauses until they explicitly enable or disable v0.7.
+
+The managed Codex block no longer chooses approval modes. Codex, user configuration or a supervising Agent decides approval from the accurate MCP annotations.
 
 ## Recoverable experiments
 
@@ -53,10 +71,10 @@ The first experiment request in a trusted local workspace inventories `.vscode`,
 After onboarding, the Agent can name an ordinary experiment for the current task, list sessions, rename ordinary sessions and create explicit checkpoints. Accept, restore, Finalize, abandon, pin, delete and every Managed Worktree action remain user-only. Experiments keep content-addressed, gzip-compressed text snapshots in VS Code extension storage, separate from the repository and Settings Sync.
 
 - Saving is not acceptance; a checkpoint is not a Git commit.
-- In autonomous mode the Agent may save an existing guarded document; it cannot create files or save untitled buffers.
-- Restore creates a safety checkpoint and restores only editor buffers; it never saves.
-- In autonomous mode Finalize may use the current saved state when no candidate is accepted. An existing accepted candidate stays authoritative. Review mode always requires acceptance.
-- Resource creation, deletion and rename are observed, but v0.3 whole-session restore refuses those cases.
+- The Agent may save guarded existing documents and prepare bounded text-file/directory creation, rename and deletion inside a schema-v2 experiment. Untitled and binary resource creation remain unsupported.
+- Restore creates a safety checkpoint, reconstructs captured text/resource state on disk, saves affected buffers and enters recovery-required state if a rollback cannot complete. Legacy schema-v1 sessions retain their older text-only boundary.
+- Finalize may use the current saved state when no candidate is accepted. An existing accepted candidate stays authoritative.
+- Task and Debug checkpoints capture recoverable workspace text/resources only. External processes, services, databases, network effects, environment changes and Git history are explicitly outside rollback coverage.
 - Retention defaults to 30 days or 500 MB. Active, pinned and corrupt sessions are not auto-deleted.
 
 The default Git workflow is an ordinary experiment branch plus normal Git squash/rebase performed by the user. Automatic checkpoints never create Git commits.
@@ -107,7 +125,7 @@ bun run test:artifact
 
 Pull requests and `master` run [CI](.github/workflows/ci.yml). A version tag runs [the release workflow](.github/workflows/release.yml), creates checksums, a version-specific cross-machine test bundle and provenance, and publishes a GitHub Release. Marketplace publishing remains disabled and runs through `vsce --oidc` only if `MARKETPLACE_TRUSTED_PUBLISHING_ENABLED` is explicitly set to `true`.
 
-No PAT is stored in this repository. See the [v0.6.1 release checklist](docs/releases/v0.6.1.md) and [v0.6.1 cross-machine acceptance prompt](docs/acceptance/v0.6.1-windows-x64.md). The original [v0.6.0 self-bootstrap audit](docs/audits/2026-08-10-v0.6.0-self-bootstrap-reload.md) remains the durable record for the findings fixed by this patch candidate.
+No PAT is stored in this repository. See the [v0.7.0 release checklist](docs/releases/v0.7.0.md) and [v0.7.0 cross-machine acceptance procedure](docs/acceptance/v0.7.0-windows-x64.md). Earlier self-bootstrap findings remain available under [docs/audits](docs/audits/README.md).
 
 ## Security and license
 

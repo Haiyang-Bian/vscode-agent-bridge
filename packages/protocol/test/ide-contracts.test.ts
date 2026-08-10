@@ -19,15 +19,18 @@ const SESSION_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const ACTION_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const HASH = "a".repeat(64);
 
-describe("protocol v5 workspace reflexivity contracts", () => {
-  test("registers exactly 26 bounded MCP tools", () => {
-    expect(BRIDGE_PROTOCOL_VERSION).toBe(5);
-    expect(MCP_TOOL_NAMES).toHaveLength(26);
-    expect(new Set(MCP_TOOL_NAMES).size).toBe(26);
+describe("protocol v6 IDE workflow contracts", () => {
+  test("registers exactly 42 bounded MCP tools", () => {
+    expect(BRIDGE_PROTOCOL_VERSION).toBe(6);
+    expect(MCP_TOOL_NAMES).toHaveLength(42);
+    expect(new Set(MCP_TOOL_NAMES).size).toBe(42);
     expect(MCP_TOOL_NAMES).toContain("vscode_save_document");
     expect(MCP_TOOL_NAMES).toContain("vscode_read_terminal_output");
     expect(MCP_TOOL_NAMES).toContain("vscode_get_workspace_setup");
     expect(MCP_TOOL_NAMES).toContain("vscode_start_experiment");
+    expect(MCP_TOOL_NAMES).toContain("vscode_update_workspace_configuration");
+    expect(MCP_TOOL_NAMES).toContain("vscode_run_task");
+    expect(MCP_TOOL_NAMES).toContain("vscode_evaluate_debug_expression");
     expect(Object.values(BRIDGE_METHODS)).not.toContain("terminals/sendInput");
   });
 
@@ -81,7 +84,7 @@ describe("protocol v5 workspace reflexivity contracts", () => {
     ).toThrow();
   });
 
-  test("defines policy and stable v5 error codes", () => {
+  test("defines compatibility policy and stable v6 error codes", () => {
     expect(TerminalReadPolicySchema.options).toEqual(["allow", "metadataOnly", "deny"]);
     for (const code of [
       "POLICY_DENIED",
@@ -95,6 +98,11 @@ describe("protocol v5 workspace reflexivity contracts", () => {
       "BRIDGE_INITIALIZING",
       "BRIDGE_DEGRADED",
       "REQUEST_CANCELLED",
+      "BRIDGE_DISABLED",
+      "DEFERRED_EXECUTION_DENIED",
+      "TASK_CHANGED",
+      "DEBUG_REQUEST_UNSUPPORTED",
+      "RESOURCE_RECOVERY_REQUIRED",
     ] as const) {
       expect(BRIDGE_ERROR_CODES).toContain(code);
     }

@@ -39,7 +39,11 @@ export class TerminalObserver implements vscode.Disposable {
       vscode.window.onDidStartTerminalShellExecution((event) => this.#startExecution(event)),
       vscode.window.onDidEndTerminalShellExecution((event) => this.#endExecution(event)),
       vscode.workspace.onDidChangeConfiguration((event) => {
-        if (event.affectsConfiguration("vscodeAgentBridge.terminalReadPolicy")) {
+        if (
+          event.affectsConfiguration("vscodeAgentBridge.enabled") ||
+          event.affectsConfiguration("vscodeAgentBridge.autonomyProfile") ||
+          event.affectsConfiguration("vscodeAgentBridge.terminalReadPolicy")
+        ) {
           this.#handlePolicyChange();
         }
       }),
@@ -62,6 +66,25 @@ export class TerminalObserver implements vscode.Disposable {
 
   getStats(): TerminalCaptureStats {
     return this.#capture.getStats();
+  }
+
+  findExecutionByProcessId(
+    processId: number,
+  ): { readonly terminalId: string; readonly executionId: string | null } | null {
+    const terminal = this.#capture
+      .listTerminals("metadata")
+      .terminals.find((candidate) => candidate.processId === processId);
+    if (!terminal) {
+      return null;
+    }
+    const execution = this.#capture.listExecutions({
+      terminalId: terminal.terminalId,
+      limit: 1,
+    }).executions[0];
+    return {
+      terminalId: terminal.terminalId,
+      executionId: execution?.executionId ?? null,
+    };
   }
 
   dispose(): void {

@@ -8,7 +8,6 @@ import {
 
 import { ExperimentManager } from "./experiment-manager.js";
 import type { ExperimentManifest, StoredCheckpoint } from "./experiment-store.js";
-import { getAutonomyProfile } from "./policies.js";
 import { WorkspaceOnboardingService } from "./workspace-onboarding.js";
 
 const SNAPSHOT_SCHEME = "vscode-agent-bridge-snapshot";
@@ -174,7 +173,7 @@ export function registerExperimentUi(
           throw new BridgeError("INVALID_REQUEST", "Mark a checkpoint as accepted before restoring it.");
         }
         const confirmation = await vscode.window.showWarningMessage(
-          `Restore accepted checkpoint ${experiment.acceptedCheckpointId} into editor buffers? A safety checkpoint will be created and files will remain unsaved.`,
+          `Restore accepted checkpoint ${experiment.acceptedCheckpointId} to the workspace? A safety checkpoint will be created; v2 experiments may create, overwrite, or delete captured resources on disk.`,
           { modal: true },
           "Restore Accepted Candidate",
         );
@@ -183,7 +182,7 @@ export function registerExperimentUi(
         }
         await experiments.restoreAccepted();
         await vscode.window.showInformationMessage(
-          "Accepted candidate restored to dirty editor buffers. Review and save manually.",
+          "Accepted candidate restored. Resource-history experiments were written to disk; legacy text-only experiments remain dirty for review.",
         );
       });
     }),
@@ -192,7 +191,7 @@ export function registerExperimentUi(
         const experiment = await experiments.getActiveExperiment();
         const candidateRule = experiment.acceptedCheckpointId
           ? "Current content must match the accepted checkpoint"
-          : getAutonomyProfile() === "autonomous" && experiment.mode === "workspace"
+          : experiment.mode === "workspace"
             ? "The current saved state will become an explicit final checkpoint"
             : "An accepted checkpoint is required";
         const confirmation = await vscode.window.showWarningMessage(

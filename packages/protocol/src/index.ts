@@ -7,3 +7,4 @@ export * from "./rpc.js";
 export * from "./schemas.js";
 export * from "./terminals.js";
 export * from "./workspace.js";
+export * from "./workflows.js";

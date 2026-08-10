@@ -8,6 +8,8 @@ import { registerAgentActivityUi } from "./agent-activity-ui.js";
 import { AgentEditorVisibility } from "./agent-editor-visibility.js";
 import { ChangeSetManager } from "./change-set-manager.js";
 import { CodexConfigConflictError, createManagedConfigBlock } from "./codex-config.js";
+import { DebugManager } from "./debug-manager.js";
+import { createDebugRequestHandlers } from "./debug-request-handlers.js";
 import {
   configureCodexIntegration,
   inspectInstallation,
@@ -21,9 +23,7 @@ import { registerExperimentUi } from "./experiment-ui.js";
 import { ManagedWorktreeManager } from "./managed-worktree-manager.js";
 import { registerManagedWorktreeUi } from "./managed-worktree-ui.js";
 import {
-  getAgentPolicyOptions,
-  getAutonomyProfile,
-  getTerminalReadPolicy,
+  getBridgePolicyState,
 } from "./policies.js";
 import {
   createExperimentRequestHandlers,
@@ -31,8 +31,12 @@ import {
   createTerminalRequestHandlers,
   createWorkspaceRequestHandlers,
 } from "./request-handlers.js";
+import { TaskManager } from "./task-manager.js";
+import { createTaskRequestHandlers } from "./task-request-handlers.js";
 import { TerminalObserver } from "./terminal-observer.js";
 import { WorkspaceOnboardingService } from "./workspace-onboarding.js";
+import { WorkspaceConfigurationManager } from "./workspace-configuration-manager.js";
+import { createWorkspaceConfigurationRequestHandlers } from "./workspace-configuration-handlers.js";
 
 let activeHost: BridgeHost | undefined;
 let activeExperimentManager: ExperimentManager | undefined;
@@ -50,6 +54,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const changeSets = new ChangeSetManager(host.instanceId, experiments, visibility);
   const managed = new ManagedWorktreeManager(experiments);
   const terminals = new TerminalObserver(host.instanceId);
+  const configurations = new WorkspaceConfigurationManager(host.instanceId, experiments);
+  const tasks = new TaskManager(host.instanceId, experiments, terminals, activity);
+  const debug = new DebugManager(host.instanceId, experiments, activity, configurations);
   const ideAutonomy = new IdeAutonomyManager(
     host.instanceId,
     experiments,
@@ -68,9 +75,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   host.registerRequestHandlers(createWorkspaceRequestHandlers(onboarding));
   host.registerRequestHandlers(createTerminalRequestHandlers(terminals));
   host.registerRequestHandlers(
+    createWorkspaceConfigurationRequestHandlers(configurations, experiments, onboarding, activity),
+  );
+  host.registerRequestHandlers(createTaskRequestHandlers(tasks, experiments, onboarding, activity));
+  host.registerRequestHandlers(createDebugRequestHandlers(debug, experiments, onboarding, activity));
+  host.registerRequestHandlers(
     createIdeAutonomyRequestHandlers(ideAutonomy, experiments, onboarding, activity),
   );
-  await host.start();
   try {
     await experiments.initialize();
     await host.markReady();
@@ -78,6 +89,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await host.markDegraded();
     output.error("Experiment storage initialization failed; the bridge is degraded.", error);
   }
+  let reconcileQueue = Promise.resolve();
+  const reconcileBridge = (): Promise<void> => {
+    reconcileQueue = reconcileQueue
+      .catch(() => undefined)
+      .then(() => reconcileBridgePublication(host, output));
+    return reconcileQueue;
+  };
+  await reconcileBridge();
   terminals.start();
   activeHost = host;
   activeExperimentManager = experiments;
@@ -92,10 +111,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     output,
     experiments,
     terminals,
+    tasks,
+    debug,
     vscode.commands.registerCommand("vscodeAgentBridge.showStatus", async () => {
+      const policy = getBridgePolicyState();
       const remoteLabel = vscode.env.remoteName ? `, remote=${vscode.env.remoteName}` : "";
       await vscode.window.showInformationMessage(
-        `VS Code Agent Bridge is listening (instance=${host.instanceId}${remoteLabel}).`,
+        host.isListening
+          ? `VS Code Agent Bridge is listening (instance=${host.instanceId}${remoteLabel}).`
+          : `VS Code Agent Bridge is not published (enabled=${policy.enabled}, migrationRequired=${policy.legacyMigrationRequired}, trusted=${policy.workspaceTrusted}${remoteLabel}).`,
       );
     }),
     vscode.commands.registerCommand("vscodeAgentBridge.copyInstanceId", async () => {
@@ -105,8 +129,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("vscodeAgentBridge.configureCodex", async () => {
       await configureCodexCommand(context, output);
     }),
-    vscode.commands.registerCommand("vscodeAgentBridge.configureAgentPolicies", async () => {
-      await configureAgentPoliciesCommand();
+    vscode.commands.registerCommand("vscodeAgentBridge.configureBridge", async () => {
+      await configureBridgeCommand();
     }),
     vscode.commands.registerCommand("vscodeAgentBridge.configureWorkspaceExperiment", async () => {
       await onboarding.configureInteractively();
@@ -115,13 +139,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await removeCodexCommand(output);
     }),
     vscode.commands.registerCommand("vscodeAgentBridge.runDoctor", async () => {
-      await runDoctorCommand(context, host, experiments, managed, terminals, output);
+      await runDoctorCommand(context, host, experiments, managed, terminals, tasks, debug, configurations, output);
     }),
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
-      void host.refreshDescriptor();
+      void (host.isListening ? host.refreshDescriptor() : Promise.resolve());
     }),
     vscode.workspace.onDidGrantWorkspaceTrust(() => {
-      void host.refreshDescriptor();
+      void reconcileBridge();
+    }),
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (
+        event.affectsConfiguration("vscodeAgentBridge.enabled") ||
+        event.affectsConfiguration("vscodeAgentBridge.executionMode") ||
+        event.affectsConfiguration("vscodeAgentBridge.autonomyProfile") ||
+        event.affectsConfiguration("vscodeAgentBridge.terminalReadPolicy")
+      ) {
+        void reconcileBridge();
+      }
     }),
     {
       dispose: () => {
@@ -136,7 +170,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
   }
 
-  void maybeOfferCodexSetup(context, output);
+  void maybeOfferLegacyPolicyMigration();
+  if (getBridgePolicyState().publishAllowed) {
+    void maybeOfferCodexSetup(context, output);
+  }
 }
 
 function registerAcceptanceFixtureProvider(context: vscode.ExtensionContext): void {
@@ -354,7 +391,7 @@ async function configureCodexCommand(
   }
 
   try {
-    const result = await configureCodexIntegration(context, getAgentPolicyOptions());
+    const result = await configureCodexIntegration(context);
     await vscode.window.showInformationMessage(
       result.changed || result.executableInstalled
         ? "Codex integration configured. Restart Codex to load the MCP server."
@@ -363,7 +400,7 @@ async function configureCodexCommand(
   } catch (error) {
     if (error instanceof CodexConfigConflictError) {
       await vscode.env.clipboard.writeText(
-        `${createManagedConfigBlock(resolveInstalledExecutablePath(), getAgentPolicyOptions())}\n`,
+        `${createManagedConfigBlock(resolveInstalledExecutablePath())}\n`,
       );
       await openCodexConfig();
       await vscode.window.showWarningMessage(
@@ -399,67 +436,103 @@ async function removeCodexCommand(output: vscode.LogOutputChannel): Promise<void
   }
 }
 
-async function configureAgentPoliciesCommand(): Promise<void> {
-  const autonomy = await vscode.window.showQuickPick(
+async function configureBridgeCommand(): Promise<void> {
+  const current = getBridgePolicyState();
+  const enabled = await vscode.window.showQuickPick(
     [
       {
-        label: "Autonomous (Default)",
-        description: "Guarded IDE writes can run without per-tool approval and may save.",
-        value: "autonomous" as const,
+        label: "Enable full bridge",
+        description: "Publish all accurately annotated IDE workflow tools in trusted local workspaces.",
+        value: true,
       },
       {
-        label: "Review",
-        description: "Codex prompts for writes and Finalize requires an accepted checkpoint.",
-        value: "review" as const,
-      },
-      {
-        label: "Read Only",
-        description: "The bridge rejects every Agent write.",
-        value: "readOnly" as const,
+        label: "Disable bridge",
+        description: "Stop RPC, close active bridge connections and remove this window descriptor.",
+        value: false,
       },
     ],
     {
-      title: "Agent autonomy profile",
-      placeHolder: `Current: ${getAutonomyProfile()}`,
+      title: "VS Code Agent Bridge master switch",
+      placeHolder: `Current: ${current.enabled ? "enabled" : "disabled"}`,
     },
   );
-  if (!autonomy) {
+  if (!enabled) {
     return;
   }
-  const terminal = await vscode.window.showQuickPick(
+  let executionMode = current.executionMode;
+  if (enabled.value) {
+    const selectedMode = await vscode.window.showQuickPick(
     [
       {
-        label: "Allow (Default)",
-        description: "Trusted workspaces may expose captured command lines and output.",
-        value: "allow" as const,
+          label: "Explicit (Default)",
+          description: "Only workflows directly requested through MCP may execute.",
+          value: "explicit" as const,
       },
       {
-        label: "Metadata Only",
-        description: "Expose terminal names, process IDs, lifecycle and coverage only.",
-        value: "metadataOnly" as const,
-      },
-      {
-        label: "Deny",
-        description: "Do not expose terminal tools or retain new terminal output.",
-        value: "deny" as const,
+          label: "Aggressive",
+          description: "Also allow bounded deferred IDE workflows such as folder-open Tasks.",
+          value: "aggressive" as const,
       },
     ],
     {
-      title: "Terminal read policy",
-      placeHolder: `Current: ${getTerminalReadPolicy()}`,
+        title: "IDE workflow execution mode",
+        placeHolder: `Current: ${current.executionMode}`,
     },
   );
-  if (!terminal) {
-    return;
+    if (!selectedMode) {
+      return;
+    }
+    executionMode = selectedMode.value;
   }
   const configuration = vscode.workspace.getConfiguration("vscodeAgentBridge");
   await Promise.all([
-    configuration.update("autonomyProfile", autonomy.value, vscode.ConfigurationTarget.Global),
-    configuration.update("terminalReadPolicy", terminal.value, vscode.ConfigurationTarget.Global),
+    configuration.update("enabled", enabled.value, vscode.ConfigurationTarget.Global),
+    configuration.update("executionMode", executionMode, vscode.ConfigurationTarget.Global),
   ]);
   await vscode.window.showInformationMessage(
-    "Agent policies updated. Run “VS Code Agent Bridge: Configure Codex” and restart Codex to update its managed tool list and approval mode.",
+    enabled.value
+      ? "VS Code Agent Bridge enabled. Codex or its supervising Agent decides per-tool approval from MCP annotations."
+      : "VS Code Agent Bridge disabled. Existing deferred workspace configuration was not removed.",
   );
+}
+
+async function reconcileBridgePublication(
+  host: BridgeHost,
+  output: vscode.LogOutputChannel,
+): Promise<void> {
+  const policy = getBridgePolicyState();
+  if (policy.publishAllowed) {
+    if (!host.isListening) {
+      await host.start();
+    } else {
+      await host.refreshDescriptor();
+    }
+    return;
+  }
+  if (host.isListening) {
+    await host.stop();
+  }
+  if (policy.legacyMigrationRequired) {
+    output.warn("A restrictive pre-v0.7 policy is present; bridge publication is paused pending an explicit migration choice.");
+  }
+}
+
+async function maybeOfferLegacyPolicyMigration(): Promise<void> {
+  if (!getBridgePolicyState().legacyMigrationRequired) {
+    return;
+  }
+  const choice = await vscode.window.showWarningMessage(
+    "VS Code Agent Bridge v0.7 replaces readOnly/review/terminal policies with one master switch. Choose whether to enable the fully annotated bridge; no previous restriction will be silently widened.",
+    { modal: true },
+    "Enable v0.7 Bridge",
+    "Keep Disabled",
+  );
+  if (!choice) {
+    return;
+  }
+  await vscode.workspace
+    .getConfiguration("vscodeAgentBridge")
+    .update("enabled", choice === "Enable v0.7 Bridge", vscode.ConfigurationTarget.Global);
 }
 
 async function runDoctorCommand(
@@ -468,14 +541,25 @@ async function runDoctorCommand(
   experiments: ExperimentManager,
   managed: ManagedWorktreeManager,
   terminals: TerminalObserver,
+  tasks: TaskManager,
+  debug: DebugManager,
+  configurations: WorkspaceConfigurationManager,
   output: vscode.LogOutputChannel,
 ): Promise<void> {
-  const policies = getAgentPolicyOptions();
+  const policy = getBridgePolicyState();
   const [report, experimentStats, managedReport] = await Promise.all([
-    inspectInstallation(context, policies),
+    inspectInstallation(context),
     experiments.getStoreStats(),
     managed.repairReport().catch(() => []),
   ]);
+  const deferredConfigurations = policy.executionMode === "aggressive"
+    ? (await Promise.all(
+        (vscode.workspace.workspaceFolders ?? []).flatMap((root) => [
+          configurations.getConfiguration({ rootUri: root.uri.toString(true), target: "tasks" }),
+          configurations.getConfiguration({ rootUri: root.uri.toString(true), target: "workspace" }),
+        ]),
+      )).filter((result) => result.deferredEffects).length
+    : 0;
   const terminalStats = terminals.getStats();
   const lines = [
     `releaseVersion=${report.releaseVersion}`,
@@ -487,13 +571,18 @@ async function runDoctorCommand(
     `bundledExecutable=${report.bundledExecutable}`,
     `installedExecutable=${report.installedExecutable}`,
     `codexConfig=${report.codexConfig}`,
-    `autonomyProfile=${policies.autonomyProfile}`,
-    `terminalReadPolicy=${policies.terminalReadPolicy}`,
+    `bridgeEnabled=${policy.enabled}`,
+    `executionMode=${policy.executionMode}`,
+    `legacyPolicyMigrationRequired=${policy.legacyMigrationRequired}`,
+    `workspaceTrusted=${policy.workspaceTrusted}`,
     `remoteContext=${vscode.env.remoteName ? "unsupported" : "local"}`,
     `experimentSessions=${experimentStats.sessionCount}`,
     `activeExperiments=${experimentStats.activeCount}`,
     `corruptExperiments=${experimentStats.corruptCount}`,
     `experimentStorageBytes=${experimentStats.storageBytes}`,
+    `legacyV1Experiments=${experimentStats.v1Count}`,
+    `resourceV2Experiments=${experimentStats.v2Count}`,
+    `resourceRecoveryRequired=${experimentStats.recoveryRequiredCount}`,
     `managedExperiments=${managedReport.length}`,
     `managedAttentionRequired=${managedReport.filter((item) => !item.worktreeRegistered || !item.worktreePathPresent || !item.branchMatches || item.state !== "ready").length}`,
     `terminalCount=${terminalStats.terminalCount}`,
@@ -501,12 +590,16 @@ async function runDoctorCommand(
     `terminalExecutionsWithOutput=${terminalStats.executionsWithOutput}`,
     `terminalCompleteCoverage=${terminalStats.executionsWithCompleteCoverage}`,
     `terminalCaptureMemoryBytes=${terminalStats.memoryBytes}`,
+    `activeTaskExecutions=${tasks.activeCount}`,
+    `activeDebugSessions=${debug.activeCount}`,
+    `deferredWorkflowConfigurations=${deferredConfigurations}`,
   ];
   output.info(`Doctor report:\n${lines.join("\n")}`);
   output.show(true);
   const healthy =
     report.platformSupported &&
     report.versionAligned &&
+    policy.publishAllowed &&
     host.isListening &&
     report.bundledExecutable === "present" &&
     report.installedExecutable === "present" &&
@@ -536,7 +629,7 @@ async function maybeOfferCodexSetup(
   await context.globalState.update(promptKey, true);
 
   try {
-    const report = await inspectInstallation(context, getAgentPolicyOptions());
+    const report = await inspectInstallation(context);
     if (report.codexConfig === "current" && report.installedExecutable === "present") {
       return;
     }

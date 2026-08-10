@@ -36,6 +36,7 @@ import {
   ListTerminalsResultSchema,
   PreparedChangeSetSchema,
   PrepareRenameParamsSchema,
+  PrepareResourceChangesParamsSchema,
   PrepareTextEditsParamsSchema,
   ReadDocumentParamsSchema,
   ReadTerminalOutputParamsSchema,
@@ -270,13 +271,48 @@ export function createExperimentRequestHandlers(
         ),
     ],
     [
+      BRIDGE_METHODS.prepareResourceChanges,
+      async (params, context) => {
+        const parsed = PrepareResourceChangesParamsSchema.parse(params);
+        return activity.track(
+          {
+            toolName: "vscode_prepare_resource_changes",
+            title: parsed.title,
+            reason: parsed.rationale ?? null,
+          },
+          async () => {
+            await ensureSessionWorkspaceEnabled(
+              experiments,
+              onboarding,
+              parsed.sessionId,
+              context.signal,
+            );
+            assertRequestActive(context.signal);
+            return PreparedChangeSetSchema.parse(
+              await changeSets.prepareResourceChanges(parsed),
+            );
+          },
+          (result) => ({
+            targets: toActivityTargets(
+              result.resources.flatMap((resource) =>
+                resource.operation === "rename"
+                  ? [resource.uri, resource.targetUri]
+                  : [resource.uri],
+              ),
+            ),
+            fileCount: result.resourceOperationCount,
+          }),
+        );
+      },
+    ],
+    [
       BRIDGE_METHODS.applyChangeSet,
       async (params, context) => {
         const parsed = ApplyChangeSetParamsSchema.parse(params);
         return activity.track(
           {
             toolName: "vscode_apply_change_set",
-            title: "Apply prepared text changes",
+            title: "Apply prepared changes",
           },
           async () => {
             await ensureSessionWorkspaceEnabled(
@@ -289,8 +325,15 @@ export function createExperimentRequestHandlers(
             return AppliedChangeSetSchema.parse(await changeSets.apply(parsed));
           },
           (result) => ({
-            targets: toActivityTargets(result.documents.map((document) => document.uri)),
-            fileCount: result.documents.length,
+            targets: toActivityTargets([
+              ...result.documents.map((document) => document.uri),
+              ...result.resources.flatMap((resource) =>
+                resource.operation === "rename"
+                  ? [resource.uri, resource.targetUri]
+                  : [resource.uri],
+              ),
+            ]),
+            fileCount: result.documents.length + result.resources.length,
             checkpointId: result.checkpointId,
           }),
         );
@@ -427,7 +470,7 @@ export function createIdeAutonomyRequestHandlers(
   ]);
 }
 
-function toActivityTargets(uris: readonly string[]): string[] {
+export function toActivityTargets(uris: readonly string[]): string[] {
   return uris.map((uri) => {
     try {
       return vscode.workspace.asRelativePath(vscode.Uri.parse(uri, true), false);
@@ -437,7 +480,7 @@ function toActivityTargets(uris: readonly string[]): string[] {
   });
 }
 
-async function ensureSessionWorkspaceEnabled(
+export async function ensureSessionWorkspaceEnabled(
   experiments: ExperimentManager,
   onboarding: WorkspaceOnboardingService,
   sessionId: string,

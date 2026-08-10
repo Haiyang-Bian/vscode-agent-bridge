@@ -14,13 +14,22 @@ import {
   type PreparedChangeSet,
   type PreparedDocumentChange,
   type PrepareRenameParams,
+  type PrepareResourceChangesParams,
   type PrepareTextEditsParams,
+  type ResourceChange,
   type TextReplacement,
 } from "@vscode-agent-bridge/protocol";
 
 import { ExperimentManager } from "./experiment-manager.js";
 import { AgentEditorVisibility } from "./agent-editor-visibility.js";
 import { assertAgentWriteAllowed } from "./policies.js";
+import {
+  applyResourcePlan,
+  assertResourcePlanFresh,
+  prepareResourcePlan,
+  type PreparedResourcePlan,
+} from "./resource-change-executor.js";
+import { validateConfigurationContentForUri } from "./workspace-configuration-manager.js";
 
 interface InternalPreparedDocument {
   readonly uri: vscode.Uri;
@@ -32,6 +41,7 @@ interface InternalPreparedDocument {
 interface InternalChangeSet {
   readonly result: PreparedChangeSet;
   readonly documents: readonly InternalPreparedDocument[];
+  readonly resourcePlan: PreparedResourcePlan | null;
   state: "prepared" | "consumed";
 }
 
@@ -112,6 +122,62 @@ export class ChangeSetManager {
     );
   }
 
+  async prepareResourceChanges(
+    params: PrepareResourceChangesParams,
+  ): Promise<PreparedChangeSet> {
+    this.#assertMutationAllowed();
+    this.#purgeExpired();
+    const experiment = await this.#assertActiveSession(params.sessionId);
+    await this.#experiments.assertResourceChangesAllowed(params.sessionId);
+    const resourcePlan = await prepareResourcePlan(experiment.rootUri, params.operations);
+    for (const prepared of resourcePlan.operations) {
+      if (prepared.operation.operation === "create" && prepared.operation.kind === "file") {
+        validateConfigurationContentForUri(prepared.uri, prepared.operation.content!);
+      }
+      if (
+        prepared.operation.operation === "rename" &&
+        prepared.operation.kind === "file" &&
+        prepared.targetUri
+      ) {
+        const content = prepared.before.entries[0]?.content;
+        if (content) {
+          validateConfigurationContentForUri(
+            prepared.targetUri,
+            Buffer.from(content).toString("utf8"),
+          );
+        }
+      }
+    }
+    const createdAt = new Date();
+    const changeSetId = randomUUID();
+    const result: PreparedChangeSet = {
+      instanceId: this.#instanceId,
+      sessionId: params.sessionId,
+      changeSetId,
+      kind: "resource-changes",
+      title: params.title,
+      rationale: params.rationale ?? null,
+      createdAt: createdAt.toISOString(),
+      expiresAt: new Date(createdAt.getTime() + CHANGE_SET_TTL_MS).toISOString(),
+      documents: [],
+      resources: [...params.operations],
+      editCount: 0,
+      resourceOperationCount: params.operations.length,
+      replacementCharacters: params.operations.reduce(
+        (total, operation) =>
+          total + (operation.operation === "create" ? (operation.content?.length ?? 0) : 0),
+        0,
+      ),
+    };
+    this.#changeSets.set(changeSetId, {
+      result,
+      documents: [],
+      resourcePlan,
+      state: "prepared",
+    });
+    return result;
+  }
+
   async apply(params: ApplyChangeSetParams): Promise<AppliedChangeSet> {
     return this.applyPrepared(params);
   }
@@ -149,6 +215,42 @@ export class ChangeSetManager {
     changeSet.state = "consumed";
     if (Date.now() >= Date.parse(changeSet.result.expiresAt)) {
       throw new BridgeError("CHANGE_SET_EXPIRED", "The prepared change set has expired.");
+    }
+
+    if (changeSet.resourcePlan) {
+      await assertResourcePlanFresh(changeSet.resourcePlan);
+      const visibleUris = changeSet.resourcePlan.operations
+        .filter(({ before }) => before.exists && before.kind === "file")
+        .map(({ uri }) => uri);
+      if (visibleUris.length > 0) {
+        await this.#visibility.reveal(experiment.rootUri, visibleUris);
+      }
+      await this.#experiments.captureBeforeResourceApply(
+        params.sessionId,
+        changeSet.resourcePlan.affectedUris,
+      );
+      try {
+        await applyResourcePlan(changeSet.resourcePlan);
+      } catch (error) {
+        if (error instanceof BridgeError && error.code === "RESOURCE_RECOVERY_REQUIRED") {
+          await this.#experiments.markResourceRecoveryRequired(params.sessionId);
+        }
+        throw error;
+      }
+      const checkpointId = await this.#experiments.captureAfterAgentApply(
+        params.sessionId,
+        checkpointSummary ?? changeSet.result.title,
+        changeSet.resourcePlan.affectedUris,
+      );
+      return {
+        instanceId: this.#instanceId,
+        sessionId: params.sessionId,
+        changeSetId: params.changeSetId,
+        checkpointId,
+        appliedAt: new Date().toISOString(),
+        documents: [],
+        resources: changeSet.result.resources as ResourceChange[],
+      };
     }
 
     const resolved = await Promise.all(
@@ -202,6 +304,7 @@ export class ChangeSetManager {
       checkpointId,
       appliedAt: new Date().toISOString(),
       documents,
+      resources: [],
     };
   }
 
@@ -238,6 +341,7 @@ export class ChangeSetManager {
       editCount += edits.length;
       replacementCharacters += edits.reduce((total, edit) => total + edit.newText.length, 0);
       const afterText = applyTextEdits(document, edits);
+      validateConfigurationContentForUri(uri, afterText, document.getText());
       preparedDocuments.push({
         uri: uri.toString(true),
         beforeSha256: raw.expectedSha256,
@@ -273,12 +377,15 @@ export class ChangeSetManager {
       createdAt: createdAt.toISOString(),
       expiresAt: new Date(createdAt.getTime() + CHANGE_SET_TTL_MS).toISOString(),
       documents: preparedDocuments,
+      resources: [],
       editCount,
+      resourceOperationCount: 0,
       replacementCharacters,
     };
     this.#changeSets.set(changeSetId, {
       result,
       documents: internalDocuments,
+      resourcePlan: null,
       state: "prepared",
     });
     return result;

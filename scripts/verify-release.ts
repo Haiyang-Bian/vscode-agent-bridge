@@ -60,7 +60,7 @@ assert(
   Array.isArray(extensionManifest.extensionKind) && extensionManifest.extensionKind.includes("ui"),
   "Extension must run as a desktop UI extension.",
 );
-assert(MCP_TOOL_NAMES.length === 26, "The release must expose exactly twenty-six MCP tools.");
+assert(MCP_TOOL_NAMES.length === 42, "The release must expose exactly forty-two MCP tools.");
 assert(
   rootDevDependencies["@vscode/vsce"] === "3.9.3-4",
   "The release must pin the verified OIDC-capable vsce build exactly.",
@@ -119,8 +119,17 @@ assert(
     "vscode_start_experiment",
     "vscode_rename_experiment",
     "vscode_create_experiment_checkpoint",
+    "vscode_update_workspace_configuration",
+    "vscode_prepare_resource_changes",
+    "vscode_run_task",
+    "vscode_terminate_task",
+    "vscode_start_debug_session",
+    "vscode_control_debug_session",
+    "vscode_update_breakpoints",
+    "vscode_evaluate_debug_expression",
+    "vscode_set_debug_variable",
   ].every((name) => MCP_TOOL_NAMES.includes(name)),
-  "The guarded mutation surface is not the expected prepare/apply workflow.",
+  "The guarded IDE workflow mutation surface is incomplete.",
 );
 assert(
   MCP_TOOL_NAMES.filter((name) => name.includes("terminal")).join(",") ===
@@ -130,6 +139,31 @@ assert(
       "vscode_read_terminal_output",
     ].join(","),
   "Only the three bounded read-only terminal observation tools may be exposed.",
+);
+assert(
+  MCP_TOOL_NAMES.filter((name) => name.includes("task")).join(",") ===
+    [
+      "vscode_list_tasks",
+      "vscode_run_task",
+      "vscode_list_task_executions",
+      "vscode_terminate_task",
+    ].join(","),
+  "The Task surface must remain the four fingerprinted workspace workflow tools.",
+);
+assert(
+  MCP_TOOL_NAMES.filter((name) => name.includes("debug") || name.includes("breakpoint")).join(",") ===
+    [
+      "vscode_list_debug_configurations",
+      "vscode_start_debug_session",
+      "vscode_list_debug_sessions",
+      "vscode_get_debug_state",
+      "vscode_control_debug_session",
+      "vscode_list_breakpoints",
+      "vscode_update_breakpoints",
+      "vscode_evaluate_debug_expression",
+      "vscode_set_debug_variable",
+    ].join(","),
+  "The Debug surface must remain the nine bounded launch, state, control and breakpoint tools.",
 );
 
 const releaseTag = resolveReleaseTag(process.env);
@@ -197,6 +231,11 @@ async function auditVsix(archivePath: string): Promise<void> {
     for (const file of files) {
       const bytes = await readFile(file);
       const searchable = bytes.toString("utf8").toLowerCase();
+      assert(
+        !searchable.includes("vscode-agent-bridge-e2e") &&
+          !searchable.includes("bridgee2edebugadapter"),
+        `Test-only Debug Adapter leaked into ${file}.`,
+      );
       for (const forbidden of forbiddenMachineStrings) {
         assert(!searchable.includes(forbidden), `Developer machine path leaked into ${file}.`);
       }

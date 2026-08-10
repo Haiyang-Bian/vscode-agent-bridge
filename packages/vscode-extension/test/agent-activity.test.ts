@@ -53,6 +53,25 @@ describe("Agent activity tracker", () => {
       errorCode: "INTERNAL_ERROR",
     });
   });
+
+  test("records asynchronous workflow transitions without retaining commands or paths", () => {
+    const tracker = new AgentActivityTracker(2);
+    tracker.record(
+      {
+        toolName: "vscode_run_task",
+        title: "Task running: test",
+        targets: ["C:/private/project/tasks.json"],
+      },
+      "running",
+    );
+    tracker.record(
+      { toolName: "vscode_run_task", title: "Task ended: test" },
+      "succeeded",
+    );
+    expect(tracker.entries).toHaveLength(2);
+    expect(tracker.entries[0]).toMatchObject({ status: "succeeded", completedAt: expect.any(String) });
+    expect(tracker.entries[1]).toMatchObject({ status: "running", targets: ["tasks.json"] });
+  });
 });
 
 describe("Agent editor visibility plan", () => {

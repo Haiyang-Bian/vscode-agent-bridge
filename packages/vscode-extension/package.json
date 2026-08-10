@@ -2,7 +2,7 @@
   "name": "vscode-agent-bridge",
   "displayName": "VS Code Agent Bridge",
   "description": "Expose IDE-native VS Code context to local MCP clients through an authenticated bridge.",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "publisher": "AliceLin",
   "license": "MIT",
   "icon": "resources/icon.png",
@@ -42,7 +42,7 @@
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": "limited",
-      "description": "Read-only editor context and terminal metadata remain available. Experiment sessions, guarded edits, terminal command/output access, restore, and Git inspection require a trusted workspace."
+      "description": "Local configuration and Doctor commands remain available, but the MCP bridge is not published until the workspace is trusted."
     },
     "virtualWorkspaces": false
   },
@@ -50,37 +50,25 @@
     "configuration": {
       "title": "VS Code Agent Bridge",
       "properties": {
-        "vscodeAgentBridge.autonomyProfile": {
-          "type": "string",
-          "enum": [
-            "autonomous",
-            "review",
-            "readOnly"
-          ],
-          "enumDescriptions": [
-            "Allow guarded IDE writes without per-tool approval and permit Agent saves.",
-            "Require Codex write approval and an explicitly accepted checkpoint for Finalize.",
-            "Reject all Agent writes and configure Codex with read tools only."
-          ],
-          "default": "autonomous",
+        "vscodeAgentBridge.enabled": {
+          "type": "boolean",
+          "default": true,
           "scope": "machine",
-          "description": "Controls the capability-limited Agent write policy for this machine."
+          "description": "Publish this local trusted VS Code window to configured MCP clients."
         },
-        "vscodeAgentBridge.terminalReadPolicy": {
+        "vscodeAgentBridge.executionMode": {
           "type": "string",
           "enum": [
-            "allow",
-            "metadataOnly",
-            "deny"
+            "explicit",
+            "aggressive"
           ],
           "enumDescriptions": [
-            "Allow trusted local workspaces to expose captured terminal command lines and sanitized output.",
-            "Expose only terminal names, process IDs, lifecycle and coverage metadata.",
-            "Do not expose terminal tools or retain new command output."
+            "Allow only workflows explicitly started by the current MCP request.",
+            "Also allow bounded deferred IDE workflows such as tasks configured to run when a folder opens."
           ],
-          "default": "allow",
+          "default": "explicit",
           "scope": "machine",
-          "description": "Controls read-only terminal observation for this machine."
+          "description": "Controls whether workspace configuration may introduce deferred IDE execution."
         },
         "vscodeAgentBridge.enableAcceptanceFixtures": {
           "type": "boolean",
@@ -128,8 +116,8 @@
         "title": "VS Code Agent Bridge: Configure Codex"
       },
       {
-        "command": "vscodeAgentBridge.configureAgentPolicies",
-        "title": "VS Code Agent Bridge: Configure Agent Policies"
+        "command": "vscodeAgentBridge.configureBridge",
+        "title": "VS Code Agent Bridge: Configure Bridge"
       },
       {
         "command": "vscodeAgentBridge.configureWorkspaceExperiment",
@@ -320,6 +308,7 @@
   },
   "dependencies": {
     "@vscode-agent-bridge/protocol": "workspace:*",
+    "jsonc-parser": "3.3.1",
     "smol-toml": "1.6.1",
     "zod": "4.4.3"
   },

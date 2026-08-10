@@ -42,15 +42,14 @@ export class BridgeHost {
   readonly #descriptorPath = resolveInstanceDescriptorPath(this.instanceId, this.#directories);
   readonly #output: vscode.LogOutputChannel;
   readonly #requestHandlers: Map<string, BridgeRequestHandler>;
-  readonly #server: Server;
+  #server: Server | undefined;
   readonly #sockets = new Set<Socket>();
   #refreshQueue = Promise.resolve();
   #lifecycle: BridgeLifecycle = "initializing";
   #started = false;
-  #stopped = false;
 
   get isListening(): boolean {
-    return this.#started && !this.#stopped;
+    return this.#started;
   }
 
   get lifecycle(): BridgeLifecycle {
@@ -60,7 +59,6 @@ export class BridgeHost {
   constructor(output: vscode.LogOutputChannel) {
     this.#output = output;
     this.#requestHandlers = new Map(createRequestHandlers(this.instanceId));
-    this.#server = net.createServer((socket) => this.#acceptConnection(socket));
   }
 
   registerRequestHandlers(handlers: ReadonlyMap<string, BridgeRequestHandler>): void {
@@ -80,6 +78,9 @@ export class BridgeHost {
       return;
     }
 
+    const server = net.createServer((socket) => this.#acceptConnection(socket));
+    this.#server = server;
+
     await mkdir(this.#directories.instances, { recursive: true, mode: 0o700 });
     await mkdir(this.#directories.sockets, { recursive: true, mode: 0o700 });
 
@@ -89,17 +90,17 @@ export class BridgeHost {
 
     await new Promise<void>((resolve, reject) => {
       const handleError = (error: Error): void => {
-        this.#server.off("listening", handleListening);
+        server.off("listening", handleListening);
         reject(error);
       };
       const handleListening = (): void => {
-        this.#server.off("error", handleError);
+        server.off("error", handleError);
         resolve();
       };
 
-      this.#server.once("error", handleError);
-      this.#server.once("listening", handleListening);
-      this.#server.listen(this.#transport.endpoint);
+      server.once("error", handleError);
+      server.once("listening", handleListening);
+      server.listen(this.#transport.endpoint);
     });
 
     this.#started = true;
@@ -129,18 +130,20 @@ export class BridgeHost {
   }
 
   async stop(): Promise<void> {
-    if (this.#stopped) {
+    if (!this.#started) {
       return;
     }
-    this.#stopped = true;
 
     for (const socket of this.#sockets) {
       socket.destroy();
     }
 
-    if (this.#started) {
-      await new Promise<void>((resolve) => this.#server.close(() => resolve()));
+    const server = this.#server;
+    if (server) {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
     }
+    this.#server = undefined;
+    this.#started = false;
 
     await rm(this.#descriptorPath, { force: true });
     if (this.#transport.kind === "unix-socket") {
@@ -318,7 +321,7 @@ export class BridgeHost {
   }
 
   async #writeDescriptor(): Promise<void> {
-    if (this.#stopped) {
+    if (!this.#started) {
       return;
     }
 

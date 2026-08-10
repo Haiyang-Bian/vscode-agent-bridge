@@ -6,11 +6,13 @@ const repositoryRoot = path.resolve(import.meta.dir, "..");
 const extensionRoot = path.join(repositoryRoot, "packages", "vscode-extension");
 const registryDirectory = await mkdtemp(path.join(os.tmpdir(), "vscode-agent-bridge-e2e-"));
 const workspaceDirectory = path.join(registryDirectory, "workspace");
+const e2eExtensionDirectory = path.join(registryDirectory, "extension");
 
 try {
   await prepareWorkspace(workspaceDirectory);
   await run(["bun", "run", "build"], repositoryRoot);
   await run(["bun", "run", "build:test:e2e"], extensionRoot);
+  await stageE2EExtension(e2eExtensionDirectory);
   await run(
     ["node", path.join(repositoryRoot, "node_modules", "@vscode", "test-cli", "out", "bin.mjs")],
     extensionRoot,
@@ -21,12 +23,31 @@ try {
       VSCODE_AGENT_BRIDGE_E2E_INITIALIZATION_DELAY_MS: "10000",
       VSCODE_AGENT_BRIDGE_E2E_ONBOARDING_DELAY_MS: "11000",
       VSCODE_AGENT_BRIDGE_E2E_WORKSPACE: workspaceDirectory,
+      VSCODE_AGENT_BRIDGE_E2E_EXTENSION: e2eExtensionDirectory,
+      VSCODE_AGENT_BRIDGE_E2E_DEBUG_SOURCE: path.join(workspaceDirectory, "bridge.ts"),
       VSCODE_AGENT_BRIDGE_MANAGED_ROOT: path.join(registryDirectory, "managed-worktrees"),
     },
   );
+  await assertPrimaryE2EMarker(registryDirectory);
   await assertManagedE2EMarker(registryDirectory);
 } finally {
   await rm(registryDirectory, { recursive: true, force: true });
+}
+
+async function assertPrimaryE2EMarker(registryDirectory: string): Promise<void> {
+  const marker = JSON.parse(
+    await readFile(path.join(registryDirectory, "primary-e2e-passed.json"), "utf8"),
+  ) as Record<string, unknown>;
+  if (marker.protocolVersion !== 6 || marker.toolCount !== 42) {
+    throw new Error("Primary IDE workflow E2E completion marker is invalid.");
+  }
+}
+
+async function stageE2EExtension(target: string): Promise<void> {
+  await mkdir(target, { recursive: true });
+  await cp(path.join(extensionRoot, "dist"), path.join(target, "dist"), { recursive: true });
+  await cp(path.join(extensionRoot, "resources"), path.join(target, "resources"), { recursive: true });
+  await cp(path.join(extensionRoot, "package.json"), path.join(target, "package.json"));
 }
 
 async function assertManagedE2EMarker(registryDirectory: string): Promise<void> {

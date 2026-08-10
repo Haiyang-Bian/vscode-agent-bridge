@@ -1,6 +1,6 @@
 export const BRIDGE_NAME = "vscode-agent-bridge" as const;
-export const BRIDGE_RELEASE_VERSION = "0.6.1" as const;
-export const BRIDGE_PROTOCOL_VERSION = 5 as const;
+export const BRIDGE_RELEASE_VERSION = "0.7.0" as const;
+export const BRIDGE_PROTOCOL_VERSION = 6 as const;
 export const DEFAULT_BRIDGE_TIMEOUT_MS = 5_000;
 export const INTERACTIVE_BRIDGE_TIMEOUT_MS = 90_000;
 export const MAX_RPC_MESSAGE_BYTES = 1_048_576;
@@ -28,11 +28,22 @@ export const MAX_TERMINAL_OUTPUT_CHARACTERS = 200_000;
 export const MAX_TERMINAL_EXECUTION_OUTPUT_BYTES = 1_048_576;
 export const MAX_TERMINAL_WINDOW_OUTPUT_BYTES = 16 * 1_048_576;
 export const CLOSED_TERMINAL_RETENTION_MS = 15 * 60 * 1_000;
+export const MAX_CONFIGURATION_OPERATIONS = 100;
+export const MAX_RESOURCE_OPERATIONS = 100;
+export const MAX_RESOURCE_CHANGE_CHARACTERS = 500_000;
+export const DEFAULT_TASK_LIMIT = 100;
+export const MAX_TASK_LIMIT = 200;
+export const TASK_EXECUTION_RETENTION_MS = 30 * 60 * 1_000;
+export const DEFAULT_DEBUG_ITEM_LIMIT = 100;
+export const MAX_DEBUG_VARIABLES = 500;
+export const MAX_DEBUG_STACK_FRAMES = 200;
 
 export const BRIDGE_METHODS = {
   initialize: "bridge/initialize",
   getEditorContext: "editor/getContext",
   getWorkspaceSetup: "workspace/getSetup",
+  getWorkspaceConfiguration: "workspace/getConfiguration",
+  updateWorkspaceConfiguration: "workspace/updateConfiguration",
   readDocument: "document/read",
   getDiagnostics: "languages/getDiagnostics",
   getDocumentSymbols: "languages/getDocumentSymbols",
@@ -47,6 +58,7 @@ export const BRIDGE_METHODS = {
   listExperimentCheckpoints: "experiment/listCheckpoints",
   prepareTextEdits: "experiment/prepareTextEdits",
   prepareRename: "experiment/prepareRename",
+  prepareResourceChanges: "experiment/prepareResourceChanges",
   applyChangeSet: "experiment/applyChangeSet",
   recordExperimentEvidence: "experiment/recordEvidence",
   saveDocument: "document/save",
@@ -56,11 +68,26 @@ export const BRIDGE_METHODS = {
   listTerminals: "terminals/list",
   listTerminalExecutions: "terminals/listExecutions",
   readTerminalOutput: "terminals/readOutput",
+  listTasks: "tasks/list",
+  runTask: "tasks/run",
+  listTaskExecutions: "tasks/listExecutions",
+  terminateTask: "tasks/terminate",
+  listDebugConfigurations: "debug/listConfigurations",
+  startDebugSession: "debug/startSession",
+  listDebugSessions: "debug/listSessions",
+  getDebugState: "debug/getState",
+  controlDebugSession: "debug/controlSession",
+  listBreakpoints: "debug/listBreakpoints",
+  updateBreakpoints: "debug/updateBreakpoints",
+  evaluateDebugExpression: "debug/evaluate",
+  setDebugVariable: "debug/setVariable",
 } as const;
 
 export const BRIDGE_CAPABILITIES = [
   "editor.getContext",
   "workspace.getSetup",
+  "workspace.getConfiguration",
+  "workspace.updateConfiguration",
   "document.read",
   "languages.getDiagnostics",
   "languages.getDocumentSymbols",
@@ -75,6 +102,7 @@ export const BRIDGE_CAPABILITIES = [
   "experiment.listCheckpoints",
   "experiment.prepareTextEdits",
   "experiment.prepareRename",
+  "experiment.prepareResourceChanges",
   "experiment.applyChangeSet",
   "experiment.recordEvidence",
   "document.save",
@@ -84,12 +112,27 @@ export const BRIDGE_CAPABILITIES = [
   "terminals.list",
   "terminals.listExecutions",
   "terminals.readOutput",
+  "tasks.list",
+  "tasks.run",
+  "tasks.listExecutions",
+  "tasks.terminate",
+  "debug.listConfigurations",
+  "debug.startSession",
+  "debug.listSessions",
+  "debug.getState",
+  "debug.controlSession",
+  "debug.listBreakpoints",
+  "debug.updateBreakpoints",
+  "debug.evaluate",
+  "debug.setVariable",
 ] as const;
 
 export const MCP_TOOL_NAMES = [
   "vscode_list_instances",
   "vscode_get_editor_context",
   "vscode_get_workspace_setup",
+  "vscode_get_workspace_configuration",
+  "vscode_update_workspace_configuration",
   "vscode_read_document",
   "vscode_get_diagnostics",
   "vscode_get_document_symbols",
@@ -104,6 +147,7 @@ export const MCP_TOOL_NAMES = [
   "vscode_list_experiment_checkpoints",
   "vscode_prepare_text_edits",
   "vscode_prepare_rename",
+  "vscode_prepare_resource_changes",
   "vscode_apply_change_set",
   "vscode_record_experiment_evidence",
   "vscode_save_document",
@@ -113,6 +157,19 @@ export const MCP_TOOL_NAMES = [
   "vscode_list_terminals",
   "vscode_list_terminal_executions",
   "vscode_read_terminal_output",
+  "vscode_list_tasks",
+  "vscode_run_task",
+  "vscode_list_task_executions",
+  "vscode_terminate_task",
+  "vscode_list_debug_configurations",
+  "vscode_start_debug_session",
+  "vscode_list_debug_sessions",
+  "vscode_get_debug_state",
+  "vscode_control_debug_session",
+  "vscode_list_breakpoints",
+  "vscode_update_breakpoints",
+  "vscode_evaluate_debug_expression",
+  "vscode_set_debug_variable",
 ] as const;
 
 export const BRIDGE_ERROR_CODES = [
@@ -167,6 +224,28 @@ export const BRIDGE_ERROR_CODES = [
   "WORKSPACE_ONBOARDING_REQUIRED",
   "WORKSPACE_ONBOARDING_DECLINED",
   "WORKSPACE_CONFIGURATION_INVALID",
+  "BRIDGE_DISABLED",
+  "EXPERIMENT_UPGRADE_REQUIRED",
+  "RESOURCE_NOT_FOUND",
+  "RESOURCE_ALREADY_EXISTS",
+  "RESOURCE_OUT_OF_SCOPE",
+  "RESOURCE_TYPE_UNSUPPORTED",
+  "RESOURCE_PRECONDITION_FAILED",
+  "RESOURCE_RECOVERY_REQUIRED",
+  "WORKSPACE_CONFIGURATION_TARGET_DENIED",
+  "DEFERRED_EXECUTION_DENIED",
+  "TASK_NOT_FOUND",
+  "TASK_CHANGED",
+  "TASK_START_FAILED",
+  "TASK_EXECUTION_NOT_FOUND",
+  "TASK_TERMINATION_FAILED",
+  "DEBUG_CONFIGURATION_NOT_FOUND",
+  "DEBUG_SESSION_NOT_FOUND",
+  "DEBUG_START_FAILED",
+  "DEBUG_REQUEST_UNSUPPORTED",
+  "DEBUG_REQUEST_FAILED",
+  "DEBUG_STATE_STALE",
+  "BREAKPOINT_OUT_OF_SCOPE",
   "EXPERIMENT_STATE_CHANGED",
   "EDITOR_REVEAL_FAILED",
   "INTERNAL_ERROR",
