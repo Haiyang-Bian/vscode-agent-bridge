@@ -19,6 +19,8 @@ import {
   resolveInstalledExecutablePath,
 } from "./installation.js";
 import { ExperimentManager } from "./experiment-manager.js";
+import { ExtensionAwarenessManager } from "./extension-awareness-manager.js";
+import { createExtensionAwarenessRequestHandlers } from "./extension-awareness-handlers.js";
 import { IdeAutonomyManager } from "./ide-autonomy-manager.js";
 import { registerExperimentUi } from "./experiment-ui.js";
 import { ManagedWorktreeManager } from "./managed-worktree-manager.js";
@@ -58,6 +60,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const configurations = new WorkspaceConfigurationManager(host.instanceId, experiments);
   const tasks = new TaskManager(host.instanceId, experiments, terminals, activity);
   const debug = new DebugManager(host.instanceId, experiments, activity, configurations);
+  const extensionAwareness = new ExtensionAwarenessManager(host.instanceId, terminals, tasks, debug);
   const ideAutonomy = new IdeAutonomyManager(
     host.instanceId,
     experiments,
@@ -80,6 +83,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
   host.registerRequestHandlers(createTaskRequestHandlers(tasks, experiments, onboarding, activity));
   host.registerRequestHandlers(createDebugRequestHandlers(debug, experiments, onboarding, activity));
+  host.registerRequestHandlers(createExtensionAwarenessRequestHandlers(extensionAwareness));
   host.registerRequestHandlers(
     createIdeAutonomyRequestHandlers(ideAutonomy, experiments, onboarding, activity),
   );
@@ -115,6 +119,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     terminals,
     tasks,
     debug,
+    extensionAwareness,
     vscode.commands.registerCommand("vscodeAgentBridge.showStatus", async () => {
       const policy = getBridgePolicyState();
       const remoteLabel = vscode.env.remoteName ? `, remote=${vscode.env.remoteName}` : "";
