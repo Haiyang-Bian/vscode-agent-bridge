@@ -77,8 +77,13 @@ describe("test impact classification", () => {
 
   test("requires repeat E2E for harness and fixture changes", () => {
     const plan = classifyTestImpact(["packages/vscode-extension/test/e2e/extension.e2e.ts"]);
+    expect(plan.risk).toBe("full");
     expect(plan.fullE2E).toBeTrue();
     expect(plan.repeatE2E).toBeTrue();
+
+    const packaged = classifyTestImpact(["scripts/run-vsix-e2e.ts"]);
+    expect(packaged.artifact).toBeTrue();
+    expect(packaged.repeatE2E).toBeTrue();
   });
 
   test("validates explicit domain names", () => {
@@ -129,6 +134,18 @@ describe("Git change collection", () => {
     ]);
   });
 
+  test("keeps both sides of renames and includes deleted paths", async () => {
+    const repository = await createRepository();
+    await runGit(repository, ["mv", "tracked.txt", "renamed.txt"]);
+    await runGit(repository, ["rm", "staged.txt"]);
+
+    expect(await collectChangedPaths({ cwd: repository })).toEqual([
+      "renamed.txt",
+      "staged.txt",
+      "tracked.txt",
+    ]);
+  });
+
   test("uses explicit base and head revisions in CI mode", async () => {
     const repository = await createRepository();
     const base = (await runGit(repository, ["rev-parse", "HEAD"])).trim();
@@ -138,6 +155,26 @@ describe("Git change collection", () => {
     const head = (await runGit(repository, ["rev-parse", "HEAD"])).trim();
 
     expect(await collectChangedPaths({ cwd: repository, base, head })).toEqual(["tracked.txt"]);
+  });
+
+  test("test:plan fails closed when the base revision is unavailable", async () => {
+    const repository = await createRepository();
+    const script = path.resolve(import.meta.dir, "..", "test-plan.ts");
+    const child = Bun.spawn(
+      [process.execPath, script, "--base", "missing-base", "--format", "json"],
+      { cwd: repository, stdout: "pipe", stderr: "pipe" },
+    );
+    const [stdout, exitCode] = await Promise.all([
+      new Response(child.stdout).text(),
+      child.exited,
+    ]);
+    const plan = JSON.parse(stdout) as ReturnType<typeof classifyTestImpact>;
+
+    expect(exitCode).toBe(0);
+    expect(plan.risk).toBe("full");
+    expect(plan.fullE2E).toBeTrue();
+    expect(plan.commands).toEqual(["bun run check"]);
+    expect(plan.reasons.some((reason) => reason.includes("missing-base"))).toBeTrue();
   });
 });
 

@@ -139,17 +139,36 @@ docs/acceptance/     clean-machine Windows acceptance procedures
 
 Install Bun 1.3.11 and Node.js 22 or newer. Node is used only by Microsoft's official `vsce`; Bun owns dependency installation, workspace builds and tests.
 
+For ordinary development, inspect the impact plan and run only the affected gate:
+
 ```powershell
-bun install --frozen-lockfile
+bun run test:plan
+bun run check:affected
+bun run test:domain -- debug
+bun run test:e2e:scenario -- debug
+```
+
+`test:plan` classifies staged, unstaged and untracked changes by domain and risk. `check:affected` runs the selected workspace type checks, deterministic tests and builds. Manual domains only add coverage; they cannot downgrade a required full gate. Unknown production paths fail closed.
+
+Before a pull request, run the complete fast gate. The CI workflow then selects only the necessary Extension Host scenarios; E2E infrastructure changes run the full suite twice in isolated profiles.
+
+```powershell
 bun run check
-bun run test:e2e
+bun run test:e2e:affected -- --base <base-revision> --head <head-revision>
+```
+
+Release and `master` gates retain complete validation:
+
+```powershell
+bun run check
+bun run test:e2e:repeat
 bun run package:vsix
 bun run release:checksums
 bun run package:test-bundle
 bun run test:artifact
 ```
 
-`bun run check` performs type checking, Bun unit/contract tests and workspace builds. `test:e2e` runs an isolated real VS Code Extension Host. `package:vsix` compiles the Windows x64 baseline EXE, packages a platform VSIX and audits its contents. Generated release files are written to `artifacts/`.
+`bun run check` still performs full type checking, all Bun unit/contract tests and workspace builds. `test:e2e` remains the complete single-run Extension Host gate, while `test:e2e:smoke`, `test:e2e:scenario`, `test:e2e:affected` and `test:e2e:repeat` provide explicit lower-cost or repeatability gates. `package:vsix` compiles the Windows x64 baseline EXE, packages a platform VSIX and audits its contents. Generated release files are written to `artifacts/`. See [the testing strategy](docs/testing-strategy.md) for the authoritative selection rules.
 
 ## Release
 

@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import { BRIDGE_RELEASE_VERSION } from "@vscode-agent-bridge/protocol";
+import { runVSCodeCommand } from "@vscode/test-electron";
 
 import {
   assertE2ECompletion,
@@ -28,14 +29,20 @@ try {
     environment.workspace,
   );
   await runCommand(["bun", "run", "build:test:e2e"], extensionRoot);
+  await runVSCodeCommand([
+    "--install-extension",
+    vsixPath,
+    `--extensions-dir=${environment.extensions}`,
+    `--user-data-dir=${environment.userData}`,
+  ], {
+    cachePath: path.join(extensionRoot, ".vscode-test"),
+  });
   await runCommand(
     [
       "node",
       path.join(repositoryRoot, "node_modules", "@vscode", "test-cli", "out", "bin.mjs"),
       "--config",
       ".vscode-test-artifact.mjs",
-      "--install-extensions",
-      vsixPath,
     ],
     extensionRoot,
     createE2EEnvironmentVariables(environment, scenarios, {

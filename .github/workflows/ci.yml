@@ -21,6 +21,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
@@ -42,22 +44,41 @@ jobs:
       - name: Check workspaces
         run: bun run check
 
-      - name: Run VS Code Extension Host E2E
-        run: bun run test:e2e
+      - name: Classify pull request test impact
+        if: ${{ github.event_name == 'pull_request' }}
+        id: impact
+        shell: pwsh
+        run: |
+          $output = bun run test:plan -- --base "${{ github.event.pull_request.base.sha }}" --head "${{ github.event.pull_request.head.sha }}" --format github
+          $output | Write-Host
+          $output | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Run affected VS Code Extension Host E2E
+        if: ${{ github.event_name == 'pull_request' }}
+        run: bun run test:e2e:affected -- --base "${{ github.event.pull_request.base.sha }}" --head "${{ github.event.pull_request.head.sha }}"
+
+      - name: Run complete E2E twice on master
+        if: ${{ github.event_name == 'push' }}
+        run: bun run test:e2e:repeat
 
       - name: Package platform VSIX
+        if: ${{ github.event_name == 'push' || steps.impact.outputs.artifact == 'true' }}
         run: bun run package:vsix
 
       - name: Create checksums
+        if: ${{ github.event_name == 'push' || steps.impact.outputs.artifact == 'true' }}
         run: bun run release:checksums
 
       - name: Create cross-machine test bundle
+        if: ${{ github.event_name == 'push' || steps.impact.outputs.artifact == 'true' }}
         run: bun run package:test-bundle
 
       - name: Smoke-test release artifacts
+        if: ${{ github.event_name == 'push' || steps.impact.outputs.artifact == 'true' }}
         run: bun run test:artifact
 
       - name: Upload CI artifacts
+        if: ${{ github.event_name == 'push' || steps.impact.outputs.artifact == 'true' }}
         uses: actions/upload-artifact@v7
         with:
           name: vscode-agent-bridge-windows-x64

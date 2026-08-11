@@ -206,8 +206,13 @@ export function classifyTestImpact(
       addDomain("lifecycle");
       workspaces.add("vscode-extension");
       repeatE2E = true;
-      fullE2E = true;
-      reasons.add(`E2E infrastructure changed: ${changedPath}`);
+      if (
+        changedPath === "scripts/run-vsix-e2e.ts" ||
+        changedPath === "packages/vscode-extension/.vscode-test-artifact.mjs"
+      ) {
+        artifact = true;
+      }
+      markFull(`E2E infrastructure changed: ${changedPath}`, true);
       continue;
     }
 
@@ -341,11 +346,11 @@ export async function collectChangedPaths(options: GitChangeOptions = {}): Promi
   const cwd = options.cwd ?? process.cwd();
   if (options.base) {
     const head = options.head ?? "HEAD";
-    return splitNull(await runGit(["diff", "--name-only", "-z", options.base, head], cwd));
+    return splitNull(await runGit(["diff", "--name-only", "-z", "--no-renames", options.base, head], cwd));
   }
 
   const [tracked, untracked] = await Promise.all([
-    runGit(["diff", "--name-only", "-z", "HEAD"], cwd),
+    runGit(["diff", "--name-only", "-z", "--no-renames", "HEAD"], cwd),
     runGit(["ls-files", "--others", "--exclude-standard", "-z"], cwd),
   ]);
   return [...new Set([...splitNull(tracked), ...splitNull(untracked)])].sort();
