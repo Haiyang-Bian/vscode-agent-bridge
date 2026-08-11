@@ -7,7 +7,12 @@ import {
   MAX_DEBUG_STACK_FRAMES,
   MAX_DEBUG_VARIABLES,
   MAX_EXPERIMENT_RATIONALE_CHARACTERS,
+  MAX_PREPARED_DEBUG_CONFIGURATION_BYTES,
+  MAX_PREPARED_TASK_BYTES,
+  MAX_TASK_ARGUMENTS,
+  MAX_TASK_ENVIRONMENT_VARIABLES,
   MAX_TASK_LIMIT,
+  MAX_TASK_PROBLEM_MATCHERS,
 } from "./constants.js";
 import {
   ContentSha256Schema,
@@ -19,13 +24,14 @@ const UriSchema = z.string().min(1);
 const ReasonSchema = z.string().trim().min(1).max(MAX_EXPERIMENT_RATIONALE_CHARACTERS);
 const NullableHashSchema = ContentSha256Schema.nullable();
 
-export const BridgeExecutionModeSchema = z.enum(["explicit", "aggressive"]);
+export const BridgeExecutionModeSchema = z.literal("explicit");
 export const WorkspaceConfigurationTargetSchema = z.enum([
   "settings",
   "launch",
   "tasks",
   "workspace",
 ]);
+export const UpdateWorkspaceConfigurationTargetSchema = z.enum(["settings", "workspace"]);
 export const JsonPointerSchema = z
   .string()
   .max(1_024)
@@ -67,7 +73,7 @@ export const UpdateWorkspaceConfigurationParamsSchema = z
   .object({
     sessionId: ExperimentIdSchema,
     rootUri: UriSchema,
-    target: WorkspaceConfigurationTargetSchema,
+    target: UpdateWorkspaceConfigurationTargetSchema,
     expectedExists: z.boolean(),
     expectedSha256: NullableHashSchema,
     operations: z.array(ConfigurationOperationSchema).min(1).max(MAX_CONFIGURATION_OPERATIONS),
@@ -90,7 +96,7 @@ export const UpdateWorkspaceConfigurationResultSchema = z
     instanceId: InstanceIdSchema,
     sessionId: ExperimentIdSchema,
     rootUri: UriSchema,
-    target: WorkspaceConfigurationTargetSchema,
+    target: UpdateWorkspaceConfigurationTargetSchema,
     uri: UriSchema,
     created: z.boolean(),
     saved: z.literal(true),
@@ -103,6 +109,52 @@ export const UpdateWorkspaceConfigurationResultSchema = z
 
 export const TaskIdSchema = ContentSha256Schema;
 export const TaskExecutionIdSchema = z.uuid();
+export const PreparedTaskIdSchema = z.uuid();
+export const WorkflowOriginSchema = z.enum(["workspace", "agentPrepared", "agentPersisted"]);
+export const FingerprintCoverageSchema = z.enum(["complete", "providerDefined"]);
+export const TaskGroupSchema = z.enum(["build", "test", "clean", "rebuild", "none"]);
+const TaskEnvironmentSchema = z
+  .record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/u).max(200), z.string().max(4_096))
+  .superRefine((value, context) => {
+    if (Object.keys(value).length > MAX_TASK_ENVIRONMENT_VARIABLES) {
+      context.addIssue({ code: "custom", message: `Task environments are limited to ${MAX_TASK_ENVIRONMENT_VARIABLES} entries.` });
+    }
+  });
+export const TaskExecutionOptionsSchema = z
+  .object({
+    cwd: z.string().min(1).max(4_096).default("."),
+    env: TaskEnvironmentSchema.default({}),
+  })
+  .strict();
+const TaskArgumentsSchema = z.array(z.string().max(8_192)).max(MAX_TASK_ARGUMENTS).default([]);
+export const PreparedTaskExecutionSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("shellCommandLine"),
+    commandLine: z.string().min(1).max(16_384),
+    options: TaskExecutionOptionsSchema.default({ cwd: ".", env: {} }),
+  }).strict(),
+  z.object({
+    kind: z.literal("shell"),
+    command: z.string().min(1).max(16_384),
+    args: TaskArgumentsSchema,
+    options: TaskExecutionOptionsSchema.default({ cwd: ".", env: {} }),
+  }).strict(),
+  z.object({
+    kind: z.literal("process"),
+    process: z.string().min(1).max(16_384),
+    args: TaskArgumentsSchema,
+    options: TaskExecutionOptionsSchema.default({ cwd: ".", env: {} }),
+  }).strict(),
+]);
+export const TaskExecutionPreviewSchema = z
+  .object({
+    kind: z.enum(["shellCommandLine", "shell", "process", "providerDefined"]),
+    command: z.string().max(16_384),
+    args: z.array(z.string().max(8_192)).max(MAX_TASK_ARGUMENTS),
+    cwd: z.string().max(4_096),
+    envKeys: z.array(z.string().max(200)).max(MAX_TASK_ENVIRONMENT_VARIABLES),
+  })
+  .strict();
 export const TaskSummarySchema = z
   .object({
     taskId: TaskIdSchema,
@@ -110,15 +162,18 @@ export const TaskSummarySchema = z
     label: z.string().min(1).max(1_000),
     source: z.string().min(1).max(500),
     type: z.string().min(1).max(200),
-    group: z.enum(["build", "test", "clean", "rebuild", "none"]),
+    group: TaskGroupSchema,
     scope: z.enum(["folder", "workspace"]),
     rootUri: UriSchema,
     detail: z.string().max(1_000).nullable(),
+    origin: WorkflowOriginSchema,
+    fingerprintCoverage: FingerprintCoverageSchema,
   })
   .strict();
 export const ListTasksParamsSchema = z
   .object({
     rootUri: UriSchema,
+    sessionId: ExperimentIdSchema.optional(),
     type: z.string().min(1).max(200).optional(),
     group: z.enum(["build", "test", "clean", "rebuild"]).optional(),
     offset: z.number().int().nonnegative().default(0),
@@ -157,6 +212,66 @@ export const TaskExecutionSchema = z
     terminalId: z.uuid().nullable(),
     terminalExecutionId: z.uuid().nullable(),
     terminalCoverage: z.enum(["complete", "partial", "unavailable"]),
+    origin: WorkflowOriginSchema,
+    definitionFingerprint: ContentSha256Schema,
+    activityOperationId: z.uuid(),
+    checkpointId: z.uuid().nullable(),
+  })
+  .strict();
+export const PrepareTaskParamsSchema = z
+  .object({
+    sessionId: ExperimentIdSchema,
+    rootUri: UriSchema,
+    label: z.string().trim().min(1).max(1_000),
+    execution: PreparedTaskExecutionSchema,
+    group: TaskGroupSchema.default("none"),
+    isBackground: z.boolean().default(false),
+    problemMatchers: z.array(z.string().min(1).max(500)).max(MAX_TASK_PROBLEM_MATCHERS).default([]),
+    detail: z.string().max(1_000).nullable().default(null),
+    reason: ReasonSchema,
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (serializedBytes(value) > MAX_PREPARED_TASK_BYTES) {
+      context.addIssue({ code: "custom", message: `Prepared Task definitions are limited to ${MAX_PREPARED_TASK_BYTES} bytes.` });
+    }
+  });
+export const PrepareTaskInputSchema = PrepareTaskParamsSchema.safeExtend({ instanceId: InstanceIdSchema });
+export const PrepareTaskResultSchema = z
+  .object({
+    instanceId: InstanceIdSchema,
+    sessionId: ExperimentIdSchema,
+    preparedTaskId: PreparedTaskIdSchema,
+    task: TaskSummarySchema,
+    execution: TaskExecutionPreviewSchema,
+    definitionFingerprint: ContentSha256Schema,
+    activityOperationId: z.uuid(),
+    expiresAt: z.string().min(1),
+  })
+  .strict();
+export const PersistTaskParamsSchema = z
+  .object({
+    sessionId: ExperimentIdSchema,
+    rootUri: UriSchema,
+    preparedTaskId: PreparedTaskIdSchema,
+    expectedExists: z.boolean(),
+    expectedSha256: NullableHashSchema,
+    reason: ReasonSchema,
+  })
+  .strict()
+  .superRefine(assertExistsHashPair);
+export const PersistTaskInputSchema = PersistTaskParamsSchema.safeExtend({ instanceId: InstanceIdSchema });
+export const PersistTaskResultSchema = z
+  .object({
+    instanceId: InstanceIdSchema,
+    sessionId: ExperimentIdSchema,
+    preparedTaskId: PreparedTaskIdSchema,
+    task: TaskSummarySchema,
+    uri: UriSchema,
+    created: z.boolean(),
+    contentSha256: ContentSha256Schema,
+    checkpointId: z.uuid(),
+    persistedAt: z.string().min(1),
   })
   .strict();
 export const RunTaskParamsSchema = z
@@ -202,16 +317,22 @@ export const TerminateTaskResultSchema = z
   .strict();
 
 export const DebugSessionIdSchema = z.string().min(1).max(500);
+export const PreparedDebugConfigurationIdSchema = z.uuid();
+export const DebugConfigurationIdSchema = ContentSha256Schema;
 export const DebugConfigurationSummarySchema = z
   .object({
+    configurationId: DebugConfigurationIdSchema,
     name: z.string().min(1).max(1_000),
     type: z.string().min(1).max(200).nullable(),
     request: z.enum(["launch", "attach"]).nullable(),
     compound: z.boolean(),
     fingerprint: ContentSha256Schema,
+    origin: WorkflowOriginSchema,
   })
   .strict();
-export const ListDebugConfigurationsParamsSchema = z.object({ rootUri: UriSchema }).strict();
+export const ListDebugConfigurationsParamsSchema = z
+  .object({ rootUri: UriSchema, sessionId: ExperimentIdSchema.optional() })
+  .strict();
 export const ListDebugConfigurationsInputSchema =
   ListDebugConfigurationsParamsSchema.extend({ instanceId: InstanceIdSchema }).strict();
 export const ListDebugConfigurationsResultSchema = z
@@ -234,13 +355,103 @@ export const DebugSessionSummarySchema = z
     startedAt: z.string().min(1),
     endedAt: z.string().nullable(),
     stoppedReason: z.string().max(500).nullable(),
+    configurationId: DebugConfigurationIdSchema,
+    origin: WorkflowOriginSchema,
+    definitionFingerprint: ContentSha256Schema,
+    activityOperationId: z.uuid(),
+    checkpointId: z.uuid().nullable(),
+  })
+  .strict();
+export const DebugTaskBindingSchema = z
+  .object({ taskId: TaskIdSchema, expectedFingerprint: ContentSha256Schema })
+  .strict();
+export const PrepareDebugConfigurationParamsSchema = z
+  .object({
+    sessionId: ExperimentIdSchema,
+    rootUri: UriSchema,
+    configuration: z.record(z.string(), z.unknown()),
+    preLaunchTask: DebugTaskBindingSchema.optional(),
+    postDebugTask: DebugTaskBindingSchema.optional(),
+    reason: ReasonSchema,
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const configuration = value.configuration;
+    if (!isJsonValue(configuration)) {
+      context.addIssue({ code: "custom", path: ["configuration"], message: "Debug configurations must contain only JSON-compatible values." });
+      return;
+    }
+    if (serializedBytes(configuration) > MAX_PREPARED_DEBUG_CONFIGURATION_BYTES) {
+      context.addIssue({ code: "custom", path: ["configuration"], message: `Prepared Debug configurations are limited to ${MAX_PREPARED_DEBUG_CONFIGURATION_BYTES} bytes.` });
+    }
+    if (typeof configuration.name !== "string" || configuration.name.length < 1 || configuration.name.length > 1_000) {
+      context.addIssue({ code: "custom", path: ["configuration", "name"], message: "A bounded Debug configuration name is required." });
+    }
+    if (typeof configuration.type !== "string" || configuration.type.length < 1 || configuration.type.length > 200) {
+      context.addIssue({ code: "custom", path: ["configuration", "type"], message: "A bounded Debug adapter type is required." });
+    }
+    if (configuration.request !== "launch" && configuration.request !== "attach") {
+      context.addIssue({ code: "custom", path: ["configuration", "request"], message: "Debug request must be launch or attach." });
+    }
+    if (Object.hasOwn(configuration, "preLaunchTask") || Object.hasOwn(configuration, "postDebugTask")) {
+      context.addIssue({ code: "custom", path: ["configuration"], message: "Prepared Debug task relationships must use explicit task bindings." });
+    }
+  });
+export const PrepareDebugConfigurationInputSchema =
+  PrepareDebugConfigurationParamsSchema.safeExtend({ instanceId: InstanceIdSchema });
+export const DebugExecutionPreviewSchema = z
+  .object({
+    type: z.string().max(200),
+    request: z.enum(["launch", "attach"]),
+    program: z.string().max(16_384).nullable(),
+    runtimeExecutable: z.string().max(16_384).nullable(),
+    args: z.array(z.string().max(8_192)).max(MAX_TASK_ARGUMENTS),
+    cwd: z.string().max(4_096).nullable(),
+    envKeys: z.array(z.string().max(200)).max(MAX_TASK_ENVIRONMENT_VARIABLES),
+  })
+  .strict();
+export const PrepareDebugConfigurationResultSchema = z
+  .object({
+    instanceId: InstanceIdSchema,
+    sessionId: ExperimentIdSchema,
+    preparedConfigurationId: PreparedDebugConfigurationIdSchema,
+    configuration: DebugConfigurationSummarySchema,
+    execution: DebugExecutionPreviewSchema,
+    activityOperationId: z.uuid(),
+    expiresAt: z.string().min(1),
+  })
+  .strict();
+export const PersistDebugConfigurationParamsSchema = z
+  .object({
+    sessionId: ExperimentIdSchema,
+    rootUri: UriSchema,
+    preparedConfigurationId: PreparedDebugConfigurationIdSchema,
+    expectedExists: z.boolean(),
+    expectedSha256: NullableHashSchema,
+    reason: ReasonSchema,
+  })
+  .strict()
+  .superRefine(assertExistsHashPair);
+export const PersistDebugConfigurationInputSchema =
+  PersistDebugConfigurationParamsSchema.safeExtend({ instanceId: InstanceIdSchema });
+export const PersistDebugConfigurationResultSchema = z
+  .object({
+    instanceId: InstanceIdSchema,
+    sessionId: ExperimentIdSchema,
+    preparedConfigurationId: PreparedDebugConfigurationIdSchema,
+    configuration: DebugConfigurationSummarySchema,
+    uri: UriSchema,
+    created: z.boolean(),
+    contentSha256: ContentSha256Schema,
+    checkpointId: z.uuid(),
+    persistedAt: z.string().min(1),
   })
   .strict();
 export const StartDebugSessionParamsSchema = z
   .object({
     sessionId: ExperimentIdSchema,
     rootUri: UriSchema,
-    configurationName: z.string().min(1).max(1_000),
+    configurationId: DebugConfigurationIdSchema,
     expectedFingerprint: ContentSha256Schema,
     reason: ReasonSchema,
   })
@@ -450,6 +661,12 @@ export type ListTasksParams = z.infer<typeof ListTasksParamsSchema>;
 export type ListTasksResult = z.infer<typeof ListTasksResultSchema>;
 export type TaskSummary = z.infer<typeof TaskSummarySchema>;
 export type TaskExecution = z.infer<typeof TaskExecutionSchema>;
+export type PreparedTaskExecution = z.infer<typeof PreparedTaskExecutionSchema>;
+export type TaskExecutionPreview = z.infer<typeof TaskExecutionPreviewSchema>;
+export type PrepareTaskParams = z.infer<typeof PrepareTaskParamsSchema>;
+export type PrepareTaskResult = z.infer<typeof PrepareTaskResultSchema>;
+export type PersistTaskParams = z.infer<typeof PersistTaskParamsSchema>;
+export type PersistTaskResult = z.infer<typeof PersistTaskResultSchema>;
 export type RunTaskParams = z.infer<typeof RunTaskParamsSchema>;
 export type RunTaskResult = z.infer<typeof RunTaskResultSchema>;
 export type ListTaskExecutionsParams = z.infer<typeof ListTaskExecutionsParamsSchema>;
@@ -460,6 +677,11 @@ export type ListDebugConfigurationsParams = z.infer<typeof ListDebugConfiguratio
 export type ListDebugConfigurationsResult = z.infer<typeof ListDebugConfigurationsResultSchema>;
 export type DebugConfigurationSummary = z.infer<typeof DebugConfigurationSummarySchema>;
 export type DebugSessionSummary = z.infer<typeof DebugSessionSummarySchema>;
+export type DebugTaskBinding = z.infer<typeof DebugTaskBindingSchema>;
+export type PrepareDebugConfigurationParams = z.infer<typeof PrepareDebugConfigurationParamsSchema>;
+export type PrepareDebugConfigurationResult = z.infer<typeof PrepareDebugConfigurationResultSchema>;
+export type PersistDebugConfigurationParams = z.infer<typeof PersistDebugConfigurationParamsSchema>;
+export type PersistDebugConfigurationResult = z.infer<typeof PersistDebugConfigurationResultSchema>;
 export type StartDebugSessionParams = z.infer<typeof StartDebugSessionParamsSchema>;
 export type StartDebugSessionResult = z.infer<typeof StartDebugSessionResultSchema>;
 export type ListDebugSessionsParams = z.infer<typeof ListDebugSessionsParamsSchema>;
@@ -478,3 +700,34 @@ export type EvaluateDebugExpressionParams = z.infer<typeof EvaluateDebugExpressi
 export type EvaluateDebugExpressionResult = z.infer<typeof EvaluateDebugExpressionResultSchema>;
 export type SetDebugVariableParams = z.infer<typeof SetDebugVariableParamsSchema>;
 export type SetDebugVariableResult = z.infer<typeof SetDebugVariableResultSchema>;
+
+function assertExistsHashPair(
+  value: { readonly expectedExists: boolean; readonly expectedSha256: string | null },
+  context: z.RefinementCtx,
+): void {
+  if (value.expectedExists !== (value.expectedSha256 !== null)) {
+    context.addIssue({
+      code: "custom",
+      path: ["expectedSha256"],
+      message: "expectedSha256 must be present exactly when expectedExists is true.",
+    });
+  }
+}
+
+function serializedBytes(value: unknown): number {
+  try {
+    return new TextEncoder().encode(JSON.stringify(value) ?? "").byteLength;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
+function isJsonValue(value: unknown, depth = 0): boolean {
+  if (depth > 20) return false;
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every((item) => isJsonValue(item, depth + 1));
+  if (!value || typeof value !== "object" || Object.getPrototypeOf(value) !== Object.prototype) return false;
+  return Object.entries(value as Record<string, unknown>)
+    .every(([key, item]) => key.length <= 1_000 && isJsonValue(item, depth + 1));
+}

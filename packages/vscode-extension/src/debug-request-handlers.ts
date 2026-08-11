@@ -14,6 +14,10 @@ import {
   ListDebugOutputResultSchema,
   ListDebugSessionsParamsSchema,
   ListDebugSessionsResultSchema,
+  PersistDebugConfigurationParamsSchema,
+  PersistDebugConfigurationResultSchema,
+  PrepareDebugConfigurationParamsSchema,
+  PrepareDebugConfigurationResultSchema,
   SetDebugVariableParamsSchema,
   SetDebugVariableResultSchema,
   ReadDebugOutputParamsSchema,
@@ -37,19 +41,32 @@ export function createDebugRequestHandlers(
   activity: AgentActivityTracker,
 ): ReadonlyMap<string, BridgeRequestHandler> {
   return new Map<string, BridgeRequestHandler>([
+    [
+      BRIDGE_METHODS.prepareDebugConfiguration,
+      async (params, context) => {
+        const parsed = PrepareDebugConfigurationParamsSchema.parse(params);
+        await ensureSessionWorkspaceEnabled(experiments, onboarding, parsed.sessionId, context.signal);
+        assertRequestActive(context.signal);
+        return PrepareDebugConfigurationResultSchema.parse(await debug.prepareConfiguration(parsed));
+      },
+    ],
+    [
+      BRIDGE_METHODS.persistDebugConfiguration,
+      async (params, context) => {
+        const parsed = PersistDebugConfigurationParamsSchema.parse(params);
+        await ensureSessionWorkspaceEnabled(experiments, onboarding, parsed.sessionId, context.signal);
+        assertRequestActive(context.signal);
+        return PersistDebugConfigurationResultSchema.parse(await debug.persistConfiguration(parsed));
+      },
+    ],
     [BRIDGE_METHODS.listDebugConfigurations, async (params) => ListDebugConfigurationsResultSchema.parse(await debug.listConfigurations(ListDebugConfigurationsParamsSchema.parse(params)))],
     [
       BRIDGE_METHODS.startDebugSession,
       async (params, context) => {
         const parsed = StartDebugSessionParamsSchema.parse(params);
-        return activity.track(
-          { toolName: "vscode_start_debug_session", title: `Start debug: ${parsed.configurationName}`, reason: parsed.reason },
-          async () => {
-            await ensureSessionWorkspaceEnabled(experiments, onboarding, parsed.sessionId, context.signal);
-            assertRequestActive(context.signal);
-            return StartDebugSessionResultSchema.parse(await debug.startSession(parsed));
-          },
-        );
+        await ensureSessionWorkspaceEnabled(experiments, onboarding, parsed.sessionId, context.signal);
+        assertRequestActive(context.signal);
+        return StartDebugSessionResultSchema.parse(await debug.startSession(parsed));
       },
     ],
     [BRIDGE_METHODS.listDebugSessions, (params) => ListDebugSessionsResultSchema.parse(debug.listSessions(ListDebugSessionsParamsSchema.parse(params)))],

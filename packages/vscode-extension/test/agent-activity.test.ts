@@ -54,23 +54,39 @@ describe("Agent activity tracker", () => {
     });
   });
 
-  test("records asynchronous workflow transitions without retaining commands or paths", () => {
+  test("updates one workflow record while retaining command intent but never environment values", () => {
     const tracker = new AgentActivityTracker(2);
-    tracker.record(
+    const operationId = tracker.record(
       {
         toolName: "vscode_run_task",
         title: "Task running: test",
         targets: ["C:/private/project/tasks.json"],
+        workflow: {
+          kind: "task",
+          definitionId: "task-id",
+          definitionFingerprint: "fingerprint",
+          executionId: "execution-id",
+          command: "bun",
+          args: ["test"],
+          cwd: "C:/private/project",
+          envKeys: ["TOKEN"],
+          exitCode: null,
+        },
       },
       "running",
     );
-    tracker.record(
-      { toolName: "vscode_run_task", title: "Task ended: test" },
-      "succeeded",
-    );
-    expect(tracker.entries).toHaveLength(2);
-    expect(tracker.entries[0]).toMatchObject({ status: "succeeded", completedAt: expect.any(String) });
-    expect(tracker.entries[1]).toMatchObject({ status: "running", targets: ["tasks.json"] });
+    tracker.update(operationId, {
+      status: "succeeded",
+      completedAt: new Date().toISOString(),
+      workflow: { ...tracker.entries[0]!.workflow!, exitCode: 0 },
+    });
+    expect(tracker.entries).toHaveLength(1);
+    expect(tracker.entries[0]).toMatchObject({
+      status: "succeeded",
+      targets: ["tasks.json"],
+      workflow: { command: "bun", args: ["test"], envKeys: ["TOKEN"], exitCode: 0 },
+    });
+    expect(JSON.stringify(tracker.entries)).not.toContain("secret-value");
   });
 });
 

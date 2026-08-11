@@ -50,9 +50,10 @@ describe("STDIO MCP server", () => {
       const tools = await client.listTools();
       expect(tools.tools.map((tool) => tool.name).sort()).toEqual([...MCP_TOOL_NAMES].sort());
       for (const catalogEntry of MCP_TOOL_CATALOG) {
-        expect(tools.tools.find((tool) => tool.name === catalogEntry.name)?.annotations).toEqual(
-          catalogEntry.annotations,
-        );
+        expect({
+          name: catalogEntry.name,
+          annotations: tools.tools.find((tool) => tool.name === catalogEntry.name)?.annotations,
+        }).toEqual({ name: catalogEntry.name, annotations: catalogEntry.annotations });
       }
 
       const capabilities = await client.callTool({

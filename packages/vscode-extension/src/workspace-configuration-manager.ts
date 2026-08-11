@@ -21,7 +21,6 @@ import {
 } from "@vscode-agent-bridge/protocol";
 
 import { ExperimentManager } from "./experiment-manager.js";
-import { getExecutionMode } from "./policies.js";
 
 const MAX_CONFIGURATION_CONTENT_CHARACTERS = 900_000;
 
@@ -93,11 +92,11 @@ export class WorkspaceConfigurationManager {
       const path = parseJsonPointer(operation.path);
       if (
         params.target === "workspace" &&
-        (path[0] === "folders" || path[0] === "remoteAuthority")
+        (path[0] === "folders" || path[0] === "remoteAuthority" || path[0] === "tasks" || path[0] === "launch")
       ) {
         throw new BridgeError(
           "WORKSPACE_CONFIGURATION_TARGET_DENIED",
-          ".code-workspace folders and remote authority are outside the bridge configuration surface.",
+          ".code-workspace folders, remote authority, Tasks and Debug configuration are outside the generic configuration surface.",
         );
       }
       const tree = parseTree(content);
@@ -148,6 +147,93 @@ export class WorkspaceConfigurationManager {
       updatedAt: new Date().toISOString(),
     };
   }
+
+  async persistWorkflowConfiguration(
+    input: PersistWorkflowConfigurationInput,
+  ): Promise<PersistWorkflowConfigurationResult> {
+    const experiment = await this.#experiments.assertResourceChangesAllowed(input.sessionId);
+    if (experiment.rootUri !== input.rootUri) {
+      throw new BridgeError("EXPERIMENT_NOT_OWNED", "The workflow configuration is outside the active experiment root.");
+    }
+    const target = resolveConfigurationTarget(input.rootUri, input.target);
+    if (!target.uri) {
+      throw new BridgeError("WORKSPACE_CONFIGURATION_TARGET_DENIED", "The workflow configuration target is unavailable.");
+    }
+    const loaded = await readConfiguration(target.uri);
+    assertConfigurationPreconditions(loaded, input.expectedExists, input.expectedSha256);
+    if (loaded.exists && parseDiagnostics(loaded.content).length > 0) {
+      await revealInvalidConfiguration(target.uri);
+      throw new BridgeError(
+        "WORKSPACE_CONFIGURATION_INVALID",
+        "The workflow configuration contains JSONC parse errors and was opened without being overwritten.",
+      );
+    }
+    const collection = input.target === "tasks" ? "tasks" : "configurations";
+    const initial = input.target === "tasks"
+      ? '{\n  "version": "2.0.0",\n  "tasks": []\n}\n'
+      : '{\n  "version": "0.2.0",\n  "configurations": []\n}\n';
+    let content = loaded.exists ? loaded.content : initial;
+    const parsed = parse(content) as unknown;
+    const entries = isRecord(parsed) && Array.isArray(parsed[collection]) ? parsed[collection] : [];
+    const nameField = input.target === "tasks" ? "label" : "name";
+    const existingIndex = entries.findIndex(
+      (entry) => isRecord(entry) && entry[nameField] === input.name,
+    );
+    if (existingIndex >= 0 && !input.replaceExisting) {
+      throw new BridgeError(input.conflictCode, `A user-owned ${input.target === "tasks" ? "Task" : "Debug configuration"} already uses this name.`);
+    }
+    content = applyEdits(
+      content,
+      modify(
+        content,
+        [collection, existingIndex >= 0 ? existingIndex : entries.length],
+        input.value,
+        { formattingOptions: detectFormatting(content) },
+      ),
+    );
+    validateConfigurationContent(target.uri, content, input.target);
+    await this.#experiments.captureBeforeResourceApply(input.sessionId, [target.uri]);
+    try {
+      await writeConfigurationAtomic(target.uri, content);
+    } catch {
+      await this.#experiments.markResourceRecoveryRequired(input.sessionId);
+      throw new BridgeError(
+        "RESOURCE_RECOVERY_REQUIRED",
+        "The workflow configuration could not be atomically replaced; use the safety checkpoint for recovery.",
+      );
+    }
+    const checkpointId = await this.#experiments.captureAfterAgentApply(
+      input.sessionId,
+      input.reason,
+      [target.uri],
+    );
+    return {
+      uri: target.uri,
+      created: !loaded.exists,
+      contentSha256: sha256(content),
+      checkpointId,
+    };
+  }
+}
+
+export interface PersistWorkflowConfigurationInput {
+  readonly sessionId: string;
+  readonly rootUri: string;
+  readonly target: "tasks" | "launch";
+  readonly name: string;
+  readonly value: Readonly<Record<string, unknown>>;
+  readonly expectedExists: boolean;
+  readonly expectedSha256: string | null;
+  readonly replaceExisting: boolean;
+  readonly conflictCode: "TASK_ALREADY_EXISTS" | "DEBUG_CONFIGURATION_ALREADY_EXISTS";
+  readonly reason: string;
+}
+
+export interface PersistWorkflowConfigurationResult {
+  readonly uri: vscode.Uri;
+  readonly created: boolean;
+  readonly contentSha256: string;
+  readonly checkpointId: string;
 }
 
 export function validateConfigurationContentForUri(
@@ -163,11 +249,13 @@ export function validateConfigurationContentForUri(
       !isRecord(before) ||
       !isRecord(after) ||
       JSON.stringify(before.folders) !== JSON.stringify(after.folders) ||
-      JSON.stringify(before.remoteAuthority) !== JSON.stringify(after.remoteAuthority)
+      JSON.stringify(before.remoteAuthority) !== JSON.stringify(after.remoteAuthority) ||
+      JSON.stringify(before.tasks) !== JSON.stringify(after.tasks) ||
+      JSON.stringify(before.launch) !== JSON.stringify(after.launch)
     ) {
       throw new BridgeError(
         "WORKSPACE_CONFIGURATION_TARGET_DENIED",
-        ".code-workspace folders and remote authority cannot be changed by Agent text edits.",
+        ".code-workspace folders, remote authority, Tasks and Debug configuration cannot be changed by generic Agent edits.",
       );
     }
   }
@@ -194,10 +282,10 @@ export function validateConfigurationContent(
     }
   }
   const deferredEffects = detectsDeferredExecutionValue(parsed, target);
-  if (deferredEffects && getExecutionMode() === "explicit") {
+  if (deferredEffects) {
     throw new BridgeError(
       "DEFERRED_EXECUTION_DENIED",
-      "Explicit execution mode rejects configuration that can run tasks after the Agent request ends.",
+      "Bridge-authored configuration cannot run Tasks after the originating Agent request ends.",
     );
   }
   return { deferredEffects };
@@ -351,4 +439,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isFileNotFound(error: unknown): boolean {
   return error instanceof vscode.FileSystemError && error.code === "FileNotFound";
+}
+
+function assertConfigurationPreconditions(
+  loaded: { readonly exists: boolean; readonly content: string },
+  expectedExists: boolean,
+  expectedSha256: string | null,
+): void {
+  if (loaded.exists !== expectedExists) {
+    throw new BridgeError("RESOURCE_PRECONDITION_FAILED", "The configuration existence precondition failed.");
+  }
+  if (loaded.exists && sha256(loaded.content) !== expectedSha256) {
+    throw new BridgeError("RESOURCE_PRECONDITION_FAILED", "The configuration content hash precondition failed.");
+  }
+  if (!loaded.exists && expectedSha256 !== null) {
+    throw new BridgeError("RESOURCE_PRECONDITION_FAILED", "A missing configuration cannot have an expected hash.");
+  }
 }

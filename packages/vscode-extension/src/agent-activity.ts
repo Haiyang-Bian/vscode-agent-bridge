@@ -24,6 +24,20 @@ export interface AgentActivityEntry {
   readonly editCount: number | null;
   readonly checkpointId: string | null;
   readonly errorCode: string | null;
+  readonly parentOperationId: string | null;
+  readonly workflow: AgentActivityWorkflow | null;
+}
+
+export interface AgentActivityWorkflow {
+  readonly kind: "task" | "debug";
+  readonly definitionId: string;
+  readonly definitionFingerprint: string;
+  readonly executionId: string | null;
+  readonly command: string | null;
+  readonly args: readonly string[];
+  readonly cwd: string | null;
+  readonly envKeys: readonly string[];
+  readonly exitCode: number | null;
 }
 
 export interface AgentActivityInput {
@@ -31,6 +45,8 @@ export interface AgentActivityInput {
   readonly title: string;
   readonly reason?: string | null;
   readonly targets?: readonly string[];
+  readonly parentOperationId?: string | null;
+  readonly workflow?: AgentActivityWorkflow | null;
 }
 
 export interface AgentActivityCompletion {
@@ -39,6 +55,7 @@ export interface AgentActivityCompletion {
   readonly fileCount?: number | null;
   readonly editCount?: number | null;
   readonly checkpointId?: string | null;
+  readonly workflow?: AgentActivityWorkflow | null;
 }
 
 export class AgentActivityTracker {
@@ -79,6 +96,8 @@ export class AgentActivityTracker {
       editCount: completion.editCount ?? null,
       checkpointId: completion.checkpointId ?? null,
       errorCode: completion.errorCode ?? null,
+      parentOperationId: input.parentOperationId ?? null,
+      workflow: sanitizeWorkflow(completion.workflow ?? input.workflow ?? null),
     });
     this.#entries.splice(this.#limit);
     this.#emit();
@@ -104,6 +123,8 @@ export class AgentActivityTracker {
       editCount: null,
       checkpointId: null,
       errorCode: null,
+      parentOperationId: input.parentOperationId ?? null,
+      workflow: sanitizeWorkflow(input.workflow ?? null),
     });
     this.#entries.splice(this.#limit);
     this.#emit();
@@ -119,6 +140,7 @@ export class AgentActivityTracker {
         fileCount: completion.fileCount ?? null,
         editCount: completion.editCount ?? null,
         checkpointId: completion.checkpointId ?? null,
+        workflow: sanitizeWorkflow(completion.workflow ?? this.#find(operationId)?.workflow ?? null),
       });
       return result;
     } catch (error) {
@@ -129,6 +151,18 @@ export class AgentActivityTracker {
       });
       throw error;
     }
+  }
+
+  update(
+    operationId: string,
+    update: Partial<Pick<AgentActivityEntry, "status" | "completedAt" | "checkpointId" | "errorCode">> & {
+      readonly workflow?: AgentActivityWorkflow | null;
+    },
+  ): void {
+    this.#replace(operationId, {
+      ...update,
+      workflow: update.workflow === undefined ? this.#find(operationId)?.workflow ?? null : sanitizeWorkflow(update.workflow),
+    });
   }
 
   #find(operationId: string): AgentActivityEntry | undefined {
@@ -173,4 +207,19 @@ function sanitizeTarget(value: string): string {
     }
   }
   return sanitizeText(normalized, 200);
+}
+
+function sanitizeWorkflow(workflow: AgentActivityWorkflow | null): AgentActivityWorkflow | null {
+  if (!workflow) return null;
+  return {
+    kind: workflow.kind,
+    definitionId: sanitizeText(workflow.definitionId, 200),
+    definitionFingerprint: sanitizeText(workflow.definitionFingerprint, 128),
+    executionId: workflow.executionId ? sanitizeText(workflow.executionId, 200) : null,
+    command: workflow.command ? sanitizeText(workflow.command, 16_384) : null,
+    args: workflow.args.map((value) => sanitizeText(value, 8_192)).slice(0, 128),
+    cwd: workflow.cwd ? sanitizeText(workflow.cwd, 4_096) : null,
+    envKeys: workflow.envKeys.map((value) => sanitizeText(value, 200)).slice(0, 64),
+    exitCode: workflow.exitCode,
+  };
 }

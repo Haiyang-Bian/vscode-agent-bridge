@@ -337,7 +337,7 @@ server.registerTool(
       "Return a bounded, normalized symbol list for a VS Code document. Omit uri to target the active editor.",
     inputSchema: DocumentSymbolsInputSchema,
     outputSchema: DocumentSymbolsResultSchema,
-    annotations: readOnlyAnnotations,
+    annotations: annotationsFor("vscode_get_document_symbols"),
   },
   async ({ instanceId, ...rawParams }) => {
     try {
@@ -381,7 +381,7 @@ server.registerTool(
       "Return bounded hover text for an explicit document URI and zero-based position. Command links are never executed.",
     inputSchema: HoverInputSchema,
     outputSchema: HoverResultSchema,
-    annotations: readOnlyAnnotations,
+    annotations: annotationsFor("vscode_get_hover"),
   },
   async ({ instanceId, ...rawParams }) => {
     try {
@@ -924,12 +924,12 @@ registerRoutedWorkflowTool({
 registerRoutedWorkflowTool({
   name: "vscode_update_workspace_configuration",
   title: "Update structured VS Code workspace configuration",
-  description: "Apply guarded JSON Pointer operations to settings, launch, tasks, or the workspace file, preserve JSONC formatting, save, and checkpoint the result.",
+  description: "Apply guarded JSON Pointer operations to settings or non-executable workspace fields, preserve JSONC formatting, save, and checkpoint the result. Task and Debug persistence use dedicated tools.",
   method: BRIDGE_METHODS.updateWorkspaceConfiguration,
   inputSchema: WorkflowProtocol.UpdateWorkspaceConfigurationInputSchema,
   paramsSchema: WorkflowProtocol.UpdateWorkspaceConfigurationParamsSchema,
   outputSchema: WorkflowProtocol.UpdateWorkspaceConfigurationResultSchema,
-  annotations: guardedWriteAnnotations,
+  annotations: annotationsFor("vscode_update_workspace_configuration"),
   summarize: (result) => `Updated and saved ${result.target} configuration${result.deferredEffects ? " with deferred effects" : ""}.`,
 });
 
@@ -955,6 +955,30 @@ registerRoutedWorkflowTool({
   outputSchema: WorkflowProtocol.ListTasksResultSchema,
   annotations: readOnlyAnnotations,
   summarize: (result) => `Returned ${result.returnedCount} of ${result.totalCount} task(s).`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_prepare_task",
+  title: "Prepare an IDE-visible Agent Task",
+  description: "Create a session-bound temporary Shell or Process Task with a complete execution preview, fingerprint, and Activity record. No process starts yet.",
+  method: BRIDGE_METHODS.prepareTask,
+  inputSchema: WorkflowProtocol.PrepareTaskInputSchema,
+  paramsSchema: WorkflowProtocol.PrepareTaskParamsSchema,
+  outputSchema: WorkflowProtocol.PrepareTaskResultSchema,
+  annotations: annotationsFor("vscode_prepare_task"),
+  summarize: (result) => `Prepared Task ${result.task.label} until ${result.expiresAt}.`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_persist_task",
+  title: "Persist an Agent Task in tasks.json",
+  description: "Persist a prepared Task with exact tasks.json existence and SHA-256 preconditions. User-owned names are never overwritten.",
+  method: BRIDGE_METHODS.persistTask,
+  inputSchema: WorkflowProtocol.PersistTaskInputSchema,
+  paramsSchema: WorkflowProtocol.PersistTaskParamsSchema,
+  outputSchema: WorkflowProtocol.PersistTaskResultSchema,
+  annotations: annotationsFor("vscode_persist_task"),
+  summarize: (result) => `Persisted Task ${result.task.label} and created checkpoint ${result.checkpointId}.`,
 });
 
 registerRoutedWorkflowTool({
@@ -1006,9 +1030,33 @@ registerRoutedWorkflowTool({
 });
 
 registerRoutedWorkflowTool({
+  name: "vscode_prepare_debug_configuration",
+  title: "Prepare an IDE-visible Debug configuration",
+  description: "Create a session-bound temporary adapter configuration with execution preview, fingerprinted Task bindings, and Activity provenance. No debuggee starts yet.",
+  method: BRIDGE_METHODS.prepareDebugConfiguration,
+  inputSchema: WorkflowProtocol.PrepareDebugConfigurationInputSchema,
+  paramsSchema: WorkflowProtocol.PrepareDebugConfigurationParamsSchema,
+  outputSchema: WorkflowProtocol.PrepareDebugConfigurationResultSchema,
+  annotations: annotationsFor("vscode_prepare_debug_configuration"),
+  summarize: (result) => `Prepared Debug configuration ${result.configuration.name} until ${result.expiresAt}.`,
+});
+
+registerRoutedWorkflowTool({
+  name: "vscode_persist_debug_configuration",
+  title: "Persist an Agent Debug configuration in launch.json",
+  description: "Persist a prepared adapter configuration with exact launch.json existence and SHA-256 preconditions. User-owned names are never overwritten.",
+  method: BRIDGE_METHODS.persistDebugConfiguration,
+  inputSchema: WorkflowProtocol.PersistDebugConfigurationInputSchema,
+  paramsSchema: WorkflowProtocol.PersistDebugConfigurationParamsSchema,
+  outputSchema: WorkflowProtocol.PersistDebugConfigurationResultSchema,
+  annotations: annotationsFor("vscode_persist_debug_configuration"),
+  summarize: (result) => `Persisted Debug configuration ${result.configuration.name} and created checkpoint ${result.checkpointId}.`,
+});
+
+registerRoutedWorkflowTool({
   name: "vscode_start_debug_session",
-  title: "Start named VS Code debug session",
-  description: "Start a fingerprinted named launch configuration or compound under an active experiment. Debug targets may have external side effects.",
+  title: "Start fingerprinted VS Code debug session",
+  description: "Start a fingerprinted existing or prepared adapter configuration under an active experiment. Debug targets may have unrecoverable external side effects.",
   method: BRIDGE_METHODS.startDebugSession,
   inputSchema: WorkflowProtocol.StartDebugSessionInputSchema,
   paramsSchema: WorkflowProtocol.StartDebugSessionParamsSchema,
@@ -1306,7 +1354,7 @@ function registerLocationsTool(
       description,
       inputSchema: PositionedDocumentInputSchema,
       outputSchema: LocationsResultSchema,
-      annotations: readOnlyAnnotations,
+      annotations: annotationsFor(name),
     },
     async ({ instanceId, ...rawParams }) => {
       try {

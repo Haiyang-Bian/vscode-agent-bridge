@@ -67,10 +67,10 @@ export const MCP_TOOL_CATALOG = [
   entry("vscode_get_extension_integration_state", "context", "observe", "process", false, "none", "workspaceMetadata", READ_ONLY_ACTIVATING),
 
   entry("vscode_get_diagnostics", "language", "observe", "none", false, "notApplicable", "source", READ_ONLY),
-  entry("vscode_get_document_symbols", "language", "observe", "none", false, "notApplicable", "source", READ_ONLY),
-  entry("vscode_get_definitions", "language", "observe", "none", false, "notApplicable", "source", READ_ONLY),
-  entry("vscode_get_references", "language", "observe", "none", false, "notApplicable", "source", READ_ONLY),
-  entry("vscode_get_hover", "language", "observe", "none", false, "notApplicable", "source", READ_ONLY),
+  entry("vscode_get_document_symbols", "language", "observe", "none", false, "notApplicable", "source", READ_ONLY_ACTIVATING),
+  entry("vscode_get_definitions", "language", "observe", "none", false, "notApplicable", "source", READ_ONLY_ACTIVATING),
+  entry("vscode_get_references", "language", "observe", "none", false, "notApplicable", "source", READ_ONLY_ACTIVATING),
+  entry("vscode_get_hover", "language", "observe", "none", false, "notApplicable", "source", READ_ONLY_ACTIVATING),
   entry("vscode_list_diagnostic_events", "language", "observe", "none", false, "notApplicable", "workspaceMetadata", READ_ONLY),
 
   entry("vscode_get_experiment", "experiments", "observe", "none", false, "notApplicable", "workspaceMetadata", READ_ONLY),
@@ -81,7 +81,7 @@ export const MCP_TOOL_CATALOG = [
   entry("vscode_list_experiment_checkpoints", "experiments", "observe", "none", false, "notApplicable", "workspaceMetadata", READ_ONLY),
   entry("vscode_record_experiment_evidence", "experiments", "act", "workspace", true, "full", "workspaceMetadata", GUARDED_WRITE),
 
-  entry("vscode_update_workspace_configuration", "editing", "act", "workspace", true, "full", "source", GUARDED_WRITE),
+  entry("vscode_update_workspace_configuration", "editing", "act", "workspace", true, "partial", "source", OPEN_WORLD_WRITE),
   entry("vscode_read_document", "editing", "observe", "none", false, "notApplicable", "source", READ_ONLY),
   entry("vscode_prepare_text_edits", "editing", "prepare", "memory", true, "notApplicable", "source", PREPARE),
   entry("vscode_prepare_rename", "editing", "prepare", "memory", true, "notApplicable", "source", PREPARE),
@@ -91,18 +91,22 @@ export const MCP_TOOL_CATALOG = [
   entry("vscode_format_document", "editing", "act", "workspace", true, "full", "source", GUARDED_WRITE),
   entry("vscode_list_code_actions", "editing", "prepare", "memory", true, "notApplicable", "source", PREPARE),
   entry("vscode_apply_code_action", "editing", "act", "workspace", true, "full", "source", GUARDED_WRITE),
-  entry("vscode_update_extension_configuration", "editing", "act", "workspace", true, "partial", "workspaceMetadata", GUARDED_WRITE),
+  entry("vscode_update_extension_configuration", "editing", "act", "process", true, "partial", "workspaceMetadata", OPEN_WORLD_WRITE),
 
   entry("vscode_list_terminals", "terminals", "observe", "none", false, "notApplicable", "terminal", READ_ONLY),
   entry("vscode_list_terminal_executions", "terminals", "observe", "none", false, "notApplicable", "terminal", READ_ONLY),
   entry("vscode_read_terminal_output", "terminals", "observe", "none", false, "notApplicable", "terminal", READ_ONLY),
 
   entry("vscode_list_tasks", "tasks", "observe", "none", false, "notApplicable", "workspaceMetadata", READ_ONLY),
+  entry("vscode_prepare_task", "tasks", "prepare", "memory", true, "notApplicable", "terminal", PREPARE),
+  entry("vscode_persist_task", "tasks", "act", "workspace", true, "partial", "terminal", OPEN_WORLD_WRITE),
   entry("vscode_run_task", "tasks", "control", "process", true, "partial", "terminal", OPEN_WORLD_WRITE),
   entry("vscode_list_task_executions", "tasks", "observe", "none", false, "notApplicable", "terminal", READ_ONLY),
   entry("vscode_terminate_task", "tasks", "control", "process", true, "none", "terminal", OPEN_WORLD_WRITE),
 
   entry("vscode_list_debug_configurations", "debug", "observe", "none", false, "notApplicable", "workspaceMetadata", READ_ONLY),
+  entry("vscode_prepare_debug_configuration", "debug", "prepare", "memory", true, "notApplicable", "debug", PREPARE),
+  entry("vscode_persist_debug_configuration", "debug", "act", "workspace", true, "partial", "debug", OPEN_WORLD_WRITE),
   entry("vscode_start_debug_session", "debug", "control", "process", true, "partial", "debug", OPEN_WORLD_WRITE),
   entry("vscode_list_debug_sessions", "debug", "observe", "none", false, "notApplicable", "debug", READ_ONLY),
   entry("vscode_get_debug_state", "debug", "observe", "none", false, "notApplicable", "debug", READ_ONLY),

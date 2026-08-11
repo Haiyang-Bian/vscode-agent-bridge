@@ -1,10 +1,12 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 
 import * as vscode from "vscode";
 
 import {
   BridgeError,
+  MAX_PREPARED_WORKFLOWS,
+  PREPARED_WORKFLOW_TTL_MS,
   type BreakpointSpec,
   type BreakpointSummary,
   type ControlDebugSessionParams,
@@ -23,6 +25,10 @@ import {
   type ListDebugOutputResult,
   type ListDebugSessionsParams,
   type ListDebugSessionsResult,
+  type PersistDebugConfigurationParams,
+  type PersistDebugConfigurationResult,
+  type PrepareDebugConfigurationParams,
+  type PrepareDebugConfigurationResult,
   type SetDebugVariableParams,
   type SetDebugVariableResult,
   type ReadDebugOutputParams,
@@ -36,7 +42,32 @@ import {
 import { AgentActivityTracker } from "./agent-activity.js";
 import { DebugOutputCaptureStore } from "./debug-output-capture.js";
 import { ExperimentManager } from "./experiment-manager.js";
+import { TaskManager } from "./task-manager.js";
+import { WorkflowProvenanceStore, type WorkflowTaskBindings } from "./workflow-provenance.js";
 import { WorkspaceConfigurationManager } from "./workspace-configuration-manager.js";
+
+interface PreparedDebugConfiguration {
+  readonly preparedConfigurationId: string;
+  readonly sessionId: string;
+  readonly rootUri: string;
+  readonly createdAt: number;
+  readonly expiresAt: string;
+  readonly params: PrepareDebugConfigurationParams;
+  readonly configuration: Record<string, unknown>;
+  readonly summary: DebugConfigurationSummary;
+  readonly preview: ReturnType<typeof debugExecutionPreview>;
+  readonly activityOperationId: string;
+}
+
+interface PendingDebugStart {
+  readonly rootUri: string;
+  readonly name: string;
+  readonly configurationId: string;
+  readonly origin: DebugConfigurationSummary["origin"];
+  readonly definitionFingerprint: string;
+  readonly activityOperationId: string;
+  readonly workflow: ReturnType<typeof debugWorkflow>;
+}
 
 interface TrackedDebugSession {
   readonly session: vscode.DebugSession;
@@ -52,6 +83,10 @@ export class DebugManager implements vscode.Disposable {
   readonly #experiments: ExperimentManager;
   readonly #activity: AgentActivityTracker;
   readonly #configurations: WorkspaceConfigurationManager;
+  readonly #tasks: TaskManager;
+  readonly #provenance: WorkflowProvenanceStore;
+  readonly #prepared = new Map<string, PreparedDebugConfiguration>();
+  readonly #pendingStarts: PendingDebugStart[] = [];
   readonly #sessions = new Map<string, TrackedDebugSession>();
   readonly #outputCapture: DebugOutputCaptureStore;
   readonly #disposables: vscode.Disposable[];
@@ -61,11 +96,15 @@ export class DebugManager implements vscode.Disposable {
     experiments: ExperimentManager,
     activity: AgentActivityTracker,
     configurations: WorkspaceConfigurationManager,
+    tasks: TaskManager,
+    provenance: WorkflowProvenanceStore,
   ) {
     this.#instanceId = instanceId;
     this.#experiments = experiments;
     this.#activity = activity;
     this.#configurations = configurations;
+    this.#tasks = tasks;
+    this.#provenance = provenance;
     this.#outputCapture = new DebugOutputCaptureStore(instanceId);
     this.#disposables = [
       vscode.debug.onDidStartDebugSession((session) => this.#startSession(session)),
@@ -91,23 +130,19 @@ export class DebugManager implements vscode.Disposable {
     const summaries: DebugConfigurationSummary[] = [];
     for (const candidate of configurations) {
       if (!isRecord(candidate) || typeof candidate.name !== "string") continue;
-      summaries.push({
-        name: candidate.name.slice(0, 1_000),
-        type: typeof candidate.type === "string" ? candidate.type.slice(0, 200) : null,
-        request: candidate.request === "launch" || candidate.request === "attach" ? candidate.request : null,
-        compound: false,
-        fingerprint: fingerprint(candidate),
-      });
+      const summary = summarizeDebugConfiguration(candidate, params.rootUri, false, "workspace");
+      const persisted = this.#provenance.find("debug", params.rootUri, summary.name, summary.fingerprint);
+      summaries.push({ ...summary, origin: persisted ? "agentPersisted" : "workspace" });
     }
     for (const candidate of compounds) {
       if (!isRecord(candidate) || typeof candidate.name !== "string") continue;
-      summaries.push({
-        name: candidate.name.slice(0, 1_000),
-        type: null,
-        request: null,
-        compound: true,
-        fingerprint: fingerprint(candidate),
-      });
+      summaries.push(summarizeDebugConfiguration(candidate, params.rootUri, true, "workspace"));
+    }
+    this.#prunePrepared();
+    if (params.sessionId) {
+      summaries.push(...[...this.#prepared.values()]
+        .filter((record) => record.sessionId === params.sessionId && record.rootUri === params.rootUri)
+        .map((record) => record.summary));
     }
     const inspected = await Promise.all([
       this.#configurations.getConfiguration({ rootUri: params.rootUri, target: "launch" }),
@@ -121,29 +156,187 @@ export class DebugManager implements vscode.Disposable {
     };
   }
 
+  async prepareConfiguration(params: PrepareDebugConfigurationParams): Promise<PrepareDebugConfigurationResult> {
+    const experiment = await this.#experiments.assertResourceChangesAllowed(params.sessionId);
+    if (experiment.rootUri !== params.rootUri) {
+      throw new BridgeError("EXPERIMENT_NOT_OWNED", "The prepared Debug configuration is outside the active experiment root.");
+    }
+    resolveRoot(params.rootUri);
+    await this.#validateTaskBindings(params);
+    const preparedConfigurationId = randomUUID();
+    const configuration = structuredClone(params.configuration) as Record<string, unknown>;
+    const summary = summarizeDebugConfiguration(
+      { configuration, preLaunchTask: params.preLaunchTask ?? null, postDebugTask: params.postDebugTask ?? null },
+      params.rootUri,
+      false,
+      "agentPrepared",
+      configuration,
+    );
+    const preview = debugExecutionPreview(configuration);
+    const expiresAt = new Date(Date.now() + PREPARED_WORKFLOW_TTL_MS).toISOString();
+    const activityOperationId = this.#activity.record(
+      {
+        toolName: "vscode_prepare_debug_configuration",
+        title: `Prepared Debug: ${summary.name}`,
+        reason: params.reason,
+        workflow: debugWorkflow(summary, preview, null),
+      },
+      "succeeded",
+    );
+    this.#prepared.set(preparedConfigurationId, {
+      preparedConfigurationId,
+      sessionId: params.sessionId,
+      rootUri: params.rootUri,
+      createdAt: Date.now(),
+      expiresAt,
+      params,
+      configuration,
+      summary,
+      preview,
+      activityOperationId,
+    });
+    this.#prunePrepared();
+    return {
+      instanceId: this.#instanceId,
+      sessionId: params.sessionId,
+      preparedConfigurationId,
+      configuration: summary,
+      execution: preview,
+      activityOperationId,
+      expiresAt,
+    };
+  }
+
+  async persistConfiguration(params: PersistDebugConfigurationParams): Promise<PersistDebugConfigurationResult> {
+    const record = await this.#requirePrepared(params.preparedConfigurationId, params.sessionId, params.rootUri);
+    const taskLabels = await this.#validateTaskBindings(record.params);
+    const value: Record<string, unknown> = { ...record.configuration };
+    if (taskLabels.preLaunchTask) value.preLaunchTask = taskLabels.preLaunchTask;
+    if (taskLabels.postDebugTask) value.postDebugTask = taskLabels.postDebugTask;
+    const name = String(value.name);
+    const existingProvenance = this.#provenance.find("debug", params.rootUri, name);
+    const persisted = await this.#configurations.persistWorkflowConfiguration({
+      sessionId: params.sessionId,
+      rootUri: params.rootUri,
+      target: "launch",
+      name,
+      value,
+      expectedExists: params.expectedExists,
+      expectedSha256: params.expectedSha256,
+      replaceExisting: existingProvenance?.configurationSha256 === params.expectedSha256,
+      conflictCode: "DEBUG_CONFIGURATION_ALREADY_EXISTS",
+      reason: params.reason,
+    });
+    const summary = summarizeDebugConfiguration(value, params.rootUri, false, "agentPersisted");
+    await this.#provenance.recordConfigurationWrite({
+      kind: "debug",
+      preparedId: record.preparedConfigurationId,
+      rootUri: params.rootUri,
+      name,
+      definitionFingerprint: summary.fingerprint,
+      configurationSha256: persisted.contentSha256,
+      createdAt: new Date().toISOString(),
+      taskBindings: {
+        preLaunchTask: record.params.preLaunchTask ?? null,
+        postDebugTask: record.params.postDebugTask ?? null,
+      },
+    }, params.expectedSha256);
+    this.#activity.record(
+      {
+        toolName: "vscode_persist_debug_configuration",
+        title: `Persisted Debug: ${name}`,
+        reason: params.reason,
+        parentOperationId: record.activityOperationId,
+        workflow: debugWorkflow(summary, debugExecutionPreview(value), null),
+      },
+      "succeeded",
+      { checkpointId: persisted.checkpointId, targets: [persisted.uri.toString(true)] },
+    );
+    return {
+      instanceId: this.#instanceId,
+      sessionId: params.sessionId,
+      preparedConfigurationId: params.preparedConfigurationId,
+      configuration: summary,
+      uri: persisted.uri.toString(true),
+      created: persisted.created,
+      contentSha256: persisted.contentSha256,
+      checkpointId: persisted.checkpointId,
+      persistedAt: new Date().toISOString(),
+    };
+  }
+
   async startSession(params: StartDebugSessionParams): Promise<StartDebugSessionResult> {
     const experiment = await this.#experiments.assertResourceChangesAllowed(params.sessionId);
     if (experiment.rootUri !== params.rootUri) {
-      throw new BridgeError("EXPERIMENT_NOT_OWNED", "The debug configuration is outside the active experiment root.");
+      throw new BridgeError("EXPERIMENT_NOT_OWNED", "The Debug configuration is outside the active experiment root.");
     }
     const root = resolveRoot(params.rootUri);
-    const configuration = (await this.listConfigurations(params)).configurations.find(
-      (candidate) => candidate.name === params.configurationName && candidate.fingerprint === params.expectedFingerprint,
-    );
-    if (!configuration) {
-      throw new BridgeError("DEBUG_CONFIGURATION_NOT_FOUND", "The named debug configuration or fingerprint no longer matches.");
+    this.#prunePrepared();
+    const prepared = [...this.#prepared.values()].find((record) => record.summary.configurationId === params.configurationId);
+    let configuration: string | vscode.DebugConfiguration;
+    let summary: DebugConfigurationSummary;
+    let preview: ReturnType<typeof debugExecutionPreview>;
+    let parentOperationId: string | null = null;
+    if (prepared) {
+      if (prepared.sessionId !== params.sessionId || prepared.rootUri !== params.rootUri) {
+        throw new BridgeError("DEBUG_CONFIGURATION_PREPARATION_NOT_FOUND", "The prepared Debug configuration belongs to another instance, session, or root.");
+      }
+      await this.#validateTaskBindings(prepared.params);
+      summary = prepared.summary;
+      preview = prepared.preview;
+      configuration = await this.#configurationWithTaskLabels(prepared);
+      parentOperationId = prepared.activityOperationId;
+    } else {
+      const candidate = this.#findWorkspaceConfiguration(params.rootUri, params.configurationId);
+      if (!candidate) throw new BridgeError("DEBUG_CONFIGURATION_NOT_FOUND", "The listed Debug configuration no longer exists.");
+      summary = candidate.summary;
+      const persisted = this.#provenance.find("debug", params.rootUri, summary.name, summary.fingerprint);
+      if (persisted) {
+        await this.#validateStoredTaskBindings(params.sessionId, params.rootUri, persisted.taskBindings);
+        summary = { ...summary, origin: "agentPersisted" };
+      }
+      preview = debugExecutionPreview(candidate.configuration);
+      configuration = summary.name;
     }
+    if (summary.fingerprint !== params.expectedFingerprint) {
+      throw new BridgeError("DEBUG_CONFIGURATION_CHANGED", "The Debug configuration changed after it was listed.");
+    }
+    const workflow = debugWorkflow(summary, preview, null);
+    const activityOperationId = this.#activity.record(
+      {
+        toolName: "vscode_start_debug_session",
+        title: `Starting Debug: ${summary.name}`,
+        reason: params.reason,
+        parentOperationId,
+        workflow,
+      },
+      "running",
+    );
+    const pending: PendingDebugStart = {
+      rootUri: params.rootUri,
+      name: summary.name,
+      configurationId: summary.configurationId,
+      origin: summary.origin,
+      definitionFingerprint: summary.fingerprint,
+      activityOperationId,
+      workflow,
+    };
+    this.#pendingStarts.push(pending);
     let started: boolean;
     try {
-      started = await vscode.debug.startDebugging(root, params.configurationName);
+      started = await vscode.debug.startDebugging(root, configuration);
     } catch {
-      throw new BridgeError("DEBUG_START_FAILED", "VS Code could not start the selected debug configuration.");
+      removeItem(this.#pendingStarts, pending);
+      this.#activity.update(activityOperationId, { status: "failed", completedAt: new Date().toISOString(), errorCode: "DEBUG_START_FAILED" });
+      throw new BridgeError("DEBUG_START_FAILED", "VS Code could not start the selected Debug configuration.");
     }
     if (!started) {
-      throw new BridgeError("DEBUG_START_FAILED", "The selected debug configuration did not start.");
+      removeItem(this.#pendingStarts, pending);
+      this.#activity.update(activityOperationId, { status: "failed", completedAt: new Date().toISOString(), errorCode: "DEBUG_START_FAILED" });
+      throw new BridgeError("DEBUG_START_FAILED", "The selected Debug configuration did not start.");
     }
     const tracked = [...this.#sessions.values()]
-      .filter((candidate) => candidate.summary.name === params.configurationName && candidate.summary.rootUri === params.rootUri)
+      .filter((candidate) => candidate.summary.configurationId === summary.configurationId && candidate.summary.rootUri === params.rootUri)
       .sort((left, right) => right.summary.startedAt.localeCompare(left.summary.startedAt))[0];
     return {
       instanceId: this.#instanceId,
@@ -365,6 +558,88 @@ export class DebugManager implements vscode.Disposable {
     for (const disposable of this.#disposables) disposable.dispose();
   }
 
+  async #validateTaskBindings(
+    params: Pick<PrepareDebugConfigurationParams, "sessionId" | "rootUri" | "preLaunchTask" | "postDebugTask">,
+  ): Promise<{ readonly preLaunchTask: string | null; readonly postDebugTask: string | null }> {
+    return {
+      preLaunchTask: params.preLaunchTask
+        ? await this.#tasks.assertTaskBinding(params.sessionId, params.rootUri, params.preLaunchTask.taskId, params.preLaunchTask.expectedFingerprint)
+        : null,
+      postDebugTask: params.postDebugTask
+        ? await this.#tasks.assertTaskBinding(params.sessionId, params.rootUri, params.postDebugTask.taskId, params.postDebugTask.expectedFingerprint)
+        : null,
+    };
+  }
+
+  async #validateStoredTaskBindings(
+    sessionId: string,
+    rootUri: string,
+    bindings: WorkflowTaskBindings | undefined,
+  ): Promise<void> {
+    if (!bindings) return;
+    if (bindings.preLaunchTask) {
+      await this.#tasks.assertTaskBinding(sessionId, rootUri, bindings.preLaunchTask.taskId, bindings.preLaunchTask.expectedFingerprint);
+    }
+    if (bindings.postDebugTask) {
+      await this.#tasks.assertTaskBinding(sessionId, rootUri, bindings.postDebugTask.taskId, bindings.postDebugTask.expectedFingerprint);
+    }
+  }
+
+  async #configurationWithTaskLabels(record: PreparedDebugConfiguration): Promise<vscode.DebugConfiguration> {
+    const labels = await this.#validateTaskBindings(record.params);
+    const configuration: Record<string, unknown> = { ...record.configuration };
+    if (labels.preLaunchTask) configuration.preLaunchTask = labels.preLaunchTask;
+    if (labels.postDebugTask) configuration.postDebugTask = labels.postDebugTask;
+    return configuration as vscode.DebugConfiguration;
+  }
+
+  async #requirePrepared(
+    preparedConfigurationId: string,
+    sessionId: string,
+    rootUri: string,
+  ): Promise<PreparedDebugConfiguration> {
+    await this.#experiments.assertResourceChangesAllowed(sessionId);
+    const record = this.#prepared.get(preparedConfigurationId);
+    if (!record || record.sessionId !== sessionId || record.rootUri !== rootUri) {
+      throw new BridgeError(
+        "DEBUG_CONFIGURATION_PREPARATION_NOT_FOUND",
+        "The prepared Debug configuration was not found for this instance, session, and root.",
+      );
+    }
+    if (Date.parse(record.expiresAt) <= Date.now()) {
+      this.#prepared.delete(preparedConfigurationId);
+      throw new BridgeError("DEBUG_CONFIGURATION_PREPARATION_EXPIRED", "The prepared Debug configuration has expired; prepare it again.");
+    }
+    return record;
+  }
+
+  #findWorkspaceConfiguration(
+    rootUri: string,
+    configurationId: string,
+  ): { readonly configuration: Record<string, unknown>; readonly summary: DebugConfigurationSummary } | null {
+    const root = resolveRoot(rootUri);
+    const launch = vscode.workspace.getConfiguration("launch", root.uri);
+    const configurations = launch.get<unknown[]>("configurations", []);
+    const compounds = launch.get<unknown[]>("compounds", []);
+    for (const [compound, values] of [[false, configurations], [true, compounds]] as const) {
+      for (const candidate of values) {
+        if (!isRecord(candidate) || typeof candidate.name !== "string") continue;
+        const summary = summarizeDebugConfiguration(candidate, rootUri, compound, "workspace");
+        if (summary.configurationId === configurationId) return { configuration: candidate, summary };
+      }
+    }
+    return null;
+  }
+
+  #prunePrepared(): void {
+    const now = Date.now();
+    for (const [id, record] of this.#prepared) {
+      if (Date.parse(record.expiresAt) <= now) this.#prepared.delete(id);
+    }
+    const records = [...this.#prepared.values()].sort((left, right) => right.createdAt - left.createdAt);
+    for (const record of records.slice(MAX_PREPARED_WORKFLOWS)) this.#prepared.delete(record.preparedConfigurationId);
+  }
+
   async #assertSessionWrite(sessionId: string, debugSessionId: string): Promise<TrackedDebugSession> {
     const experiment = await this.#experiments.assertResourceChangesAllowed(sessionId);
     const tracked = this.#requireLiveSession(debugSessionId);
@@ -388,6 +663,18 @@ export class DebugManager implements vscode.Disposable {
       existing.summary = { ...existing.summary, status: "running", endedAt: null };
       return;
     }
+    const pendingIndex = this.#pendingStarts.findIndex(
+      (candidate) => candidate.rootUri === rootUri && candidate.name === session.name,
+    );
+    const pending = pendingIndex >= 0 ? this.#pendingStarts.splice(pendingIndex, 1)[0]! : null;
+    const configuration = isRecord(session.configuration) ? session.configuration : {};
+    const fallbackSummary = summarizeDebugConfiguration(
+      configuration,
+      rootUri ?? "unknown",
+      false,
+      "workspace",
+    );
+    const activityOperationId = pending?.activityOperationId ?? randomUUID();
     this.#sessions.set(session.id, {
       session,
       summary: {
@@ -399,13 +686,23 @@ export class DebugManager implements vscode.Disposable {
         startedAt: new Date().toISOString(),
         endedAt: null,
         stoppedReason: null,
+        configurationId: pending?.configurationId ?? fallbackSummary.configurationId,
+        origin: pending?.origin ?? "workspace",
+        definitionFingerprint: pending?.definitionFingerprint ?? fallbackSummary.fingerprint,
+        activityOperationId,
+        checkpointId: null,
       },
       generation: 0,
       threadGenerations: new Map(),
       frameGenerations: new Map(),
       variableGenerations: new Map(),
     });
-    this.#activity.record({ toolName: "vscode_start_debug_session", title: `Debug started: ${session.name}` }, "succeeded");
+    if (pending) {
+      this.#activity.update(activityOperationId, {
+        status: "running",
+        workflow: { ...pending.workflow, executionId: session.id },
+      });
+    }
   }
 
   #terminateSession(session: vscode.DebugSession): void {
@@ -414,8 +711,22 @@ export class DebugManager implements vscode.Disposable {
     if (!tracked) return;
     tracked.summary = { ...tracked.summary, status: "terminated", endedAt: new Date().toISOString() };
     invalidateDebugState(tracked);
-    this.#activity.record({ toolName: "vscode_control_debug_session", title: `Debug ended: ${session.name}` }, "succeeded");
-    void this.#experiments.createExplicitCheckpoint(`Debug ended: ${session.name}`).catch(() => undefined);
+    void this.#finishSession(tracked);
+  }
+
+  async #finishSession(tracked: TrackedDebugSession): Promise<void> {
+    let checkpointId: string | null = null;
+    try {
+      checkpointId = await this.#experiments.createExplicitCheckpoint(`Debug ended: ${tracked.session.name}`);
+    } catch {
+      // External Debug side effects remain unrecoverable even if checkpoint capture fails.
+    }
+    tracked.summary = { ...tracked.summary, checkpointId };
+    this.#activity.update(tracked.summary.activityOperationId, {
+      status: "succeeded",
+      completedAt: tracked.summary.endedAt,
+      checkpointId,
+    });
   }
 
   #observeAdapterMessage(session: vscode.DebugSession, message: unknown): void {
@@ -583,6 +894,71 @@ function boundedString(value: unknown, limit: number): string {
 
 function nullableString(value: unknown, limit: number): string | null {
   return typeof value === "string" ? value.slice(0, limit) : null;
+}
+
+function summarizeDebugConfiguration(
+  fingerprintValue: Record<string, unknown>,
+  rootUri: string,
+  compound: boolean,
+  origin: DebugConfigurationSummary["origin"],
+  displayValue = fingerprintValue,
+): DebugConfigurationSummary {
+  const name = typeof displayValue.name === "string" && displayValue.name
+    ? displayValue.name.slice(0, 1_000)
+    : "Unknown Debug configuration";
+  const type = typeof displayValue.type === "string" ? displayValue.type.slice(0, 200) : null;
+  const request = displayValue.request === "launch" || displayValue.request === "attach"
+    ? displayValue.request
+    : null;
+  return {
+    configurationId: fingerprint({ rootUri, name, compound }),
+    name,
+    type,
+    request,
+    compound,
+    fingerprint: fingerprint(fingerprintValue),
+    origin,
+  };
+}
+
+function debugExecutionPreview(configuration: Record<string, unknown>) {
+  const environment = isRecord(configuration.env) ? configuration.env : {};
+  return {
+    type: typeof configuration.type === "string" ? configuration.type.slice(0, 200) : "unknown",
+    request: configuration.request === "attach" ? "attach" as const : "launch" as const,
+    program: typeof configuration.program === "string" ? configuration.program.slice(0, 16_384) : null,
+    runtimeExecutable: typeof configuration.runtimeExecutable === "string"
+      ? configuration.runtimeExecutable.slice(0, 16_384)
+      : null,
+    args: Array.isArray(configuration.args)
+      ? configuration.args.filter((value): value is string => typeof value === "string").slice(0, 128).map((value) => value.slice(0, 8_192))
+      : [],
+    cwd: typeof configuration.cwd === "string" ? configuration.cwd.slice(0, 4_096) : null,
+    envKeys: Object.keys(environment).sort().slice(0, 64),
+  };
+}
+
+function debugWorkflow(
+  summary: DebugConfigurationSummary,
+  preview: ReturnType<typeof debugExecutionPreview>,
+  executionId: string | null,
+) {
+  return {
+    kind: "debug" as const,
+    definitionId: summary.configurationId,
+    definitionFingerprint: summary.fingerprint,
+    executionId,
+    command: preview.runtimeExecutable ?? preview.program ?? preview.type,
+    args: preview.args,
+    cwd: preview.cwd,
+    envKeys: preview.envKeys,
+    exitCode: null,
+  };
+}
+
+function removeItem<T>(items: T[], item: T): void {
+  const index = items.indexOf(item);
+  if (index >= 0) items.splice(index, 1);
 }
 
 function fingerprint(value: unknown): string {

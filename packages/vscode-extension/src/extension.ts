@@ -46,6 +46,7 @@ import { TerminalObserver } from "./terminal-observer.js";
 import { WorkspaceOnboardingService } from "./workspace-onboarding.js";
 import { WorkspaceConfigurationManager } from "./workspace-configuration-manager.js";
 import { createWorkspaceConfigurationRequestHandlers } from "./workspace-configuration-handlers.js";
+import { WorkflowProvenanceStore } from "./workflow-provenance.js";
 
 let activeHost: BridgeHost | undefined;
 let activeExperimentManager: ExperimentManager | undefined;
@@ -64,8 +65,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const managed = new ManagedWorktreeManager(experiments);
   const terminals = new TerminalObserver(host.instanceId);
   const configurations = new WorkspaceConfigurationManager(host.instanceId, experiments);
-  const tasks = new TaskManager(host.instanceId, experiments, terminals, activity);
-  const debug = new DebugManager(host.instanceId, experiments, activity, configurations);
+  const provenance = new WorkflowProvenanceStore(context.workspaceState);
+  const tasks = new TaskManager(host.instanceId, experiments, terminals, activity, configurations, provenance);
+  const debug = new DebugManager(host.instanceId, experiments, activity, configurations, tasks, provenance);
   const extensionAwareness = new ExtensionAwarenessManager(host.instanceId, terminals, tasks, debug);
   const extensionMarketplace = new ExtensionMarketplaceManager(host.instanceId, experiments);
   const extensionProfiles = new ExtensionProfileManager(host.instanceId, experiments, context.globalStorageUri);
@@ -523,35 +525,10 @@ async function configureBridgeCommand(): Promise<void> {
   if (!enabled) {
     return;
   }
-  let executionMode = current.executionMode;
-  if (enabled.value) {
-    const selectedMode = await vscode.window.showQuickPick(
-    [
-      {
-          label: "Explicit (Default)",
-          description: "Only workflows directly requested through MCP may execute.",
-          value: "explicit" as const,
-      },
-      {
-          label: "Aggressive",
-          description: "Also allow bounded deferred IDE workflows such as folder-open Tasks.",
-          value: "aggressive" as const,
-      },
-    ],
-    {
-        title: "IDE workflow execution mode",
-        placeHolder: `Current: ${current.executionMode}`,
-    },
-  );
-    if (!selectedMode) {
-      return;
-    }
-    executionMode = selectedMode.value;
-  }
   const configuration = vscode.workspace.getConfiguration("vscodeAgentBridge");
   await Promise.all([
     configuration.update("enabled", enabled.value, vscode.ConfigurationTarget.Global),
-    configuration.update("executionMode", executionMode, vscode.ConfigurationTarget.Global),
+    configuration.update("executionMode", "explicit", vscode.ConfigurationTarget.Global),
   ]);
   await vscode.window.showInformationMessage(
     enabled.value
@@ -616,14 +593,12 @@ async function runDoctorCommand(
     experiments.getStoreStats(),
     managed.repairReport().catch(() => []),
   ]);
-  const deferredConfigurations = policy.executionMode === "aggressive"
-    ? (await Promise.all(
-        (vscode.workspace.workspaceFolders ?? []).flatMap((root) => [
-          configurations.getConfiguration({ rootUri: root.uri.toString(true), target: "tasks" }),
-          configurations.getConfiguration({ rootUri: root.uri.toString(true), target: "workspace" }),
-        ]),
-      )).filter((result) => result.deferredEffects).length
-    : 0;
+  const deferredConfigurations = (await Promise.all(
+    (vscode.workspace.workspaceFolders ?? []).flatMap((root) => [
+      configurations.getConfiguration({ rootUri: root.uri.toString(true), target: "tasks" }),
+      configurations.getConfiguration({ rootUri: root.uri.toString(true), target: "workspace" }),
+    ]),
+  )).filter((result) => result.deferredEffects).length;
   const terminalStats = terminals.getStats();
   const commandIds = new Set(await vscode.commands.getCommands(true));
   const lines = [

@@ -1165,115 +1165,83 @@ async function exerciseWorkspaceWorkflows(
 
   if (options.taskTerminal) {
     const missingTasks = await client.request<{ exists: boolean; contentSha256: string | null }>(
-    BRIDGE_METHODS.getWorkspaceConfiguration,
-    { rootUri, target: "tasks" },
-  );
-  assert.equal(missingTasks.exists, false);
-  const deferredTask = {
-    label: "Bridge deferred E2E task",
-    type: "shell",
-    command: "Write-Output should-not-run-in-explicit-mode",
-    runOptions: { runOn: "folderOpen" },
-  };
-  await assert.rejects(
-    () => client.request(BRIDGE_METHODS.updateWorkspaceConfiguration, {
+      BRIDGE_METHODS.getWorkspaceConfiguration,
+      { rootUri, target: "tasks" },
+    );
+    assert.equal(missingTasks.exists, false);
+    await assert.rejects(() => client.request(BRIDGE_METHODS.updateWorkspaceConfiguration, {
       sessionId,
       rootUri,
       target: "tasks",
       expectedExists: false,
       expectedSha256: null,
-      operations: [
-        { operation: "add", path: "/version", value: "2.0.0" },
-        { operation: "add", path: "/tasks", value: [deferredTask] },
-      ],
-      reason: "Explicit mode must reject delayed folder-open execution",
-    }),
-    isBridgeError("DEFERRED_EXECUTION_DENIED"),
-  );
+      operations: [{ operation: "add", path: "/tasks", value: [] }],
+      reason: "Generic configuration must not author executable Task definitions",
+    }));
 
-  const taskLabel = "Bridge explicit E2E test";
-  const safeTask = {
-    label: taskLabel,
-    type: "shell",
-    command: "powershell.exe",
-    args: [
-      "-NoProfile",
-      "-Command",
-      `Write-Output '${TASK_MARKER}'; Set-Content -LiteralPath task-output.txt -Value '${TASK_MARKER}'`,
-    ],
-    group: { kind: "test", isDefault: true },
-    problemMatcher: [],
-  };
-  await client.request(BRIDGE_METHODS.updateWorkspaceConfiguration, {
-    sessionId,
-    rootUri,
-    target: "tasks",
-    expectedExists: false,
-    expectedSha256: null,
-    operations: [
-      { operation: "add", path: "/version", value: "2.0.0" },
-      { operation: "add", path: "/tasks", value: [safeTask] },
-    ],
-    reason: "Create an explicit test Task through bounded JSONC operations",
-  });
-  const listedTasks = await waitFor(async () => {
-    const result = await client.request<{
-      tasks: Array<{ taskId: string; fingerprint: string; label: string }>;
-    }>(BRIDGE_METHODS.listTasks, { rootUri, group: "test", offset: 0, limit: 50 });
-    return result.tasks.some((task) => task.label === taskLabel) ? result : undefined;
-  }, "configured VS Code test Task");
-  const task = listedTasks.tasks.find((candidate) => candidate.label === taskLabel)!;
-  const started = await client.request<{ execution: { executionId: string } }>(BRIDGE_METHODS.runTask, {
+    const taskLabel = "Bridge explicit E2E test";
+    const prepared = await client.request<{
+      preparedTaskId: string;
+      task: { taskId: string; fingerprint: string; label: string; origin: string };
+      execution: { command: string; args: string[]; cwd: string; envKeys: string[] };
+    }>(BRIDGE_METHODS.prepareTask, {
+      sessionId,
+      rootUri,
+      label: taskLabel,
+      execution: {
+        kind: "process",
+        process: "powershell.exe",
+        args: [
+          "-NoProfile",
+          "-Command",
+          `Write-Output '${TASK_MARKER}'; Set-Content -LiteralPath task-output.txt -Value '${TASK_MARKER}'`,
+        ],
+        options: { cwd: ".", env: { BRIDGE_E2E_ENV: "ENV_VALUE_MUST_NOT_BE_RECORDED" } },
+      },
+      group: "test",
+      isBackground: false,
+      problemMatchers: [],
+      detail: "Visible temporary E2E Task",
+      reason: "Prepare an IDE-visible Process Task",
+    });
+    assert.equal(prepared.task.origin, "agentPrepared");
+    assert.equal(prepared.execution.command, "powershell.exe");
+    assert.deepEqual(prepared.execution.envKeys, ["BRIDGE_E2E_ENV"]);
+    const task = prepared.task;
+    const started = await client.request<{ execution: { executionId: string } }>(BRIDGE_METHODS.runTask, {
     sessionId,
     rootUri,
     taskId: task.taskId,
     expectedFingerprint: task.fingerprint,
     reason: "Run the explicitly listed test Task",
   });
-  const finished = await waitFor(async () => {
-    const result = await client.request<{
-      executions: Array<{ executionId: string; status: string; exitCode: number | null }>;
-    }>(BRIDGE_METHODS.listTaskExecutions, { rootUri, activeOnly: false, offset: 0, limit: 50 });
-    return result.executions.find(
-      (execution) => execution.executionId === started.execution.executionId && execution.status === "exited",
-    );
-  }, "completed VS Code test Task", 30_000);
-  assert.equal(finished.exitCode, 0);
-  assert.equal((await readFile(vscode.Uri.joinPath(workspaceUri, "task-output.txt").fsPath, "utf8")).trim(), TASK_MARKER);
+    const finished = await waitFor(async () => {
+      const result = await client.request<{
+        executions: Array<{ executionId: string; status: string; exitCode: number | null; checkpointId: string | null }>;
+      }>(BRIDGE_METHODS.listTaskExecutions, { rootUri, activeOnly: false, offset: 0, limit: 50 });
+      return result.executions.find(
+        (execution) => execution.executionId === started.execution.executionId && execution.status === "exited" && execution.checkpointId,
+      );
+    }, "completed VS Code Agent Task with checkpoint", 30_000);
+    assert.equal(finished.exitCode, 0);
+    assert.equal((await readFile(vscode.Uri.joinPath(workspaceUri, "task-output.txt").fsPath, "utf8")).trim(), TASK_MARKER);
 
-  const configuration = vscode.workspace.getConfiguration("vscodeAgentBridge");
-  await configuration.update("executionMode", "aggressive", vscode.ConfigurationTarget.Global);
-  const aggressiveTasks = await client.request<{ contentSha256: string }>(
-    BRIDGE_METHODS.getWorkspaceConfiguration,
-    { rootUri, target: "tasks" },
-  );
-  const aggressiveUpdate = await client.request<{ deferredEffects: boolean }>(
-    BRIDGE_METHODS.updateWorkspaceConfiguration,
-    {
+    await client.request(BRIDGE_METHODS.persistTask, {
       sessionId,
       rootUri,
-      target: "tasks",
-      expectedExists: true,
-      expectedSha256: aggressiveTasks.contentSha256,
-      operations: [{ operation: "add", path: "/tasks/0/runOptions", value: { runOn: "folderOpen" } }],
-      reason: "Verify aggressive mode reports deferred effects",
-    },
-  );
-  assert.equal(aggressiveUpdate.deferredEffects, true);
-  const cleanupTasks = await client.request<{ contentSha256: string }>(
-    BRIDGE_METHODS.getWorkspaceConfiguration,
-    { rootUri, target: "tasks" },
-  );
-  await client.request(BRIDGE_METHODS.updateWorkspaceConfiguration, {
-    sessionId,
-    rootUri,
-    target: "tasks",
-    expectedExists: true,
-    expectedSha256: cleanupTasks.contentSha256,
-    operations: [{ operation: "remove", path: "/tasks/0/runOptions" }],
-    reason: "Remove the temporary deferred E2E setting",
-  });
-    await configuration.update("executionMode", "explicit", vscode.ConfigurationTarget.Global);
+      preparedTaskId: prepared.preparedTaskId,
+      expectedExists: false,
+      expectedSha256: null,
+      reason: "Persist the prepared Task with an exact tasks.json precondition",
+    });
+    await waitFor(async () => {
+      const result = await client.request<{
+        tasks: Array<{ taskId: string; fingerprint: string; label: string; origin: string }>;
+      }>(BRIDGE_METHODS.listTasks, { rootUri, group: "test", offset: 0, limit: 50 });
+      return result.tasks.some((candidate) => candidate.label === taskLabel && candidate.origin === "agentPersisted")
+        ? result
+        : undefined;
+    }, "persisted VS Code Agent Task");
   }
 
   if (options.debug) {
@@ -1320,39 +1288,24 @@ async function exerciseDebugWorkflow(
   );
   assert.equal(launch.exists, false);
   const configurationName = "Bridge inline E2E debug";
-  await client.request(BRIDGE_METHODS.updateWorkspaceConfiguration, {
+  const prepared = await client.request<{
+    preparedConfigurationId: string;
+    configuration: { configurationId: string; name: string; fingerprint: string; origin: string };
+    execution: { type: string; request: string; envKeys: string[] };
+  }>(BRIDGE_METHODS.prepareDebugConfiguration, {
     sessionId,
     rootUri,
-    target: "launch",
-    expectedExists: false,
-    expectedSha256: null,
-    operations: [
-      { operation: "add", path: "/version", value: "0.2.0" },
-      {
-        operation: "add",
-        path: "/configurations",
-        value: [
-          {
-            name: configurationName,
-            type: "vscode-agent-bridge-e2e",
-            request: "launch",
-          },
-        ],
-      },
-    ],
-    reason: "Create a static launch configuration for the bounded inline E2E adapter",
+    configuration: {
+      name: configurationName,
+      type: "vscode-agent-bridge-e2e",
+      request: "launch",
+      env: { BRIDGE_DEBUG_E2E: "DEBUG_ENV_VALUE_MUST_NOT_BE_RECORDED" },
+    },
+    reason: "Prepare an inline E2E adapter configuration",
   });
-  const configurations = await waitFor(async () => {
-    const result = await client.request<{
-      configurations: Array<{ name: string; fingerprint: string }>;
-      parseErrors: string[];
-    }>(BRIDGE_METHODS.listDebugConfigurations, { rootUri });
-    assert.deepEqual(result.parseErrors, []);
-    return result.configurations.some((candidate) => candidate.name === configurationName)
-      ? result
-      : undefined;
-  }, "static E2E debug configuration");
-  const selected = configurations.configurations.find((candidate) => candidate.name === configurationName)!;
+  assert.equal(prepared.configuration.origin, "agentPrepared");
+  assert.deepEqual(prepared.execution.envKeys, ["BRIDGE_DEBUG_E2E"]);
+  const selected = prepared.configuration;
 
   const listedBreakpoints = await client.request<{ revision: string }>(
     BRIDGE_METHODS.listBreakpoints,
@@ -1392,9 +1345,9 @@ async function exerciseDebugWorkflow(
   await client.request(BRIDGE_METHODS.startDebugSession, {
     sessionId,
     rootUri,
-    configurationName,
+    configurationId: selected.configurationId,
     expectedFingerprint: selected.fingerprint,
-    reason: "Start the selected static E2E debug configuration",
+    reason: "Start the selected prepared E2E Debug configuration",
   });
   const debugSession = await waitFor(async () => {
     const result = await client.request<{
@@ -1514,6 +1467,25 @@ async function exerciseDebugWorkflow(
       (candidate) => candidate.debugSessionId === debugSession.debugSessionId && candidate.status === "terminated",
     ) ? true : undefined;
   }, "terminated inline E2E debug session");
+
+  await client.request(BRIDGE_METHODS.persistDebugConfiguration, {
+    sessionId,
+    rootUri,
+    preparedConfigurationId: prepared.preparedConfigurationId,
+    expectedExists: false,
+    expectedSha256: null,
+    reason: "Persist the prepared E2E Debug configuration with an exact launch.json precondition",
+  });
+  await waitFor(async () => {
+    const result = await client.request<{
+      configurations: Array<{ name: string; origin: string }>;
+      parseErrors: string[];
+    }>(BRIDGE_METHODS.listDebugConfigurations, { rootUri });
+    assert.deepEqual(result.parseErrors, []);
+    return result.configurations.some((candidate) => candidate.name === configurationName && candidate.origin === "agentPersisted")
+      ? result
+      : undefined;
+  }, "persisted E2E Debug configuration");
 }
 
 async function exerciseExtensionAwareness(

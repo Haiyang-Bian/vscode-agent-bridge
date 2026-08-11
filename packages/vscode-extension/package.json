@@ -2,7 +2,7 @@
   "name": "vscode-agent-bridge",
   "displayName": "VS Code Agent Bridge",
   "description": "Expose IDE-native VS Code context to local MCP clients through an authenticated bridge.",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "publisher": "AliceLin",
   "license": "MIT",
   "icon": "resources/icon.png",
@@ -59,16 +59,14 @@
         "vscodeAgentBridge.executionMode": {
           "type": "string",
           "enum": [
-            "explicit",
-            "aggressive"
+            "explicit"
           ],
           "enumDescriptions": [
-            "Allow only workflows explicitly started by the current MCP request.",
-            "Also allow bounded deferred IDE workflows such as tasks configured to run when a folder opens."
+            "Allow only workflows explicitly started by the current MCP request."
           ],
           "default": "explicit",
           "scope": "machine",
-          "description": "Controls whether workspace configuration may introduce deferred IDE execution."
+          "description": "Legacy compatibility setting. Deferred execution is denied; IDE-mediated Task and Debug workflows remain available."
         },
         "vscodeAgentBridge.enableAcceptanceFixtures": {
           "type": "boolean",

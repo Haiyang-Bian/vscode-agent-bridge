@@ -85,11 +85,13 @@ const DOMAIN_TEST_FILES: Record<TestDomain, readonly string[]> = {
   ],
   "task-terminal": [
     "packages/vscode-extension/test/terminal-capture.test.ts",
+    "packages/vscode-extension/test/workflow-provenance.test.ts",
     "packages/protocol/test/workflow-contracts.test.ts",
     "packages/protocol/test/ide-contracts.test.ts",
   ],
   debug: [
     "packages/vscode-extension/test/debug-output-capture.test.ts",
+    "packages/vscode-extension/test/workflow-provenance.test.ts",
     "packages/protocol/test/workflow-contracts.test.ts",
     "packages/protocol/test/ide-contracts.test.ts",
   ],
@@ -150,6 +152,7 @@ const TEST_FILE_DOMAINS: ReadonlyArray<readonly [RegExp, TestDomain]> = [
   [/packages\/mcp-server\/test\//, "mcp-runtime"],
   [/(experiment-store|experiment-contracts)/, "experiment-resource"],
   [/(terminal-capture)/, "task-terminal"],
+  [/(workflow-provenance)/, "task-terminal"],
   [/(debug-output-capture)/, "debug"],
   [/(git-baseline|git-runner)/, "managed-git"],
   [/(extension-awareness|extension-install|extension-integration|extension-marketplace|extension-profile|python-environment)/, "extension-ecosystem"],
@@ -414,6 +417,15 @@ function classifyExtensionSource(
     if (["experiment-manager.ts", "experiment-store.ts", "change-set-manager.ts", "resource-change-executor.ts"].includes(fileName)) {
       actions.markFull(`Recoverable mutation or persistence boundary changed: ${changedPath}`);
     }
+    return;
+  }
+  if (fileName === "workflow-provenance.ts") {
+    actions.addDomain("experiment-resource");
+    actions.addDomain("task-terminal");
+    actions.addDomain("debug");
+    actions.addScenario("experiment-resource");
+    actions.addScenario("task-terminal");
+    actions.addScenario("debug");
     return;
   }
   if (/^(task-|terminal-)/.test(fileName)) {
