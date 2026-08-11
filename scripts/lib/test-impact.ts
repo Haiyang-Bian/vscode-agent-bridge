@@ -74,6 +74,7 @@ const DOMAIN_TEST_FILES: Record<TestDomain, readonly string[]> = {
     "packages/mcp-server/test/rpc-client.test.ts",
     "packages/vscode-extension/test/codex-config.test.ts",
     "packages/vscode-extension/test/agent-activity.test.ts",
+    "packages/vscode-extension/test/bridge-lifecycle.test.ts",
     "packages/vscode-extension/test/document-access-grants.test.ts",
     "packages/vscode-extension/test/private-registry-file.test.ts",
     "packages/vscode-extension/test/windows-identity.test.ts",
@@ -412,7 +413,7 @@ function classifyExtensionSource(
     actions.markFull(`Extension composition root changed: ${changedPath}`, true);
     return;
   }
-  if (["bridge-host.ts", "private-registry-file.ts", "windows-identity.ts", "workspace-onboarding.ts", "policies.ts", "codex-config.ts"].includes(fileName)) {
+  if (["bridge-host.ts", "bridge-lifecycle.ts", "private-registry-file.ts", "windows-identity.ts", "workspace-onboarding.ts", "policies.ts", "codex-config.ts"].includes(fileName)) {
     actions.addDomain("lifecycle");
     actions.addScenario("lifecycle");
     actions.addScenario("master-switch");

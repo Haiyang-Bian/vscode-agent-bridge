@@ -11,6 +11,7 @@ const CONFIGURATION_SECTION = "vscodeAgentBridge";
 export interface BridgePolicyState {
   readonly enabled: boolean;
   readonly executionMode: BridgeExecutionMode;
+  readonly legacyAggressiveExecutionMode: boolean;
   readonly legacyMigrationRequired: boolean;
   readonly workspaceTrusted: boolean;
   readonly remote: boolean;
@@ -23,6 +24,7 @@ export function getBridgePolicyState(): BridgePolicyState {
   const explicitlySelected = enabledInspection?.globalValue !== undefined;
   const legacyMigrationRequired = !explicitlySelected && hasRestrictiveLegacyConfiguration(configuration);
   const enabled = configuration.get<boolean>("enabled", true);
+  const legacyAggressiveExecutionMode = configuration.inspect<unknown>("executionMode")?.globalValue === "aggressive";
   const executionMode = BridgeExecutionModeSchema.catch("explicit").parse(
     configuration.get<unknown>("executionMode", "explicit"),
   );
@@ -31,6 +33,7 @@ export function getBridgePolicyState(): BridgePolicyState {
   return {
     enabled,
     executionMode,
+    legacyAggressiveExecutionMode,
     legacyMigrationRequired,
     workspaceTrusted,
     remote,

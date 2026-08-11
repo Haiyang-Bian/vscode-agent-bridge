@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { BRIDGE_RELEASE_VERSION } from "@vscode-agent-bridge/protocol";
 
 import { BridgeHost } from "./bridge-host.js";
+import { initializePublishedBridge } from "./bridge-lifecycle.js";
 import { registerBridgeHubUi } from "./bridge-hub-ui.js";
 import { AgentActivityTracker } from "./agent-activity.js";
 import { registerAgentActivityUi } from "./agent-activity-ui.js";
@@ -105,13 +106,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   host.registerRequestHandlers(
     createIdeAutonomyRequestHandlers(ideAutonomy, experiments, onboarding, activity),
   );
-  try {
-    await Promise.all([experiments.initialize(), extensionProfiles.initialize()]);
-    await host.markReady();
-  } catch (error) {
-    await host.markDegraded();
-    output.error("Bridge storage initialization failed; the bridge is degraded.", error);
-  }
   let reconcileQueue = Promise.resolve();
   const reconcileBridge = (): Promise<void> => {
     reconcileQueue = reconcileQueue
@@ -119,7 +113,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       .then(() => reconcileBridgePublication(host, output));
     return reconcileQueue;
   };
-  await reconcileBridge();
+  await initializePublishedBridge(
+    host,
+    reconcileBridge,
+    async () => { await Promise.all([experiments.initialize(), extensionProfiles.initialize()]); },
+    (error) => output.error("Bridge storage initialization failed; the bridge is degraded.", error),
+  );
   terminals.start();
   activeHost = host;
   activeExperimentManager = experiments;
@@ -589,20 +588,54 @@ async function runDoctorCommand(
   output: vscode.LogOutputChannel,
 ): Promise<void> {
   const policy = getBridgePolicyState();
-  const [report, experimentStats, managedReport, profileJournal] = await Promise.all([
+  const [report, experimentState, managedState, profileJournal] = await Promise.all([
     inspectInstallation(context),
-    experiments.getStoreStats(),
-    managed.repairReport().catch(() => []),
-    extensionProfiles.journalHealth(),
+    experiments.getStoreStats()
+      .then((stats) => ({ available: true as const, stats }))
+      .catch(() => ({
+        available: false as const,
+        stats: { sessionCount: 0, activeCount: 0, corruptCount: 0, storageBytes: 0, v1Count: 0, v2Count: 0, recoveryRequiredCount: 0 },
+      })),
+    managed.repairReport()
+      .then((report) => ({ available: true as const, report }))
+      .catch(() => ({ available: false as const, report: [] })),
+    extensionProfiles.journalHealth()
+      .catch(() => ({ pendingCount: 0, attentionRequiredCount: 1, healthy: false })),
   ]);
-  const deferredConfigurations = (await Promise.all(
+  const experimentStats = experimentState.stats;
+  const managedReport = managedState.report;
+  const configurationReports = await Promise.all(
     (vscode.workspace.workspaceFolders ?? []).flatMap((root) => [
       configurations.getConfiguration({ rootUri: root.uri.toString(true), target: "tasks" }),
       configurations.getConfiguration({ rootUri: root.uri.toString(true), target: "workspace" }),
     ]),
-  )).filter((result) => result.deferredEffects).length;
+  );
+  const deferredConfigurations = configurationReports.filter((result) => result.deferredEffects);
   const terminalStats = terminals.getStats();
   const commandIds = new Set(await vscode.commands.getCommands(true));
+  const managedAttentionRequired = managedReport.filter(
+    (item) => !item.worktreeRegistered || !item.worktreePathPresent || !item.branchMatches || item.state !== "ready",
+  ).length;
+  const installationHealthy =
+    report.platformSupported &&
+    report.versionAligned &&
+    report.bundledExecutable === "present" &&
+    report.installedExecutable === "present" &&
+    report.codexConfig === "current";
+  const runtimeHealthy =
+    policy.publishAllowed &&
+    host.isListening &&
+    host.lifecycle === "ready" &&
+    host.descriptorHealthy &&
+    !vscode.env.remoteName;
+  const workspaceDataHealthy =
+    experimentState.available &&
+    managedState.available &&
+    experimentStats.corruptCount === 0 &&
+    experimentStats.recoveryRequiredCount === 0 &&
+    managedAttentionRequired === 0 &&
+    profileJournal.healthy;
+  const healthy = installationHealthy && runtimeHealthy && workspaceDataHealthy;
   const lines = [
     `releaseVersion=${report.releaseVersion}`,
     `extensionVersion=${report.extensionVersion}`,
@@ -610,11 +643,14 @@ async function runDoctorCommand(
     `protocolVersion=${report.protocolVersion}`,
     `platformSupported=${report.platformSupported}`,
     `bridgeListening=${host.isListening}`,
+    `bridgeLifecycle=${host.lifecycle}`,
+    `registryAclHealthy=${host.descriptorHealthy}`,
     `bundledExecutable=${report.bundledExecutable}`,
     `installedExecutable=${report.installedExecutable}`,
     `codexConfig=${report.codexConfig}`,
     `bridgeEnabled=${policy.enabled}`,
     `executionMode=${policy.executionMode}`,
+    `legacyAggressiveExecutionMode=${policy.legacyAggressiveExecutionMode}`,
     `legacyPolicyMigrationRequired=${policy.legacyMigrationRequired}`,
     `workspaceTrusted=${policy.workspaceTrusted}`,
     `remoteContext=${vscode.env.remoteName ? "unsupported" : "local"}`,
@@ -625,11 +661,13 @@ async function runDoctorCommand(
     `legacyV1Experiments=${experimentStats.v1Count}`,
     `resourceV2Experiments=${experimentStats.v2Count}`,
     `resourceRecoveryRequired=${experimentStats.recoveryRequiredCount}`,
+    `experimentStoreAvailable=${experimentState.available}`,
     `profileJournalPending=${profileJournal.pendingCount}`,
     `profileJournalAttentionRequired=${profileJournal.attentionRequiredCount}`,
     `profileJournalHealthy=${profileJournal.healthy}`,
     `managedExperiments=${managedReport.length}`,
-    `managedAttentionRequired=${managedReport.filter((item) => !item.worktreeRegistered || !item.worktreePathPresent || !item.branchMatches || item.state !== "ready").length}`,
+    `managedStoreAvailable=${managedState.available}`,
+    `managedAttentionRequired=${managedAttentionRequired}`,
     `terminalCount=${terminalStats.terminalCount}`,
     `terminalExecutions=${terminalStats.executionCount}`,
     `terminalExecutionsWithOutput=${terminalStats.executionsWithOutput}`,
@@ -637,22 +675,35 @@ async function runDoctorCommand(
     `terminalCaptureMemoryBytes=${terminalStats.memoryBytes}`,
     `activeTaskExecutions=${tasks.activeCount}`,
     `activeDebugSessions=${debug.activeCount}`,
-    `deferredWorkflowConfigurations=${deferredConfigurations}`,
+    `deferredWorkflowConfigurations=${deferredConfigurations.length}`,
     `nativeExtensionInstall=${commandIds.has("workbench.extensions.installExtension") ? "available" : "user-action-only"}`,
     `nativeProfilesManager=${commandIds.has("workbench.profiles.actions.manageProfiles") ? "available" : "unavailable"}`,
+    `installationHealthy=${installationHealthy}`,
+    `runtimeHealthy=${runtimeHealthy}`,
+    `workspaceDataHealthy=${workspaceDataHealthy}`,
+    `doctorHealthy=${healthy}`,
   ];
   output.info(`Doctor report:\n${lines.join("\n")}`);
   output.show(true);
-  const healthy =
-    report.platformSupported &&
-    report.versionAligned &&
-    policy.publishAllowed &&
-    host.isListening &&
-    report.bundledExecutable === "present" &&
-    report.installedExecutable === "present" &&
-    report.codexConfig === "current" &&
-    profileJournal.healthy &&
-    !vscode.env.remoteName;
+  if (policy.legacyAggressiveExecutionMode) {
+    const choice = await vscode.window.showWarningMessage(
+      "The legacy aggressive executionMode value is ignored and safely treated as explicit. Remove the old value from Settings when convenient.",
+      "Open Settings",
+    );
+    if (choice === "Open Settings") {
+      await vscode.commands.executeCommand("workbench.action.openSettings", "vscodeAgentBridge.executionMode");
+    }
+  }
+  const deferredConfiguration = deferredConfigurations.find((result) => result.uri !== null);
+  if (deferredConfiguration?.uri) {
+    const choice = await vscode.window.showWarningMessage(
+      "An existing workspace Task or workspace file still contains folder-open deferred execution. The Bridge will not remove user configuration automatically.",
+      "Open Configuration",
+    );
+    if (choice === "Open Configuration") {
+      await vscode.window.showTextDocument(vscode.Uri.parse(deferredConfiguration.uri));
+    }
+  }
   await vscode.window.showInformationMessage(
     healthy
       ? "VS Code Agent Bridge Doctor: all release checks passed."

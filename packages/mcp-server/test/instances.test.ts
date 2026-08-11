@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -11,7 +11,13 @@ import {
   type InstanceDescriptor,
 } from "@vscode-agent-bridge/protocol";
 
-import { discoverInstances, selectInstance, toPublicInstance } from "../src/instances.js";
+import {
+  discoverInstances,
+  discoverLiveInstances,
+  selectInstance,
+  toPublicInstance,
+  type RegisteredInstance,
+} from "../src/instances.js";
 
 const FIRST_ID = "123e4567-e89b-42d3-a456-426614174000";
 const SECOND_ID = "123e4567-e89b-42d3-a456-426614174001";
@@ -38,20 +44,21 @@ describe("VS Code instance discovery", () => {
     );
     await writeFile(path.join(instancesDirectory, "malformed.json"), "not-json");
 
-    expect(await discoverInstances(instancesDirectory)).toEqual([descriptor]);
+    expect(await discoverInstances(instancesDirectory)).toEqual([registered(descriptor)]);
   });
 
   test("does not expose authentication material", () => {
-    const publicInstance = toPublicInstance(makeDescriptor(FIRST_ID));
+    const publicInstance = toPublicInstance(registered(makeDescriptor(FIRST_ID)));
 
     expect(publicInstance).not.toHaveProperty("authToken");
     expect(publicInstance).not.toHaveProperty("transport");
     expect(publicInstance.transportKind).toBe("named-pipe");
     expect(publicInstance.lifecycle).toBe("ready");
+    expect(publicInstance.compatibility).toBe("current");
   });
 
   test("requires an explicit ID when multiple windows are registered", () => {
-    const instances = [makeDescriptor(FIRST_ID), makeDescriptor(SECOND_ID)];
+    const instances = [registered(makeDescriptor(FIRST_ID)), registered(makeDescriptor(SECOND_ID))];
 
     try {
       selectInstance(instances);
@@ -63,7 +70,32 @@ describe("VS Code instance discovery", () => {
 
     expect(selectInstance(instances, SECOND_ID).instanceId).toBe(SECOND_ID);
   });
+
+  test("retains old protocol descriptors as sanitized incompatible instances", async () => {
+    const oldDescriptor = { ...makeDescriptor(FIRST_ID), protocolVersion: BRIDGE_PROTOCOL_VERSION - 1 };
+    const descriptorPath = path.join(instancesDirectory, `${FIRST_ID}.json`);
+    await writeFile(descriptorPath, JSON.stringify(oldDescriptor));
+
+    const instances = await discoverLiveInstances(instancesDirectory);
+    expect(instances).toHaveLength(1);
+    expect(instances[0]?.compatibility).toBe("incompatible");
+    const publicInstance = toPublicInstance(instances[0]!);
+    expect(publicInstance.protocolVersion).toBe(BRIDGE_PROTOCOL_VERSION - 1);
+    expect(publicInstance).not.toHaveProperty("authToken");
+    expect(publicInstance).not.toHaveProperty("transport");
+    await access(descriptorPath);
+    expect(() => selectInstance(instances, FIRST_ID)).toThrow("requires protocol");
+    try {
+      selectInstance(instances, FIRST_ID);
+    } catch (error) {
+      expect((error as BridgeError).code).toBe("PROTOCOL_MISMATCH");
+    }
+  });
 });
+
+function registered(descriptor: InstanceDescriptor): RegisteredInstance {
+  return { descriptor, compatibility: "current" };
+}
 
 function makeDescriptor(instanceId: string): InstanceDescriptor {
   return {

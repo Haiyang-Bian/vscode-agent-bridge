@@ -51,6 +51,7 @@ export class BridgeHost {
   #refreshQueue = Promise.resolve();
   #lifecycle: BridgeLifecycle = "initializing";
   #started = false;
+  #descriptorHealthy = false;
 
   get isListening(): boolean {
     return this.#started;
@@ -58,6 +59,10 @@ export class BridgeHost {
 
   get lifecycle(): BridgeLifecycle {
     return this.#lifecycle;
+  }
+
+  get descriptorHealthy(): boolean {
+    return this.#descriptorHealthy;
   }
 
   constructor(output: vscode.LogOutputChannel) {
@@ -129,6 +134,7 @@ export class BridgeHost {
       .catch(() => undefined)
       .then(() => this.#writeDescriptor())
       .catch((error: unknown) => {
+        this.#descriptorHealthy = false;
         this.#output.error("Failed to refresh bridge instance descriptor.", error);
       });
     this.#refreshQueue = nextRefresh;
@@ -160,6 +166,7 @@ export class BridgeHost {
     }
     this.#server = undefined;
     this.#started = false;
+    this.#descriptorHealthy = false;
 
     await rm(this.#descriptorPath, { force: true });
     if (this.#transport.kind === "unix-socket") {
@@ -359,6 +366,7 @@ export class BridgeHost {
     };
 
     await publishPrivateJson(this.#descriptorPath, descriptor, this.#windowsAcl);
+    this.#descriptorHealthy = true;
   }
 }
 

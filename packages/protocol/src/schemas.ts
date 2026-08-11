@@ -72,6 +72,25 @@ export const TransportDescriptorSchema = z.discriminatedUnion("kind", [
 
 export const BridgeLifecycleSchema = z.enum(["initializing", "ready", "degraded"]);
 
+export const InstanceDescriptorEnvelopeSchema = z
+  .object({
+    protocolVersion: z.number().int().positive(),
+    extensionVersion: z.string().min(1),
+    instanceId: z.string().uuid(),
+    pid: z.number().int().positive(),
+    createdAt: z.string().min(1),
+    updatedAt: z.string().min(1),
+    appName: z.string().min(1),
+    appHost: z.string().min(1),
+    remoteName: z.string().nullable(),
+    workspaceTrusted: z.boolean(),
+    lifecycle: BridgeLifecycleSchema,
+    workspaceFolders: z.array(WorkspaceFolderSchema),
+    transport: TransportDescriptorSchema,
+    authToken: z.string().min(1),
+  })
+  .passthrough();
+
 export const InstanceDescriptorSchema = z
   .object({
     protocolVersion: z.literal(BRIDGE_PROTOCOL_VERSION),
@@ -91,12 +110,24 @@ export const InstanceDescriptorSchema = z
   })
   .strict();
 
-export const PublicInstanceSchema = InstanceDescriptorSchema.omit({
-  authToken: true,
-  transport: true,
-}).extend({
-  transportKind: z.enum(["named-pipe", "unix-socket"]),
-});
+export const PublicInstanceSchema = z
+  .object({
+    protocolVersion: z.number().int().positive(),
+    extensionVersion: z.string().min(1),
+    instanceId: z.string().uuid(),
+    pid: z.number().int().positive(),
+    createdAt: z.string().min(1),
+    updatedAt: z.string().min(1),
+    appName: z.string().min(1),
+    appHost: z.string().min(1),
+    remoteName: z.string().nullable(),
+    workspaceTrusted: z.boolean(),
+    lifecycle: BridgeLifecycleSchema,
+    workspaceFolders: z.array(WorkspaceFolderSchema),
+    transportKind: z.enum(["named-pipe", "unix-socket"]),
+    compatibility: z.enum(["current", "incompatible"]),
+  })
+  .strict();
 
 export const EditorContextSchema = z
   .object({
@@ -405,6 +436,7 @@ export type EditorInfo = z.infer<typeof EditorInfoSchema>;
 export type HoverParams = z.infer<typeof HoverParamsSchema>;
 export type HoverResult = z.infer<typeof HoverResultSchema>;
 export type InstanceDescriptor = z.infer<typeof InstanceDescriptorSchema>;
+export type InstanceDescriptorEnvelope = z.infer<typeof InstanceDescriptorEnvelopeSchema>;
 export type JsonRpcId = z.infer<typeof JsonRpcIdSchema>;
 export type JsonRpcRequest = z.infer<typeof JsonRpcRequestSchema>;
 export type JsonRpcResponse = z.infer<typeof JsonRpcResponseSchema>;
