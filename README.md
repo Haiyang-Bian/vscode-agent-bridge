@@ -131,6 +131,7 @@ packages/
   mcp-server/        standalone STDIO MCP server launched by Codex
   vscode-extension/  VS Code desktop UI extension and installer
 scripts/             Bun build, test, package and release verification
+docs/agent-handbook/ progressive project, architecture and workflow guidance for coding agents
 docs/adr/            architecture and security decisions
 docs/acceptance/     clean-machine Windows acceptance procedures
 ```
@@ -138,6 +139,8 @@ docs/acceptance/     clean-machine Windows acceptance procedures
 ## Development
 
 Install Bun 1.3.11 and Node.js 22 or newer. Node is used only by Microsoft's official `vsce`; Bun owns dependency installation, workspace builds and tests.
+
+Coding agents and new contributors should begin with the [agent development handbook](docs/agent-handbook/README.md). It routes work by subsystem and task so the whole repository does not need to be scanned before each change.
 
 For ordinary development, inspect the impact plan and run only the affected gate:
 

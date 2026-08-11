@@ -23,6 +23,8 @@ The following changes require the full fast gate: shared protocol production cod
 
 Unknown package production paths also require full E2E. E2E runner, harness, fixture or VS Code test-config changes require complete E2E twice. Packaging manifests, dependencies, installation assets and artifact scripts require the artifact gate. Documentation-only changes do not run code tests locally.
 
+Root/nested `AGENTS.md` and `docs/agent-handbook` changes remain documentation-only but add `bun scripts/check-agent-handbook.ts` to validate required pages, local links, machine-specific paths and the default instruction-size budget.
+
 Manual domains are additive. There is no supported flag for subtracting automatically selected coverage.
 
 ## E2E scenarios

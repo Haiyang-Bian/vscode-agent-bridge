@@ -338,7 +338,7 @@ export function classifyTestImpact(
     repeatE2E,
     artifact,
     reasons: [...reasons].sort(),
-    commands: buildCommands(risk, sortedWorkspaces, testFiles),
+    commands: buildCommands(risk, sortedWorkspaces, testFiles, changedPaths),
   };
 }
 
@@ -464,12 +464,17 @@ function buildCommands(
   risk: ImpactRisk,
   workspaces: readonly WorkspaceName[],
   testFiles: readonly string[],
+  changedPaths: readonly string[],
 ): string[] {
   if (risk === "full") {
     return ["bun run check"];
   }
   if (risk === "docs") {
-    return ["git diff --check", "git diff --cached --check"];
+    return [
+      ...(changedPaths.some(isAgentHandbookPath) ? ["bun scripts/check-agent-handbook.ts"] : []),
+      "git diff --check",
+      "git diff --cached --check",
+    ];
   }
   if (risk === "none") {
     return [];
@@ -480,6 +485,14 @@ function buildCommands(
     ...(testFiles.length > 0 ? [`bun test ${testFiles.join(" ")}`] : []),
     ...workspaces.map((workspace) => `bun run --cwd ${WORKSPACE_DIRECTORIES[workspace]} build`),
   ];
+}
+
+function isAgentHandbookPath(changedPath: string): boolean {
+  return (
+    changedPath === "AGENTS.md" ||
+    changedPath.endsWith("/AGENTS.md") ||
+    changedPath.startsWith("docs/agent-handbook/")
+  );
 }
 
 function isDocumentationPath(changedPath: string): boolean {

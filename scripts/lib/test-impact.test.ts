@@ -30,6 +30,22 @@ describe("test impact classification", () => {
     expect(plan.commands).toEqual(["git diff --check", "git diff --cached --check"]);
   });
 
+  test("adds the handbook validator without widening Agent guidance changes", () => {
+    const plan = classifyTestImpact([
+      "AGENTS.md",
+      "packages/protocol/AGENTS.md",
+      "docs/agent-handbook/README.md",
+    ]);
+    expect(plan.risk).toBe("docs");
+    expect(plan.domains).toEqual([]);
+    expect(plan.fullE2E).toBeFalse();
+    expect(plan.commands).toEqual([
+      "bun scripts/check-agent-handbook.ts",
+      "git diff --check",
+      "git diff --cached --check",
+    ]);
+  });
+
   test("selects one extension domain without widening to the full gate", () => {
     const plan = classifyTestImpact(["packages/vscode-extension/src/terminal-capture.ts"]);
     expect(plan.risk).toBe("affected");
