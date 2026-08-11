@@ -2,16 +2,41 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run VS Code Agent Bridge",
+      "name": "Bridge: Extension Host",
       "type": "extensionHost",
       "request": "launch",
       "args": [
-        "--extensionDevelopmentPath=${workspaceFolder}/packages/vscode-extension"
+        "--extensionDevelopmentPath=${workspaceFolder:VS Code Extension}",
+        "--user-data-dir=${workspaceFolder:Repository}/.vscode-test/manual/user-data",
+        "--extensions-dir=${workspaceFolder:Repository}/.vscode-test/manual/extensions"
       ],
       "outFiles": [
-        "${workspaceFolder}/packages/vscode-extension/dist/**/*.js"
+        "${workspaceFolder:VS Code Extension}/dist/**/*.js"
       ],
-      "preLaunchTask": "bun: build"
+      "sourceMaps": true,
+      "preLaunchTask": "Bridge: Build all"
+    },
+    {
+      "name": "Bridge: Debug active Bun test",
+      "type": "bun",
+      "request": "launch",
+      "program": "${file}",
+      "runtime": "bun",
+      "runtimeArgs": ["test"],
+      "cwd": "${workspaceFolder:Repository}",
+      "stopOnEntry": false,
+      "watchMode": false
+    },
+    {
+      "name": "Bridge: Debug active Bun file",
+      "type": "bun",
+      "request": "launch",
+      "program": "${file}",
+      "runtime": "bun",
+      "runtimeArgs": [],
+      "cwd": "${workspaceFolder:Repository}",
+      "stopOnEntry": false,
+      "watchMode": false
     }
   ]
 }

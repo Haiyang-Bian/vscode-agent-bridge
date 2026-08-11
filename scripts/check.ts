@@ -1,7 +1,13 @@
-const tasks = ["typecheck", "test", "build"] as const;
+const commands = [
+  ["bun", "scripts/check-agent-handbook.ts"],
+  ["bun", "scripts/check-vscode-workspace.ts"],
+  ["bun", "run", "typecheck"],
+  ["bun", "run", "test"],
+  ["bun", "run", "build"],
+] as const;
 
-for (const task of tasks) {
-  const child = Bun.spawn(["bun", "run", task], {
+for (const command of commands) {
+  const child = Bun.spawn(command, {
     cwd: process.cwd(),
     stdin: "inherit",
     stdout: "inherit",

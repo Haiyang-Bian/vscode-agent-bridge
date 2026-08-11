@@ -1,0 +1,74 @@
+{
+  "folders": [
+    {
+      "name": "Repository",
+      "path": "."
+    },
+    {
+      "name": "MCP Server",
+      "path": "packages/mcp-server"
+    },
+    {
+      "name": "Protocol",
+      "path": "packages/protocol"
+    },
+    {
+      "name": "VS Code Extension",
+      "path": "packages/vscode-extension"
+    }
+  ],
+  "settings": {
+    "window.title": "${dirty}${activeEditorShort}${separator}VS Code Agent Bridge${separator}${profileName}${separator}${appName}",
+    "workbench.startupEditor": "readme",
+    "workbench.editor.labelFormat": "medium",
+    "explorer.compactFolders": false,
+    "typescript.tsc.autoDetect": "off",
+    "npm.autoDetect": "off",
+    "task.allowAutomaticTasks": "off",
+    "debug.javascript.autoAttachFilter": "disabled",
+    "bun.runtime": "bun",
+    "bun.test.customScript": "bun test",
+    "vscodeAgentBridge.experiments.enabled": true,
+    "vscodeAgentBridge.agentEditVisibility": "focusFirst",
+    "search.useIgnoreFiles": true,
+    "search.useGlobalIgnoreFiles": false,
+    "search.exclude": {
+      "**/.vscode-test": true,
+      "**/artifacts": true,
+      "**/dist": true,
+      "**/dist-test": true,
+      "**/node_modules": true,
+      "packages/mcp-server": true,
+      "packages/protocol": true,
+      "packages/vscode-extension": true
+    },
+    "files.watcherExclude": {
+      "**/.git/objects/**": true,
+      "**/.vscode-test/**": true,
+      "**/artifacts/**": true,
+      "**/dist/**": true,
+      "**/dist-test/**": true,
+      "**/node_modules/**": true,
+      "packages/mcp-server/**": true,
+      "packages/protocol/**": true,
+      "packages/vscode-extension/**": true
+    },
+    "files.exclude": {
+      "**/.vscode-test": true,
+      "**/dist": true,
+      "**/dist-test": true,
+      "**/node_modules": true,
+      "packages/mcp-server": true,
+      "packages/protocol": true,
+      "packages/vscode-extension": true
+    }
+  },
+  "extensions": {
+    "recommendations": [
+      "oven.bun-vscode",
+      "editorconfig.editorconfig",
+      "davidanson.vscode-markdownlint",
+      "github.vscode-github-actions"
+    ]
+  }
+}
