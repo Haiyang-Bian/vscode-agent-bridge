@@ -23,5 +23,7 @@ Read only the decisions that constrain the task. Accepted ADRs are authoritative
 | [0017](../../adr/0017-reviewed-extension-adapters.md) | Reviewed extension adapters | Extension activation, compatibility, Python adapter |
 | [0018](../../adr/0018-tiered-test-gates.md) | Tiered test gates | Impact registry, E2E isolation, CI validation |
 | [0019](../../adr/0019-progressive-agent-handbook.md) | Progressive-disclosure Agent handbook | Instruction scope, handbook layers, maintenance and validation |
+| [0020](../../adr/0020-ide-mediated-autonomous-execution.md) | IDE-mediated autonomous execution | Prepared/persisted Task and Debug definitions, provenance, deferred execution |
+| [0021](../../adr/0021-canonical-path-document-grants-and-windows-identity.md) | Canonical paths, document grants and Windows identity | Path containment, external language reads, descriptor ACLs |
 
 Create a new ADR rather than rewriting an Accepted decision when the project deliberately changes direction. Link superseding and superseded records in both directions.
