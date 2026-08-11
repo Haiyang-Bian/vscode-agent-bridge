@@ -1,5 +1,4 @@
 import { createHash, randomUUID } from "node:crypto";
-import path from "node:path";
 
 import * as vscode from "vscode";
 
@@ -21,6 +20,7 @@ import {
 } from "@vscode-agent-bridge/protocol";
 
 import { ExperimentManager } from "./experiment-manager.js";
+import { CanonicalPathBoundary } from "./canonical-path-boundary.js";
 import { AgentEditorVisibility } from "./agent-editor-visibility.js";
 import { assertAgentWriteAllowed } from "./policies.js";
 import {
@@ -255,7 +255,8 @@ export class ChangeSetManager {
 
     const resolved = await Promise.all(
       changeSet.documents.map(async (prepared) => {
-        const document = await resolveExistingDocument(prepared.uri);
+        const revalidatedUri = parseSupportedUri(prepared.uri.toString(true), experiment.rootUri);
+        const document = await resolveExistingDocument(revalidatedUri);
         try {
           assertExpectedDocument(document, prepared.beforeSha256, prepared.expectedVersion);
           const edits = prepared.edits.map((edit) => ({
@@ -431,13 +432,14 @@ export function parseSupportedUri(rawUri: string, rootUri: string): vscode.Uri {
   }
   if (uri.scheme === "file") {
     const root = vscode.Uri.parse(rootUri, true);
-    const relative = path.relative(path.resolve(root.fsPath), path.resolve(uri.fsPath));
-    if (
-      relative === ".." ||
-      relative.startsWith(`..${path.sep}`) ||
-      path.isAbsolute(relative)
-    ) {
-      throw new BridgeError("EDIT_OUT_OF_SCOPE", "Document is outside the active experiment root.");
+    try {
+      const checked = new CanonicalPathBoundary([root.fsPath]).assertPathSync(uri.fsPath);
+      uri = vscode.Uri.file(checked.canonicalPath);
+    } catch (error) {
+      if (error instanceof BridgeError) {
+        throw new BridgeError("EDIT_OUT_OF_SCOPE", "Document does not resolve canonically inside the active experiment root.");
+      }
+      throw error;
     }
   }
   return uri;

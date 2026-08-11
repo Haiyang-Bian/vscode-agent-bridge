@@ -190,11 +190,35 @@ suite("VS Code Agent Bridge Extension Host", function () {
         position: { line: 4, character: 27 },
         limit: 20,
       };
-      const definitions = await client.request<{ locations: Array<{ range: unknown }> }>(
+      const definitions = await client.request<{
+        locations: Array<{ uri: string; range: unknown; accessGrantId: string | null }>;
+      }>(
         BRIDGE_METHODS.getDefinitions,
         positionedRequest,
       );
       assert.ok(definitions.locations.length >= 1);
+      const externalDefinition = definitions.locations.find(
+        (location) => location.uri === "vscode-agent-bridge-external:/library.ts",
+      );
+      assert.ok(externalDefinition?.accessGrantId);
+      await assert.rejects(
+        () => client.request(BRIDGE_METHODS.readDocument, {
+          uri: externalDefinition!.uri,
+        }),
+        isBridgeError("DOCUMENT_ACCESS_DENIED"),
+      );
+      const externalSnapshot = await client.request<{ text: string }>(BRIDGE_METHODS.readDocument, {
+        uri: externalDefinition!.uri,
+        accessGrantId: externalDefinition!.accessGrantId,
+      });
+      assert.match(externalSnapshot.text, /externalBridgeDefinition/u);
+      await assert.rejects(
+        () => client.request(BRIDGE_METHODS.readDocument, {
+          uri: "vscode-agent-bridge-external:/other.ts",
+          accessGrantId: externalDefinition!.accessGrantId,
+        }),
+        isBridgeError("DOCUMENT_ACCESS_DENIED"),
+      );
 
       const references = await client.request<{ locations: unknown[] }>(
         BRIDGE_METHODS.getReferences,

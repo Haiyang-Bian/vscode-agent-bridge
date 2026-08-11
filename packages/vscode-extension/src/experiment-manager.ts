@@ -25,6 +25,7 @@ import {
   type StoredCheckpoint,
   type StoredDocument,
 } from "./experiment-store.js";
+import { CanonicalPathBoundary } from "./canonical-path-boundary.js";
 import { ReadOnlyGitBaseline, type GitBaseline } from "./git-baseline.js";
 
 const MANUAL_CAPTURE_IDLE_MS = 3_000;
@@ -1556,8 +1557,12 @@ function isUriWithin(root: vscode.Uri, candidate: vscode.Uri): boolean {
   if (root.scheme !== "file" || candidate.scheme !== "file") {
     return false;
   }
-  const relative = path.relative(path.resolve(root.fsPath), path.resolve(candidate.fsPath));
-  return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+  try {
+    new CanonicalPathBoundary([root.fsPath]).assertPathSync(candidate.fsPath, true);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function fullDocumentRange(document: vscode.TextDocument): vscode.Range {

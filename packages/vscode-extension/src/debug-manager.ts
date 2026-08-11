@@ -40,6 +40,7 @@ import {
 } from "@vscode-agent-bridge/protocol";
 
 import { AgentActivityTracker } from "./agent-activity.js";
+import { CanonicalPathBoundary } from "./canonical-path-boundary.js";
 import { DebugOutputCaptureStore } from "./debug-output-capture.js";
 import { ExperimentManager } from "./experiment-manager.js";
 import { TaskManager } from "./task-manager.js";
@@ -858,7 +859,13 @@ function isUriInRoot(rawUri: string, root: vscode.Uri): boolean {
   try { uri = vscode.Uri.parse(rawUri, true); } catch { return false; }
   if (uri.scheme !== "file") return false;
   const relative = path.relative(path.resolve(root.fsPath), path.resolve(uri.fsPath));
-  return Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative) && !relative.split(path.sep).some((segment) => segment.toLowerCase() === ".git");
+  if (!relative || relative.split(path.sep).some((segment) => segment.toLowerCase() === ".git")) return false;
+  try {
+    new CanonicalPathBoundary([root.fsPath]).assertPathSync(uri.fsPath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function sourceUri(source: unknown): string | null {

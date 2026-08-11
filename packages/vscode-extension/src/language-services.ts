@@ -20,12 +20,15 @@ import {
   type ReadDocumentParams,
 } from "@vscode-agent-bridge/protocol";
 
+import { DocumentAccessController } from "./document-access-controller.js";
+
 export async function readDocument(
   instanceId: string,
   params: ReadDocumentParams,
+  access: DocumentAccessController,
 ): Promise<DocumentSnapshot> {
   assertLocalExtensionHost();
-  const document = await resolveDocument(params.uri);
+  const { document } = await resolveDocument(params.uri, params.accessGrantId, access);
   const range = params.range ? validateRange(document, params.range) : fullDocumentRange(document);
   const completeText = document.getText(range);
   const text = completeText.slice(0, params.maxChars);
@@ -50,15 +53,16 @@ export async function readDocument(
 export async function getDiagnostics(
   instanceId: string,
   params: DiagnosticsParams,
+  access: DocumentAccessController,
 ): Promise<DiagnosticsResult> {
   assertLocalExtensionHost();
 
   let diagnosticGroups: Array<[vscode.Uri, readonly vscode.Diagnostic[]]>;
   if (params.scope === "active") {
-    const document = await resolveDocument();
+    const { document } = await resolveDocument(undefined, undefined, access);
     diagnosticGroups = [[document.uri, vscode.languages.getDiagnostics(document.uri)]];
   } else if (params.scope === "document") {
-    const document = await resolveDocument(params.uri);
+    const { document } = await resolveDocument(params.uri, undefined, access);
     diagnosticGroups = [[document.uri, vscode.languages.getDiagnostics(document.uri)]];
   } else {
     const selectedWorkspace = resolveWorkspaceFolder(params.workspaceFolderUri);
@@ -95,9 +99,10 @@ export async function getDiagnostics(
 export async function getDocumentSymbols(
   instanceId: string,
   params: DocumentSymbolsParams,
+  access: DocumentAccessController,
 ): Promise<DocumentSymbolsResult> {
   assertLocalExtensionHost();
-  const document = await resolveDocument(params.uri);
+  const { document } = await resolveDocument(params.uri, params.accessGrantId, access);
   const rawSymbols =
     (await vscode.commands.executeCommand<Array<vscode.DocumentSymbol | vscode.SymbolInformation>>(
       "vscode.executeDocumentSymbolProvider",
@@ -119,30 +124,34 @@ export async function getDocumentSymbols(
 export async function getDefinitions(
   instanceId: string,
   params: PositionedDocumentParams,
+  access: DocumentAccessController,
 ): Promise<LocationsResult> {
   return getLocations(
     instanceId,
     params,
     "vscode.executeDefinitionProvider",
     undefined,
+    access,
   );
 }
 
 export async function getReferences(
   instanceId: string,
   params: PositionedDocumentParams,
+  access: DocumentAccessController,
 ): Promise<LocationsResult> {
   return getLocations(
     instanceId,
     params,
     "vscode.executeReferenceProvider",
     { includeDeclaration: true },
+    access,
   );
 }
 
-export async function getHover(instanceId: string, params: HoverParams): Promise<HoverResult> {
+export async function getHover(instanceId: string, params: HoverParams, access: DocumentAccessController): Promise<HoverResult> {
   assertLocalExtensionHost();
-  const document = await resolveDocument(params.uri);
+  const { document } = await resolveDocument(params.uri, params.accessGrantId, access);
   const position = validatePosition(document, params.position);
   const hovers =
     (await vscode.commands.executeCommand<vscode.Hover[]>(
@@ -185,9 +194,11 @@ async function getLocations(
   params: PositionedDocumentParams,
   command: "vscode.executeDefinitionProvider" | "vscode.executeReferenceProvider",
   commandContext: { includeDeclaration: boolean } | undefined,
+  access: DocumentAccessController,
 ): Promise<LocationsResult> {
   assertLocalExtensionHost();
-  const document = await resolveDocument(params.uri);
+  const authorized = await resolveDocument(params.uri, params.accessGrantId, access);
+  const document = authorized.document;
   const position = validatePosition(document, params.position);
   const rawLocations =
     (await vscode.commands.executeCommand<Array<vscode.Location | vscode.LocationLink>>(
@@ -196,7 +207,11 @@ async function getLocations(
       position,
       ...(commandContext ? [commandContext] : []),
     )) ?? [];
-  const locations = deduplicateLocations(rawLocations.map(toLocationItem));
+  const baseLocations = deduplicateLocations(rawLocations.map(toLocationItem));
+  const locations = await Promise.all(baseLocations.map(async (location) => ({
+    ...location,
+    ...(await access.grantProviderResult(location.uri, authorized.sourceWorkspaceUri)),
+  })));
   const visibleLocations = locations.slice(0, params.limit);
 
   return {
@@ -210,13 +225,18 @@ async function getLocations(
   };
 }
 
-async function resolveDocument(uri?: string): Promise<vscode.TextDocument> {
+async function resolveDocument(
+  uri: string | undefined,
+  accessGrantId: string | undefined,
+  access: DocumentAccessController,
+): Promise<{ readonly document: vscode.TextDocument; readonly sourceWorkspaceUri: string }> {
   if (!uri) {
     const activeDocument = vscode.window.activeTextEditor?.document;
     if (!activeDocument) {
       throw new BridgeError("NO_ACTIVE_EDITOR", "The selected VS Code window has no active text editor.");
     }
-    return activeDocument;
+    const authorized = await access.authorize(activeDocument.uri.toString(true));
+    return { document: activeDocument, sourceWorkspaceUri: authorized.sourceWorkspaceUri };
   }
 
   let parsedUri: vscode.Uri;
@@ -229,15 +249,17 @@ async function resolveDocument(uri?: string): Promise<vscode.TextDocument> {
     throw new BridgeError("DOCUMENT_NOT_FOUND", "The requested document URI must include a scheme.");
   }
 
-  const openDocument = vscode.workspace.textDocuments.find(
-    (document) => document.uri.toString(true) === parsedUri.toString(true),
-  );
+  const authorized = await access.authorize(parsedUri.toString(true), accessGrantId);
+  const openDocument = vscode.workspace.textDocuments.find((document) => document.uri.toString(true) === authorized.uri.toString(true));
   if (openDocument) {
-    return openDocument;
+    return { document: openDocument, sourceWorkspaceUri: authorized.sourceWorkspaceUri };
   }
 
   try {
-    return await vscode.workspace.openTextDocument(parsedUri);
+    return {
+      document: await vscode.workspace.openTextDocument(authorized.uri),
+      sourceWorkspaceUri: authorized.sourceWorkspaceUri,
+    };
   } catch {
     throw new BridgeError("DOCUMENT_NOT_FOUND", "The requested document could not be opened.");
   }
@@ -394,11 +416,15 @@ function toLocationItem(location: vscode.Location | vscode.LocationLink): Locati
     return {
       uri: location.targetUri.toString(true),
       range: toRange(location.targetSelectionRange ?? location.targetRange),
+      accessGrantId: null,
+      accessGrantExpiresAt: null,
     };
   }
   return {
     uri: location.uri.toString(true),
     range: toRange(location.range),
+    accessGrantId: null,
+    accessGrantExpiresAt: null,
   };
 }
 

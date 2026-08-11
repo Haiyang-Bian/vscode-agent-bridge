@@ -1,5 +1,4 @@
 import { createHash, randomUUID } from "node:crypto";
-import path from "node:path";
 
 import * as vscode from "vscode";
 
@@ -26,6 +25,7 @@ import {
 } from "@vscode-agent-bridge/protocol";
 
 import { AgentActivityTracker, type AgentActivityWorkflow } from "./agent-activity.js";
+import { CanonicalPathBoundary } from "./canonical-path-boundary.js";
 import { ExperimentManager } from "./experiment-manager.js";
 import { TerminalObserver } from "./terminal-observer.js";
 import { WorkflowProvenanceStore } from "./workflow-provenance.js";
@@ -101,7 +101,7 @@ export class TaskManager implements vscode.Disposable {
     }
     const root = resolveRoot(params.rootUri);
     const preparedTaskId = randomUUID();
-    const execution = createTaskExecution(params.execution, root);
+    const execution = await createTaskExecution(params.execution, root);
     const task = new vscode.Task(
       { type: params.execution.kind === "process" ? "process" : "shell", agentBridgePreparedTaskId: preparedTaskId },
       root,
@@ -174,7 +174,7 @@ export class TaskManager implements vscode.Disposable {
       conflictCode: "TASK_ALREADY_EXISTS",
       reason: params.reason,
     });
-    const synthetic = createPersistedTask(record.params, resolveRoot(params.rootUri));
+    const synthetic = await createPersistedTask(record.params, resolveRoot(params.rootUri));
     const summarized = summarizeTask(synthetic, params.rootUri, "agentPersisted");
     await this.#provenance.recordConfigurationWrite({
       kind: "task",
@@ -467,21 +467,24 @@ export class TaskManager implements vscode.Disposable {
   }
 }
 
-function createTaskExecution(spec: PreparedTaskExecution, root: vscode.WorkspaceFolder): vscode.ShellExecution | vscode.ProcessExecution {
-  const cwd = resolveTaskCwd(spec.options.cwd, root);
+async function createTaskExecution(
+  spec: PreparedTaskExecution,
+  root: vscode.WorkspaceFolder,
+): Promise<vscode.ShellExecution | vscode.ProcessExecution> {
+  const cwd = await resolveTaskCwd(spec.options.cwd, root);
   const options = { cwd, env: { ...spec.options.env } };
   if (spec.kind === "shellCommandLine") return new vscode.ShellExecution(spec.commandLine, options);
   if (spec.kind === "shell") return new vscode.ShellExecution(spec.command, [...spec.args], options);
   return new vscode.ProcessExecution(spec.process, [...spec.args], options);
 }
 
-function createPersistedTask(params: PrepareTaskParams, root: vscode.WorkspaceFolder): vscode.Task {
+async function createPersistedTask(params: PrepareTaskParams, root: vscode.WorkspaceFolder): Promise<vscode.Task> {
   const task = new vscode.Task(
     { type: params.execution.kind === "process" ? "process" : "shell" },
     root,
     params.label,
     AGENT_TASK_SOURCE,
-    createTaskExecution(params.execution, root),
+    await createTaskExecution(params.execution, root),
     [...params.problemMatchers],
   );
   const group = toVsCodeTaskGroup(params.group);
@@ -602,15 +605,12 @@ function taskWorkflow(summary: TaskSummary, preview: TaskExecutionPreview, execu
   };
 }
 
-function resolveTaskCwd(rawCwd: string, root: vscode.WorkspaceFolder): string {
-  if (path.isAbsolute(rawCwd)) throw new BridgeError("RESOURCE_OUT_OF_SCOPE", "Task cwd must be relative to the experiment root.");
-  const rootPath = path.resolve(root.uri.fsPath);
-  const cwd = path.resolve(rootPath, rawCwd);
-  const relative = path.relative(rootPath, cwd);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new BridgeError("RESOURCE_OUT_OF_SCOPE", "Task cwd must remain inside the experiment root.");
-  }
-  return cwd;
+async function resolveTaskCwd(rawCwd: string, root: vscode.WorkspaceFolder): Promise<string> {
+  const checked = await new CanonicalPathBoundary([root.uri.fsPath]).assertRelativePath(
+    root.uri.fsPath,
+    rawCwd,
+  );
+  return checked.canonicalPath;
 }
 
 function resolveRoot(rootUri: string): vscode.WorkspaceFolder {

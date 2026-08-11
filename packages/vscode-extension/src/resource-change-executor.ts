@@ -8,6 +8,8 @@ import {
   type ResourceChange,
 } from "@vscode-agent-bridge/protocol";
 
+import { CanonicalPathBoundary } from "./canonical-path-boundary.js";
+
 const MAX_RESOURCE_SNAPSHOT_ENTRIES = 500;
 const MAX_RESOURCE_SNAPSHOT_BYTES = 50 * 1024 * 1024;
 
@@ -36,6 +38,7 @@ export interface PreparedResourceOperation {
 
 export interface PreparedResourcePlan {
   readonly root: vscode.Uri;
+  readonly boundary: CanonicalPathBoundary;
   readonly operations: readonly PreparedResourceOperation[];
   readonly affectedUris: readonly vscode.Uri[];
 }
@@ -48,12 +51,18 @@ export async function prepareResourcePlan(
   if (root.scheme !== "file") {
     throw new BridgeError("RESOURCE_OUT_OF_SCOPE", "Resource changes require a local file workspace.");
   }
-  const resolved = operations.map((operation) => ({
-    operation,
-    uri: parseResourceUri(operation.uri, root),
-    targetUri:
-      operation.operation === "rename" ? parseResourceUri(operation.targetUri, root) : null,
-  }));
+  const boundary = new CanonicalPathBoundary([root.fsPath]);
+  await boundary.assertPath(root.fsPath);
+  const resolved = [];
+  for (const operation of operations) {
+    resolved.push({
+      operation,
+      uri: await parseResourceUri(operation.uri, root, boundary),
+      targetUri: operation.operation === "rename"
+        ? await parseResourceUri(operation.targetUri, root, boundary)
+        : null,
+    });
+  }
   assertNonOverlappingResourcePaths(
     resolved.flatMap(({ uri, targetUri }) => (targetUri ? [uri, targetUri] : [uri])),
   );
@@ -67,6 +76,7 @@ export async function prepareResourcePlan(
   }
   return {
     root,
+    boundary,
     operations: prepared,
     affectedUris: uniqueUris(
       prepared.flatMap(({ before, targetBefore, targetUri }) => [
@@ -84,6 +94,7 @@ export async function prepareResourcePlan(
 
 export async function assertResourcePlanFresh(plan: PreparedResourcePlan): Promise<void> {
   for (const prepared of plan.operations) {
+    await plan.boundary.assertPath(prepared.uri.fsPath, !prepared.before.exists);
     const current = await snapshotResource(prepared.uri);
     if (!sameSnapshot(current, prepared.before)) {
       throw new BridgeError(
@@ -92,6 +103,7 @@ export async function assertResourcePlanFresh(plan: PreparedResourcePlan): Promi
       );
     }
     if (prepared.targetUri && prepared.targetBefore) {
+      await plan.boundary.assertPath(prepared.targetUri.fsPath, !prepared.targetBefore.exists);
       const target = await snapshotResource(prepared.targetUri);
       if (!sameSnapshot(target, prepared.targetBefore)) {
         throw new BridgeError(
@@ -107,6 +119,8 @@ export async function applyResourcePlan(plan: PreparedResourcePlan): Promise<voi
   const applied: PreparedResourceOperation[] = [];
   try {
     for (const prepared of plan.operations) {
+      await plan.boundary.assertPath(prepared.uri.fsPath, !prepared.before.exists);
+      if (prepared.targetUri) await plan.boundary.assertPath(prepared.targetUri.fsPath, true);
       await applyOperation(prepared);
       applied.push(prepared);
     }
@@ -278,7 +292,11 @@ function validateRequestedPreconditions(
   }
 }
 
-function parseResourceUri(rawUri: string, root: vscode.Uri): vscode.Uri {
+async function parseResourceUri(
+  rawUri: string,
+  root: vscode.Uri,
+  boundary: CanonicalPathBoundary,
+): Promise<vscode.Uri> {
   let uri: vscode.Uri;
   try {
     uri = vscode.Uri.parse(rawUri, true);
@@ -295,7 +313,8 @@ function parseResourceUri(rawUri: string, root: vscode.Uri): vscode.Uri {
   if (relative.split(path.sep).some((segment) => segment.toLowerCase() === ".git")) {
     throw new BridgeError("RESOURCE_OUT_OF_SCOPE", "Git metadata is outside the resource change surface.");
   }
-  return vscode.Uri.file(path.resolve(uri.fsPath));
+  const checked = await boundary.assertPath(path.resolve(uri.fsPath), true);
+  return vscode.Uri.file(checked.canonicalPath);
 }
 
 function assertNonOverlappingResourcePaths(uris: readonly vscode.Uri[]): void {

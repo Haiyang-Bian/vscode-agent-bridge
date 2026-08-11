@@ -24,6 +24,7 @@ import {
 } from "@vscode-agent-bridge/protocol";
 
 import { getWorkspaceFolders } from "./editor-context.js";
+import { DocumentAccessController } from "./document-access-controller.js";
 import { createRequestHandlers, type BridgeRequestHandler } from "./request-handlers.js";
 
 interface ConnectionState {
@@ -58,7 +59,9 @@ export class BridgeHost {
 
   constructor(output: vscode.LogOutputChannel) {
     this.#output = output;
-    this.#requestHandlers = new Map(createRequestHandlers(this.instanceId));
+    this.#requestHandlers = new Map(
+      createRequestHandlers(this.instanceId, new DocumentAccessController(this.instanceId)),
+    );
   }
 
   registerRequestHandlers(handlers: ReadonlyMap<string, BridgeRequestHandler>): void {

@@ -21,6 +21,7 @@ import {
 } from "@vscode-agent-bridge/protocol";
 
 import { ExperimentManager } from "./experiment-manager.js";
+import { CanonicalPathBoundary } from "./canonical-path-boundary.js";
 
 const MAX_CONFIGURATION_CONTENT_CHARACTERS = 900_000;
 
@@ -69,6 +70,8 @@ export class WorkspaceConfigurationManager {
         "A .code-workspace file can be changed only when the current workspace already has one.",
       );
     }
+    const boundary = params.target === "workspace" ? null : new CanonicalPathBoundary([target.root.uri.fsPath]);
+    if (boundary) await boundary.assertPath(target.uri.fsPath, true);
     const loaded = await readConfiguration(target.uri);
     if (loaded.exists !== params.expectedExists) {
       throw new BridgeError("RESOURCE_PRECONDITION_FAILED", "The configuration existence precondition failed.");
@@ -120,6 +123,7 @@ export class WorkspaceConfigurationManager {
     const policy = validateConfigurationContent(target.uri, content, params.target);
     await this.#experiments.captureBeforeResourceApply(params.sessionId, [target.uri]);
     try {
+      if (boundary) await boundary.assertPath(target.uri.fsPath, true);
       await writeConfigurationAtomic(target.uri, content);
     } catch {
       await this.#experiments.markResourceRecoveryRequired(params.sessionId);
@@ -159,6 +163,8 @@ export class WorkspaceConfigurationManager {
     if (!target.uri) {
       throw new BridgeError("WORKSPACE_CONFIGURATION_TARGET_DENIED", "The workflow configuration target is unavailable.");
     }
+    const boundary = new CanonicalPathBoundary([target.root.uri.fsPath]);
+    await boundary.assertPath(target.uri.fsPath, true);
     const loaded = await readConfiguration(target.uri);
     assertConfigurationPreconditions(loaded, input.expectedExists, input.expectedSha256);
     if (loaded.exists && parseDiagnostics(loaded.content).length > 0) {
@@ -194,6 +200,7 @@ export class WorkspaceConfigurationManager {
     validateConfigurationContent(target.uri, content, input.target);
     await this.#experiments.captureBeforeResourceApply(input.sessionId, [target.uri]);
     try {
+      await boundary.assertPath(target.uri.fsPath, true);
       await writeConfigurationAtomic(target.uri, content);
     } catch {
       await this.#experiments.markResourceRecoveryRequired(input.sessionId);

@@ -74,22 +74,26 @@ const DOMAIN_TEST_FILES: Record<TestDomain, readonly string[]> = {
     "packages/mcp-server/test/rpc-client.test.ts",
     "packages/vscode-extension/test/codex-config.test.ts",
     "packages/vscode-extension/test/agent-activity.test.ts",
+    "packages/vscode-extension/test/document-access-grants.test.ts",
     "packages/protocol/test/registry.test.ts",
     "packages/protocol/test/rpc.test.ts",
   ],
   "experiment-resource": [
+    "packages/vscode-extension/test/canonical-path-boundary.test.ts",
     "packages/vscode-extension/test/experiment-store.test.ts",
     "packages/protocol/test/experiment-contracts.test.ts",
     "packages/protocol/test/workflow-contracts.test.ts",
     "packages/protocol/test/ide-contracts.test.ts",
   ],
   "task-terminal": [
+    "packages/vscode-extension/test/canonical-path-boundary.test.ts",
     "packages/vscode-extension/test/terminal-capture.test.ts",
     "packages/vscode-extension/test/workflow-provenance.test.ts",
     "packages/protocol/test/workflow-contracts.test.ts",
     "packages/protocol/test/ide-contracts.test.ts",
   ],
   debug: [
+    "packages/vscode-extension/test/canonical-path-boundary.test.ts",
     "packages/vscode-extension/test/debug-output-capture.test.ts",
     "packages/vscode-extension/test/workflow-provenance.test.ts",
     "packages/protocol/test/workflow-contracts.test.ts",
@@ -151,6 +155,8 @@ const TEST_FILE_DOMAINS: ReadonlyArray<readonly [RegExp, TestDomain]> = [
   [/packages\/mcp-server\/test\/usage-insights/, "ui-insights"],
   [/packages\/mcp-server\/test\//, "mcp-runtime"],
   [/(experiment-store|experiment-contracts)/, "experiment-resource"],
+  [/(canonical-path-boundary)/, "experiment-resource"],
+  [/(document-access-grants)/, "lifecycle"],
   [/(terminal-capture)/, "task-terminal"],
   [/(workflow-provenance)/, "task-terminal"],
   [/(debug-output-capture)/, "debug"],
@@ -426,6 +432,23 @@ function classifyExtensionSource(
     actions.addScenario("experiment-resource");
     actions.addScenario("task-terminal");
     actions.addScenario("debug");
+    return;
+  }
+  if (fileName === "canonical-path-boundary.ts") {
+    actions.addDomain("experiment-resource");
+    actions.addDomain("task-terminal");
+    actions.addDomain("debug");
+    actions.addScenario("core-language");
+    actions.addScenario("experiment-resource");
+    actions.addScenario("task-terminal");
+    actions.addScenario("debug");
+    actions.markFull(`Canonical path security boundary changed: ${changedPath}`, true);
+    return;
+  }
+  if (fileName === "document-access-controller.ts" || fileName === "document-access-grants.ts") {
+    actions.addDomain("lifecycle");
+    actions.addScenario("core-language");
+    actions.markFull(`Document authorization boundary changed: ${changedPath}`, true);
     return;
   }
   if (/^(task-|terminal-)/.test(fileName)) {

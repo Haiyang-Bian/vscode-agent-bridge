@@ -111,10 +111,12 @@ export const EditorContextSchema = z
 
 const InstanceIdSchema = z.string().uuid();
 const UriSchema = z.string().min(1);
+export const DocumentAccessGrantIdSchema = z.uuid();
 
 export const ReadDocumentParamsSchema = z
   .object({
     uri: UriSchema.optional(),
+    accessGrantId: DocumentAccessGrantIdSchema.optional(),
     range: RangeSchema.optional(),
     maxChars: z
       .number()
@@ -224,6 +226,7 @@ export const DiagnosticsResultSchema = z
 export const DocumentSymbolsParamsSchema = z
   .object({
     uri: UriSchema.optional(),
+    accessGrantId: DocumentAccessGrantIdSchema.optional(),
     limit: z.number().int().positive().max(MAX_RESULT_LIMIT).default(DEFAULT_RESULT_LIMIT),
   })
   .strict();
@@ -258,6 +261,7 @@ export const DocumentSymbolsResultSchema = z
 export const PositionedDocumentParamsSchema = z
   .object({
     uri: UriSchema,
+    accessGrantId: DocumentAccessGrantIdSchema.optional(),
     position: PositionSchema,
     limit: z.number().int().positive().max(MAX_RESULT_LIMIT).default(DEFAULT_RESULT_LIMIT),
   })
@@ -271,6 +275,8 @@ export const LocationItemSchema = z
   .object({
     uri: UriSchema,
     range: RangeSchema,
+    accessGrantId: DocumentAccessGrantIdSchema.nullable(),
+    accessGrantExpiresAt: z.string().min(1).nullable(),
   })
   .strict();
 
@@ -289,6 +295,7 @@ export const LocationsResultSchema = z
 export const HoverParamsSchema = z
   .object({
     uri: UriSchema,
+    accessGrantId: DocumentAccessGrantIdSchema.optional(),
     position: PositionSchema,
     maxChars: z
       .number()

@@ -3,6 +3,23 @@ const vscode = require("vscode");
 const DEBUG_TYPE = "vscode-agent-bridge-e2e";
 
 exports.activate = function activate(context) {
+  const externalScheme = "vscode-agent-bridge-external";
+  context.subscriptions.push(
+    vscode.workspace.registerTextDocumentContentProvider(externalScheme, {
+      provideTextDocumentContent() {
+        return "export const externalBridgeDefinition = 42;\n";
+      },
+    }),
+    vscode.languages.registerDefinitionProvider(
+      { language: "typescript", scheme: "file" },
+      {
+        provideDefinition(document) {
+          if (!document.getText().includes("bridgeGreeting")) return [];
+          return [new vscode.Location(vscode.Uri.parse(`${externalScheme}:/library.ts`), new vscode.Position(0, 13))];
+        },
+      },
+    ),
+  );
   context.subscriptions.push(
     vscode.debug.registerDebugAdapterDescriptorFactory(DEBUG_TYPE, {
       createDebugAdapterDescriptor() {

@@ -51,6 +51,7 @@ import {
 
 import { ChangeSetManager } from "./change-set-manager.js";
 import { AgentActivityTracker } from "./agent-activity.js";
+import { DocumentAccessController } from "./document-access-controller.js";
 import { getEditorContext } from "./editor-context.js";
 import { ExperimentManager } from "./experiment-manager.js";
 import { IdeAutonomyManager } from "./ide-autonomy-manager.js";
@@ -84,7 +85,10 @@ export type BridgeRequestHandler = (
 
 const EmptyParamsSchema = z.object({}).strict();
 
-export function createRequestHandlers(instanceId: string): ReadonlyMap<string, BridgeRequestHandler> {
+export function createRequestHandlers(
+  instanceId: string,
+  access: DocumentAccessController,
+): ReadonlyMap<string, BridgeRequestHandler> {
   return new Map<string, BridgeRequestHandler>([
     [
       BRIDGE_METHODS.getEditorContext,
@@ -97,41 +101,41 @@ export function createRequestHandlers(instanceId: string): ReadonlyMap<string, B
       BRIDGE_METHODS.readDocument,
       async (params) =>
         DocumentSnapshotSchema.parse(
-          await readDocument(instanceId, ReadDocumentParamsSchema.parse(params)),
+          await readDocument(instanceId, ReadDocumentParamsSchema.parse(params), access),
         ),
     ],
     [
       BRIDGE_METHODS.getDiagnostics,
       async (params) =>
         DiagnosticsResultSchema.parse(
-          await getDiagnostics(instanceId, DiagnosticsParamsSchema.parse(params)),
+          await getDiagnostics(instanceId, DiagnosticsParamsSchema.parse(params), access),
         ),
     ],
     [
       BRIDGE_METHODS.getDocumentSymbols,
       async (params) =>
         DocumentSymbolsResultSchema.parse(
-          await getDocumentSymbols(instanceId, DocumentSymbolsParamsSchema.parse(params)),
+          await getDocumentSymbols(instanceId, DocumentSymbolsParamsSchema.parse(params), access),
         ),
     ],
     [
       BRIDGE_METHODS.getDefinitions,
       async (params) =>
         LocationsResultSchema.parse(
-          await getDefinitions(instanceId, PositionedDocumentParamsSchema.parse(params)),
+          await getDefinitions(instanceId, PositionedDocumentParamsSchema.parse(params), access),
         ),
     ],
     [
       BRIDGE_METHODS.getReferences,
       async (params) =>
         LocationsResultSchema.parse(
-          await getReferences(instanceId, PositionedDocumentParamsSchema.parse(params)),
+          await getReferences(instanceId, PositionedDocumentParamsSchema.parse(params), access),
         ),
     ],
     [
       BRIDGE_METHODS.getHover,
       async (params) =>
-        HoverResultSchema.parse(await getHover(instanceId, HoverParamsSchema.parse(params))),
+        HoverResultSchema.parse(await getHover(instanceId, HoverParamsSchema.parse(params), access)),
     ],
   ]);
 }
