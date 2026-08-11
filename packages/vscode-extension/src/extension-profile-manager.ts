@@ -23,11 +23,26 @@ export class ExtensionProfileManager {
   readonly #instanceId: string;
   readonly #experiments: ExperimentManager;
   readonly #journal: GlobalProfileChangeJournal;
+  #globalQueue: Promise<unknown> = Promise.resolve();
 
   constructor(instanceId: string, experiments: ExperimentManager, globalStorageUri: vscode.Uri) {
     this.#instanceId = instanceId;
     this.#experiments = experiments;
     this.#journal = new GlobalProfileChangeJournal(globalStorageUri.fsPath);
+  }
+
+  async initialize(): Promise<void> {
+    await this.#journal.recover(async (change) => {
+      const { setting } = resolveDeclaredSetting(change.extensionId, change.key);
+      assertConfigurationKeyAllowed(change.key);
+      assertConfigurationTargetAllowed(setting, "global");
+      const inspection = vscode.workspace.getConfiguration().inspect<unknown>(change.key);
+      return inspection ? configurationValueSha256(inspection.globalValue) : null;
+    });
+  }
+
+  journalHealth() {
+    return this.#journal.health();
   }
 
   getConfiguration(params: GetExtensionConfigurationParams): ExtensionConfigurationResult {
@@ -50,16 +65,29 @@ export class ExtensionProfileManager {
       rootUri: root?.uri.toString(true) ?? null,
       declaredTypes: [...setting.types],
       scope: setting.scope,
-      effectiveValue: effectiveValue === undefined ? null : effectiveValue,
       effectiveValueDefined: effectiveValue !== undefined,
-      targetValue: targetValue === undefined ? null : targetValue,
+      effectiveValueSha256: configurationValueSha256(effectiveValue),
+      effectiveValueType: configurationValueType(effectiveValue),
       targetValueSha256: configurationValueSha256(targetValue),
       targetValueDefined: targetValue !== undefined,
+      targetValueType: configurationValueType(targetValue),
+      riskClass: classifyConfigurationRisk(params.key),
       sensitive: false,
     };
   }
 
-  async updateConfiguration(
+  updateConfiguration(
+    params: UpdateExtensionConfigurationParams,
+  ): Promise<UpdateExtensionConfigurationResult> {
+    if (params.target !== "global") return this.#updateConfiguration(params);
+    const next = this.#globalQueue
+      .catch(() => undefined)
+      .then(() => this.#updateConfiguration(params));
+    this.#globalQueue = next;
+    return next;
+  }
+
+  async #updateConfiguration(
     params: UpdateExtensionConfigurationParams,
   ): Promise<UpdateExtensionConfigurationResult> {
     const experiment = await this.#experiments.assertResourceChangesAllowed(params.sessionId);
@@ -87,14 +115,42 @@ export class ExtensionProfileManager {
     }
 
     if (params.target === "global") {
-      await updateSetting(configuration, params.key, params.newValue, vscode.ConfigurationTarget.Global);
-      const change = await this.#journal.append({
+      const change = await this.#journal.begin({
         extensionId: extension.id,
         key: params.key,
         beforeDefined: beforeValue !== undefined,
         beforeValue: beforeValue === undefined ? null : beforeValue,
+        beforeValueSha256: beforeSha256,
         afterValueSha256: nextSha256,
       });
+      try {
+        await updateSetting(configuration, params.key, params.newValue, vscode.ConfigurationTarget.Global);
+      } catch (error) {
+        try {
+          await updateSetting(
+            configuration,
+            params.key,
+            beforeValue,
+            vscode.ConfigurationTarget.Global,
+          );
+          await this.#journal.remove(change.changeId);
+        } catch {
+          await this.#journal.markAttentionRequired(change.changeId).catch(() => undefined);
+          throw new BridgeError(
+            "EXTENSION_CONFIGURATION_ATTENTION_REQUIRED",
+            "The Global Profile update failed and automatic rollback could not be verified.",
+          );
+        }
+        throw error;
+      }
+      try {
+        await this.#journal.commit(change.changeId);
+      } catch {
+        throw new BridgeError(
+          "EXTENSION_CONFIGURATION_ATTENTION_REQUIRED",
+          "The Global Profile value changed but its journal commit failed; Doctor attention is required.",
+        );
+      }
       return result(this.#instanceId, params, extension.id, true, nextSha256, null, change.changeId);
     }
 
@@ -146,6 +202,20 @@ export class ExtensionProfileManager {
     await this.#journal.remove(change.changeId);
     return true;
   }
+}
+
+function configurationValueType(value: unknown): string {
+  if (value === undefined) return "undefined";
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value;
+}
+
+function classifyConfigurationRisk(key: string): "ordinary" | "executableOrPath" | "network" | "telemetry" {
+  if (/(?:telemetry|analytics|tracking)/iu.test(key)) return "telemetry";
+  if (/(?:proxy|network|remote|url|uri|endpoint|host|port)/iu.test(key)) return "network";
+  if (/(?:executable|binary|command|runtime|interpreter|path|directory|folder)/iu.test(key)) return "executableOrPath";
+  return "ordinary";
 }
 
 function resolveDeclaredSetting(extensionId: string, key: string) {

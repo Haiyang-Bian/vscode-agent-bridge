@@ -106,11 +106,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     createIdeAutonomyRequestHandlers(ideAutonomy, experiments, onboarding, activity),
   );
   try {
-    await experiments.initialize();
+    await Promise.all([experiments.initialize(), extensionProfiles.initialize()]);
     await host.markReady();
   } catch (error) {
     await host.markDegraded();
-    output.error("Experiment storage initialization failed; the bridge is degraded.", error);
+    output.error("Bridge storage initialization failed; the bridge is degraded.", error);
   }
   let reconcileQueue = Promise.resolve();
   const reconcileBridge = (): Promise<void> => {
@@ -171,7 +171,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await removeCodexCommand(output);
     }),
     vscode.commands.registerCommand("vscodeAgentBridge.runDoctor", async () => {
-      await runDoctorCommand(context, host, experiments, managed, terminals, tasks, debug, configurations, output);
+      await runDoctorCommand(context, host, experiments, managed, terminals, tasks, debug, configurations, extensionProfiles, output);
     }),
     vscode.commands.registerCommand("vscodeAgentBridge.undoLastAgentProfileChange", async () => {
       const confirmed = await vscode.window.showWarningMessage(
@@ -585,13 +585,15 @@ async function runDoctorCommand(
   tasks: TaskManager,
   debug: DebugManager,
   configurations: WorkspaceConfigurationManager,
+  extensionProfiles: ExtensionProfileManager,
   output: vscode.LogOutputChannel,
 ): Promise<void> {
   const policy = getBridgePolicyState();
-  const [report, experimentStats, managedReport] = await Promise.all([
+  const [report, experimentStats, managedReport, profileJournal] = await Promise.all([
     inspectInstallation(context),
     experiments.getStoreStats(),
     managed.repairReport().catch(() => []),
+    extensionProfiles.journalHealth(),
   ]);
   const deferredConfigurations = (await Promise.all(
     (vscode.workspace.workspaceFolders ?? []).flatMap((root) => [
@@ -623,6 +625,9 @@ async function runDoctorCommand(
     `legacyV1Experiments=${experimentStats.v1Count}`,
     `resourceV2Experiments=${experimentStats.v2Count}`,
     `resourceRecoveryRequired=${experimentStats.recoveryRequiredCount}`,
+    `profileJournalPending=${profileJournal.pendingCount}`,
+    `profileJournalAttentionRequired=${profileJournal.attentionRequiredCount}`,
+    `profileJournalHealthy=${profileJournal.healthy}`,
     `managedExperiments=${managedReport.length}`,
     `managedAttentionRequired=${managedReport.filter((item) => !item.worktreeRegistered || !item.worktreePathPresent || !item.branchMatches || item.state !== "ready").length}`,
     `terminalCount=${terminalStats.terminalCount}`,
@@ -646,6 +651,7 @@ async function runDoctorCommand(
     report.bundledExecutable === "present" &&
     report.installedExecutable === "present" &&
     report.codexConfig === "current" &&
+    profileJournal.healthy &&
     !vscode.env.remoteName;
   await vscode.window.showInformationMessage(
     healthy

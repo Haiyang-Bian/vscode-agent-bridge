@@ -20,13 +20,22 @@ export interface GlobalProfileChange {
   readonly key: string;
   readonly beforeDefined: boolean;
   readonly beforeValue: unknown;
+  readonly beforeValueSha256: string;
   readonly afterValueSha256: string;
+  readonly state: "pending" | "committed" | "attentionRequired";
   readonly createdAt: string;
+  readonly updatedAt: string;
 }
 
 interface JournalFile {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly changes: readonly GlobalProfileChange[];
+}
+
+export interface GlobalProfileJournalHealth {
+  readonly pendingCount: number;
+  readonly attentionRequiredCount: number;
+  readonly healthy: boolean;
 }
 
 export function findDeclaredConfigurationSetting(
@@ -109,34 +118,106 @@ export function configurationValueSha256(value: unknown, defined = value !== und
 
 export class GlobalProfileChangeJournal {
   readonly #filePath: string;
+  #queue: Promise<unknown> = Promise.resolve();
+  #readAttentionRequired = false;
 
   constructor(storageRoot: string) {
     this.#filePath = path.join(storageRoot, "extension-profile-changes", "v1", "journal.json");
   }
 
-  async append(input: Omit<GlobalProfileChange, "changeId" | "createdAt">): Promise<GlobalProfileChange> {
-    const change: GlobalProfileChange = {
-      ...input,
-      changeId: randomUUID(),
-      createdAt: new Date().toISOString(),
-    };
-    const current = await this.#read();
-    const changes = this.#prune([...current, change]).slice(-JOURNAL_LIMIT);
-    await this.#write(changes);
-    return change;
+  begin(
+    input: Omit<GlobalProfileChange, "changeId" | "state" | "createdAt" | "updatedAt">,
+  ): Promise<GlobalProfileChange> {
+    return this.#enqueue(async () => {
+      const timestamp = new Date().toISOString();
+      const change: GlobalProfileChange = {
+        ...input,
+        changeId: randomUUID(),
+        state: "pending",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      const current = await this.#read();
+      await this.#write(this.#prune([...current, change]).slice(-JOURNAL_LIMIT));
+      return change;
+    });
   }
 
-  async latest(): Promise<GlobalProfileChange | null> {
-    const changes = this.#prune(await this.#read());
-    return changes.at(-1) ?? null;
+  async append(
+    input: Omit<GlobalProfileChange, "changeId" | "state" | "createdAt" | "updatedAt">,
+  ): Promise<GlobalProfileChange> {
+    const change = await this.begin(input);
+    return (await this.commit(change.changeId)) ?? change;
   }
 
-  async remove(changeId: string): Promise<void> {
-    const changes = this.#prune(await this.#read()).filter((change) => change.changeId !== changeId);
-    await this.#write(changes);
+  commit(changeId: string): Promise<GlobalProfileChange | null> {
+    return this.#transition(changeId, "committed");
+  }
+
+  markAttentionRequired(changeId: string): Promise<GlobalProfileChange | null> {
+    return this.#transition(changeId, "attentionRequired");
+  }
+
+  latest(): Promise<GlobalProfileChange | null> {
+    return this.#enqueue(async () => {
+      const changes = this.#prune(await this.#read()).filter((change) => change.state === "committed");
+      return changes.at(-1) ?? null;
+    });
+  }
+
+  remove(changeId: string): Promise<void> {
+    return this.#enqueue(async () => {
+      const changes = this.#prune(await this.#read()).filter((change) => change.changeId !== changeId);
+      await this.#write(changes);
+    });
+  }
+
+  recover(
+    currentValueSha256: (change: GlobalProfileChange) => Promise<string | null>,
+  ): Promise<GlobalProfileJournalHealth> {
+    return this.#enqueue(async () => {
+      let changes = this.#prune(await this.#read());
+      let changed = false;
+      for (let index = 0; index < changes.length; index += 1) {
+        const entry = changes[index]!;
+        if (entry.state !== "pending") continue;
+        const current = await currentValueSha256(entry).catch(() => null);
+        if (current === entry.afterValueSha256) {
+          changes[index] = { ...entry, state: "committed", updatedAt: new Date().toISOString() };
+        } else if (current === entry.beforeValueSha256) {
+          changes.splice(index, 1);
+          index -= 1;
+        } else {
+          changes[index] = { ...entry, state: "attentionRequired", updatedAt: new Date().toISOString() };
+        }
+        changed = true;
+      }
+      if (changed) await this.#write(changes);
+      return journalHealth(changes, this.#readAttentionRequired);
+    });
+  }
+
+  health(): Promise<GlobalProfileJournalHealth> {
+    return this.#enqueue(async () => journalHealth(this.#prune(await this.#read()), this.#readAttentionRequired));
+  }
+
+  #transition(
+    changeId: string,
+    state: GlobalProfileChange["state"],
+  ): Promise<GlobalProfileChange | null> {
+    return this.#enqueue(async () => {
+      const changes = this.#prune(await this.#read());
+      const index = changes.findIndex((change) => change.changeId === changeId);
+      if (index < 0) return null;
+      const updated = { ...changes[index]!, state, updatedAt: new Date().toISOString() };
+      changes[index] = updated;
+      await this.#write(changes);
+      return updated;
+    });
   }
 
   async #read(): Promise<GlobalProfileChange[]> {
+    this.#readAttentionRequired = false;
     let text: string;
     try {
       text = await readFile(this.#filePath, "utf8");
@@ -145,21 +226,42 @@ export class GlobalProfileChangeJournal {
       throw error;
     }
     try {
-      const parsed = JSON.parse(text) as JournalFile;
-      if (parsed.schemaVersion !== 1 || !Array.isArray(parsed.changes)) return [];
-      return parsed.changes.filter(validJournalEntry).slice(-JOURNAL_LIMIT);
+      const parsed = JSON.parse(text) as JournalFile & { schemaVersion?: number };
+      if (!Array.isArray(parsed.changes)) {
+        this.#readAttentionRequired = true;
+        return [];
+      }
+      if (parsed.schemaVersion === 2) {
+        const changes = parsed.changes.filter(validJournalEntry);
+        this.#readAttentionRequired = changes.length !== parsed.changes.length;
+        return changes.slice(-JOURNAL_LIMIT);
+      }
+      if (parsed.schemaVersion === 1) {
+        const migrated = parsed.changes.map(migrateV1Entry);
+        this.#readAttentionRequired = migrated.some((value) => value === null);
+        return migrated.filter((value): value is GlobalProfileChange => value !== null).slice(-JOURNAL_LIMIT);
+      }
+      this.#readAttentionRequired = true;
+      return [];
     } catch {
+      this.#readAttentionRequired = true;
       return [];
     }
   }
 
   async #write(changes: readonly GlobalProfileChange[]): Promise<void> {
+    if (this.#readAttentionRequired) {
+      throw new BridgeError(
+        "EXTENSION_CONFIGURATION_ATTENTION_REQUIRED",
+        "The Global Profile journal is malformed and requires user attention.",
+      );
+    }
     await mkdir(path.dirname(this.#filePath), { recursive: true });
     const temporary = `${this.#filePath}.${process.pid}.${randomUUID()}.tmp`;
     try {
       await writeFile(
         temporary,
-        `${JSON.stringify({ schemaVersion: 1, changes }, null, 2)}\n`,
+        `${JSON.stringify({ schemaVersion: 2, changes }, null, 2)}\n`,
         { encoding: "utf8", mode: 0o600 },
       );
       await rename(temporary, this.#filePath);
@@ -171,6 +273,12 @@ export class GlobalProfileChangeJournal {
   #prune(changes: readonly GlobalProfileChange[]): GlobalProfileChange[] {
     const cutoff = Date.now() - JOURNAL_RETENTION_MS;
     return changes.filter((change) => Date.parse(change.createdAt) >= cutoff).slice(-JOURNAL_LIMIT);
+  }
+
+  #enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    const next = this.#queue.catch(() => undefined).then(operation);
+    this.#queue = next;
+    return next;
   }
 }
 
@@ -206,10 +314,48 @@ function validJournalEntry(value: unknown): value is GlobalProfileChange {
     typeof candidate.extensionId === "string" &&
     typeof candidate.key === "string" &&
     typeof candidate.beforeDefined === "boolean" &&
+    typeof candidate.beforeValueSha256 === "string" &&
     typeof candidate.afterValueSha256 === "string" &&
+    (candidate.state === "pending" || candidate.state === "committed" || candidate.state === "attentionRequired") &&
     typeof candidate.createdAt === "string" &&
-    Number.isFinite(Date.parse(candidate.createdAt))
+    Number.isFinite(Date.parse(candidate.createdAt)) &&
+    typeof candidate.updatedAt === "string" &&
+    Number.isFinite(Date.parse(candidate.updatedAt))
   );
+}
+
+function migrateV1Entry(value: unknown): GlobalProfileChange | null {
+  const candidate = record(value);
+  if (
+    typeof candidate.changeId !== "string" ||
+    typeof candidate.extensionId !== "string" ||
+    typeof candidate.key !== "string" ||
+    typeof candidate.beforeDefined !== "boolean" ||
+    typeof candidate.afterValueSha256 !== "string" ||
+    typeof candidate.createdAt !== "string" ||
+    !Number.isFinite(Date.parse(candidate.createdAt))
+  ) return null;
+  return {
+    changeId: candidate.changeId,
+    extensionId: candidate.extensionId,
+    key: candidate.key,
+    beforeDefined: candidate.beforeDefined,
+    beforeValue: candidate.beforeDefined ? candidate.beforeValue : null,
+    beforeValueSha256: configurationValueSha256(candidate.beforeValue, candidate.beforeDefined),
+    afterValueSha256: candidate.afterValueSha256,
+    state: "committed",
+    createdAt: candidate.createdAt,
+    updatedAt: candidate.createdAt,
+  };
+}
+
+function journalHealth(
+  changes: readonly GlobalProfileChange[],
+  readAttentionRequired = false,
+): GlobalProfileJournalHealth {
+  const pendingCount = changes.filter((change) => change.state === "pending").length;
+  const attentionRequiredCount = changes.filter((change) => change.state === "attentionRequired").length + (readAttentionRequired ? 1 : 0);
+  return { pendingCount, attentionRequiredCount, healthy: pendingCount === 0 && attentionRequiredCount === 0 };
 }
 
 function record(value: unknown): Record<string, unknown> {

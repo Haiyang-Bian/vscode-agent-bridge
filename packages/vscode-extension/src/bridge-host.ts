@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import net, { type Server, type Socket } from "node:net";
 
 import * as vscode from "vscode";
@@ -25,7 +25,9 @@ import {
 
 import { getWorkspaceFolders } from "./editor-context.js";
 import { DocumentAccessController } from "./document-access-controller.js";
+import { publishPrivateJson } from "./private-registry-file.js";
 import { createRequestHandlers, type BridgeRequestHandler } from "./request-handlers.js";
+import { WindowsIdentityAcl } from "./windows-identity.js";
 
 interface ConnectionState {
   authenticated: boolean;
@@ -43,6 +45,7 @@ export class BridgeHost {
   readonly #descriptorPath = resolveInstanceDescriptorPath(this.instanceId, this.#directories);
   readonly #output: vscode.LogOutputChannel;
   readonly #requestHandlers: Map<string, BridgeRequestHandler>;
+  readonly #windowsAcl = new WindowsIdentityAcl();
   #server: Server | undefined;
   readonly #sockets = new Set<Socket>();
   #refreshQueue = Promise.resolve();
@@ -86,6 +89,8 @@ export class BridgeHost {
 
     await mkdir(this.#directories.instances, { recursive: true, mode: 0o700 });
     await mkdir(this.#directories.sockets, { recursive: true, mode: 0o700 });
+    await this.#windowsAcl.harden(this.#directories.instances, true);
+    await this.#windowsAcl.harden(this.#directories.sockets, true);
 
     if (this.#transport.kind === "unix-socket") {
       await rm(this.#transport.endpoint, { force: true });
@@ -107,7 +112,15 @@ export class BridgeHost {
     });
 
     this.#started = true;
-    await this.#writeDescriptor();
+    try {
+      await this.#writeDescriptor();
+    } catch (error) {
+      this.#started = false;
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      this.#server = undefined;
+      await rm(this.#descriptorPath, { force: true }).catch(() => undefined);
+      throw error;
+    }
     this.#output.info(`Bridge instance ${this.instanceId} is listening.`);
   }
 
@@ -345,16 +358,7 @@ export class BridgeHost {
       authToken: this.#authToken,
     };
 
-    const temporaryPath = `${this.#descriptorPath}.${process.pid}.${randomUUID()}.tmp`;
-    try {
-      await writeFile(temporaryPath, `${JSON.stringify(descriptor, null, 2)}\n`, {
-        encoding: "utf8",
-        mode: 0o600,
-      });
-      await rename(temporaryPath, this.#descriptorPath);
-    } finally {
-      await rm(temporaryPath, { force: true }).catch(() => undefined);
-    }
+    await publishPrivateJson(this.#descriptorPath, descriptor, this.#windowsAcl);
   }
 }
 

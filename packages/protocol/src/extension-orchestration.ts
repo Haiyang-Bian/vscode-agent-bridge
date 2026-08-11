@@ -144,11 +144,13 @@ export const ExtensionConfigurationResultSchema = z
     rootUri: UriSchema.nullable(),
     declaredTypes: z.array(z.string().max(100)).max(10),
     scope: z.string().max(100).nullable(),
-    effectiveValue: JsonValueSchema,
     effectiveValueDefined: z.boolean(),
-    targetValue: JsonValueSchema,
+    effectiveValueSha256: ContentSha256Schema,
+    effectiveValueType: z.string().max(100),
     targetValueSha256: ContentSha256Schema,
     targetValueDefined: z.boolean(),
+    targetValueType: z.string().max(100),
+    riskClass: z.enum(["ordinary", "executableOrPath", "network", "telemetry"]),
     sensitive: z.literal(false),
   })
   .strict();

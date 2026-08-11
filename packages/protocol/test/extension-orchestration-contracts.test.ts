@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   ApplyExtensionInstallInputSchema,
+  ExtensionConfigurationResultSchema,
   GetExtensionConfigurationInputSchema,
   PrepareExtensionInstallInputSchema,
   SearchExtensionsInputSchema,
@@ -62,5 +63,27 @@ describe("protocol v9 extension orchestration schemas", () => {
       newValue: "x".repeat(100_001),
       reason: "Oversized value.",
     })).toThrow();
+  });
+
+  test("returns configuration hashes and risk classification without raw values", () => {
+    const result = ExtensionConfigurationResultSchema.parse({
+      instanceId: INSTANCE_ID,
+      extensionId: "ms-python.python",
+      key: "python.defaultInterpreterPath",
+      target: "workspaceFolder",
+      rootUri: "file:///workspace",
+      declaredTypes: ["string"],
+      scope: "resource",
+      effectiveValueDefined: true,
+      effectiveValueSha256: HASH,
+      effectiveValueType: "string",
+      targetValueSha256: HASH,
+      targetValueDefined: true,
+      targetValueType: "string",
+      riskClass: "executableOrPath",
+      sensitive: false,
+    });
+    expect(result).not.toHaveProperty("effectiveValue");
+    expect(result).not.toHaveProperty("targetValue");
   });
 });
