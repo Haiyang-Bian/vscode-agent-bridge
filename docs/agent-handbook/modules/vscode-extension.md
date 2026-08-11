@@ -10,16 +10,16 @@
 
 | Capability | Primary implementation |
 | --- | --- |
-| Lifecycle, publication and policy | `extension.ts`, `bridge-host.ts`, `policies.ts`, `workspace-onboarding.ts`, `codex-config.ts`, `installation.ts` |
-| Editor and language state | `editor-context.ts`, `language-services.ts`, `request-handlers.ts` |
+| Lifecycle, publication and policy | `extension.ts`, `bridge-host.ts`, `bridge-lifecycle.ts`, `private-registry-file.ts`, `windows-identity.ts`, `policies.ts`, `workspace-onboarding.ts`, `codex-config.ts`, `installation.ts` |
+| Editor, paths and language authorization | `editor-context.ts`, `language-services.ts`, `canonical-path-boundary.ts`, `document-access-controller.ts`, `document-access-grants.ts`, `request-handlers.ts` |
 | Experiments and guarded text changes | `experiment-manager.ts`, `experiment-store.ts`, `change-set-manager.ts`, `experiment-ui.ts` |
 | Resource/configuration mutation | `resource-change-executor.ts`, `workspace-configuration-manager.ts`, `workspace-configuration-handlers.ts` |
-| Terminal and Tasks | `terminal-observer.ts`, `terminal-capture.ts`, `task-manager.ts`, `task-request-handlers.ts` |
-| Debug | `debug-manager.ts`, `debug-request-handlers.ts`, `debug-output-capture.ts` |
+| Terminal and Tasks | `terminal-observer.ts`, `terminal-capture.ts`, `task-manager.ts`, `task-request-handlers.ts`, `workflow-provenance.ts` |
+| Debug | `debug-manager.ts`, `debug-request-handlers.ts`, `debug-output-capture.ts`, `workflow-provenance.ts` |
 | Extension reflection and Marketplace | `extension-awareness-*`, `extension-marketplace-*`, `marketplace-client.ts`, `extension-maintainers.ts` |
 | Current Profile and reviewed adapters | `extension-profile-*`, `extension-integration-*`, `python-environment-integration-core.ts` |
 | Managed Git | `git-baseline.ts`, `git-path.ts`, `git-runner.ts`, `managed-worktree-manager.ts`, `managed-worktree-ui.ts` |
-| Native UI and local insights | `bridge-hub-ui.ts`, `agent-activity*`, `agent-editor-visibility.ts`, `local-usage-insights.ts` |
+| Native UI and local insights | `bridge-hub-ui.ts`, `agent-activity*`, `agent-editor-visibility.ts`, `output-source-order.ts`, `local-usage-insights.ts` |
 
 ## Change rules
 
@@ -27,10 +27,10 @@
 - Keep handler validation, manager state transitions and UI confirmation boundaries distinct.
 - Every Agent-visible mutation revalidates trust, root, experiment/session ownership and stale-state preconditions immediately before applying effects.
 - Normalize and contain paths using the shared path boundary; reject `.git`, links/reparse escapes and unsupported binary/resource cases where required.
-- Task and Debug targets are open-world execution. Use fixed VS Code APIs, exact fingerprints/configurations and honest external-side-effect annotations.
+- Task and Debug targets are open-world execution. Prepared definitions must bind instance/session/root, expose execution previews, hash the complete execution and run through fixed VS Code APIs. Persistence is a separate exact-hash/provenance operation.
 - Extension inspection must not activate arbitrary extensions. Only a static reviewed adapter may activate its fixed extension for an explicit state request.
 - Managed Git uses fixed argument vectors and exact paths. No shell, remote operation, hard reset, automatic push or broad cleanup.
-- Persistent settings or profile changes need a recovery story; tests must restore global VS Code state even on failure.
+- Persistent settings or profile changes need a recovery story; Global Profile writes persist pending before apply and ambiguous recovery must fail Doctor health.
 
 ## Focused reading routes
 

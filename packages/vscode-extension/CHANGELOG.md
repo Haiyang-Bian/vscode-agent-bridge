@@ -1,5 +1,16 @@
 # Change Log
 
+## 0.12.0 - 2026-08-11
+
+- Upgraded to Bridge protocol v11 and exactly 64 catalog-derived tools.
+- Added experiment-scoped prepared and independently persisted Shell/Process Task and Debug adapter definitions with complete fingerprints, execution previews and provenance.
+- Correlated Task/Debug prepare, start, terminal/output, exit and final checkpoint in Agent Activity while excluding environment values.
+- Added canonical real-path/reparse protection and exact, expiring provider-derived grants for external language-service results.
+- Changed extension-setting reads to hash/type/scope/risk only and made Global Profile updates a serialized pending/apply/commit journal with startup recovery and Doctor attention.
+- Restored `initializing` descriptor publication before storage recovery, separated Doctor health dimensions and retained old descriptors as sanitized incompatible instances.
+- Hardened Windows registry descriptors to the current SID plus SYSTEM with fixed no-shell identity/ACL commands and fail-closed fsync/atomic publication.
+- Added 1 MiB Usage Insight rotation, recurring prune, strict 20 MiB append capacity, shutdown flush, actionable default Output ordering and typed catalog-complete MCP registration.
+
 ## 0.11.0 - 2026-08-10
 
 - Added two bounded extension-integration tools, raising the catalog to 60 tools on protocol v10.

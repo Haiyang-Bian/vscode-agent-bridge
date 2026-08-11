@@ -2,7 +2,7 @@
 
 VS Code Agent Bridge connects local MCP clients such as Codex to IDE-native VS Code state. It has two runtime layers: a standalone STDIO MCP server and a VS Code desktop extension. `packages/protocol` contains their shared RPC contracts and is not a third service.
 
-The unpublished `0.11.0` candidate targets Windows x64 and is distributed as a side-loaded VSIX. It upgrades directly over `0.10.0`; testers do not need Bun, Node.js or this repository because the package contains a Bun-compiled MCP executable and installs a versioned copy only after explicit confirmation.
+The unpublished `0.12.0` candidate targets Windows x64, uses Bridge protocol v11 and exposes exactly 64 catalog-derived tools. It is distributed as a side-loaded VSIX and upgrades directly over `0.11.0`; testers do not need Bun, Node.js or this repository because the package contains a Bun-compiled MCP executable and installs a versioned copy only after explicit confirmation.
 
 ## MCP tools
 
@@ -26,7 +26,7 @@ The unpublished `0.11.0` candidate targets Windows x64 and is distributed as a s
 | `vscode_search_extensions` | Query the fixed Visual Studio Marketplace client and rank installed, recommended, official, verified and third-party candidates. |
 | `vscode_prepare_extension_install` | Lock one stable extension version and a bounded dependency graph into a short-lived install plan. |
 | `vscode_apply_extension_install` | Apply one prepared plan through VS Code's fixed native install command while preserving Publisher Trust. |
-| `vscode_get_extension_configuration` | Read one non-sensitive manifest-declared setting and its canonical current-Profile hash. |
+| `vscode_get_extension_configuration` | Read hashes, types, scope and risk for one non-sensitive manifest-declared setting without returning the raw value. |
 | `vscode_update_extension_configuration` | Update one declared setting after a hash precondition, with experiment or local-journal recovery. |
 | `vscode_list_extension_integrations` | List the static reviewed adapter catalog and version compatibility without activating extensions. |
 | `vscode_get_extension_integration_state` | Read one reviewed adapter state; the first adapter exposes only the official Python active environment. |
@@ -56,11 +56,15 @@ The unpublished `0.11.0` candidate targets Windows x64 and is distributed as a s
 | `vscode_update_workspace_configuration` | Apply guarded JSON Pointer updates while preserving JSONC comments and unrelated fields. |
 | `vscode_prepare_resource_changes` | Prepare bounded creation, rename or deletion of in-root text files and directories. |
 | `vscode_list_tasks` | List workspace-scoped VS Code Tasks with stable IDs and fingerprints. |
-| `vscode_run_task` | Run a previously listed, fingerprint-matched Task inside the active experiment. |
+| `vscode_prepare_task` | Create a 30-minute experiment-scoped Shell or Process Task definition with a complete execution preview and fingerprint. |
+| `vscode_persist_task` | Persist one prepared Task to `tasks.json` under exact existence/hash and provenance preconditions. |
+| `vscode_run_task` | Run a listed or prepared, fingerprint-matched Task through the VS Code Task API inside the active experiment. |
 | `vscode_list_task_executions` | Page through bounded in-memory Task lifecycle and terminal-coverage metadata. |
 | `vscode_terminate_task` | Terminate one active Task execution. |
 | `vscode_list_debug_configurations` | List static launch configurations and compounds without exposing raw command objects. |
-| `vscode_start_debug_session` | Start a named, fingerprint-matched launch configuration or compound. |
+| `vscode_prepare_debug_configuration` | Create a 30-minute experiment-scoped, JSON-compatible adapter configuration with fingerprinted Task bindings. |
+| `vscode_persist_debug_configuration` | Persist one prepared adapter configuration to `launch.json` under exact hash and provenance preconditions. |
+| `vscode_start_debug_session` | Start a listed or prepared configuration by configuration ID and expected fingerprint. |
 | `vscode_list_debug_sessions` | List active and recently ended tracked debug sessions. |
 | `vscode_get_debug_state` | Page through bounded threads, stack frames, scopes and variables. |
 | `vscode_control_debug_session` | Invoke one fixed pause/continue/step/restart/terminate action. |
@@ -69,15 +73,15 @@ The unpublished `0.11.0` candidate targets Windows x64 and is distributed as a s
 | `vscode_evaluate_debug_expression` | Evaluate within an explicit tracked session/frame/context without retaining the expression. |
 | `vscode_set_debug_variable` | Set one variable through a current variables reference without retaining its value. |
 
-The original read tools and experiment-history tools remain read-only. Every mutation requires an active trusted local experiment, explicit instance/session routing, root scope and the relevant version, hash, fingerprint or revision precondition. Starting is the sole write without a session ID and still requires an explicit instance, root, title, reason and user-confirmed workspace onboarding. There is no generic VS Code command, arbitrary DAP request, terminal input, shell, unrestricted filesystem or Agent-callable Git tool.
+The original read tools and experiment-history tools remain read-only. Every mutation or execution requires an active trusted local experiment, explicit instance/session routing, root scope and the relevant version, hash, fingerprint or revision precondition. Starting an experiment is the sole write without a session ID and still requires an explicit instance, root, title, reason and user-confirmed workspace onboarding. Shell and Process commands are allowed only as fingerprinted VS Code Tasks with visible Task/terminal lifecycle; there is no bypass through terminal input, a generic VS Code command, arbitrary DAP request, unrestricted filesystem or Agent-callable Git tool.
 
 ## Bridge controls
 
 Run **Configure Bridge** to choose the machine-level master switch and workflow mode, then rerun **Configure Codex** after upgrading the MCP executable.
 
 - `vscodeAgentBridge.enabled` defaults to `true`. Turning it off closes RPC connections and removes the instance descriptor; local Doctor and configuration commands remain available.
-- `explicit` (default) permits only workflows explicitly requested through MCP and rejects delayed execution such as `runOn: folderOpen`.
-- `aggressive` also permits bounded deferred IDE configuration and reports `deferredEffects` in results, Doctor and Activity.
+- `explicit` is the only execution mode. It permits workflows explicitly requested through MCP and rejects delayed execution such as `runOn: folderOpen`, dependencies and compounds generated by the Agent.
+- A legacy `aggressive` value safely degrades to `explicit`. Doctor warns and offers to open Settings; it never deletes existing folder-open configuration.
 - Existing v0.6 users who explicitly selected `readOnly`, `review`, `metadataOnly` or `deny` are not silently widened: bridge publication pauses until they explicitly enable or disable v0.7.
 
 The managed Codex block no longer chooses approval modes. Codex, user configuration or a supervising Agent decides approval from the accurate MCP annotations.
@@ -86,17 +90,19 @@ The managed Codex block no longer chooses approval modes. Codex, user configurat
 
 The stable Activity Bar container is presented as **VS Code Agent Bridge** and contains native Overview, Experiments, Agent Activity, Capabilities and Usage Insights views. Overview shows only bounded state such as version/protocol, publication, trust, active experiment, Problems, installed/active extensions, visible signal sources and Task/Debug/Terminal counts. Capabilities is derived from the same catalog that defines MCP names, Codex configuration and annotations.
 
-Extension reflection uses `vscode.extensions.all` without activating inspected extensions, reading exports or executing contributed commands. Problems changes are summarized in a 15-minute in-memory ring without retaining diagnostic bodies. Output discovery is coverage-aware: only already opened Output documents or Bridge-captured Terminal/Task/Debug streams are readable. The Bridge never switches Output Channels or reads private log/Profile storage. Debug Console output is sanitized, memory-only, bounded and tagged `sinceActivation`; telemetry and evaluate/variable data are discarded.
+Extension reflection uses `vscode.extensions.all` without activating inspected extensions, reading exports or executing contributed commands. Problems changes are summarized in a 15-minute in-memory ring without retaining diagnostic bodies. Output discovery defaults to readable/active/recent sources and omits metadata-only extension capabilities unless that source type is explicitly requested. Only already opened Output documents or Bridge-captured Terminal/Task/Debug streams are readable. The Bridge never switches Output Channels or reads private log/Profile storage. Debug Console output is sanitized, memory-only, bounded and tagged `sinceActivation`; telemetry and evaluate/variable data are discarded.
 
-Marketplace orchestration uses a fixed HTTPS Gallery endpoint, strict bounded responses, proxy-aware TLS and 15-minute in-memory candidates. A versioned maintainer directory is the only source of the `official` label; Marketplace verification is reported separately. Installation is a one-use, exact-version plan through VS Code's native UI boundary. The Bridge never accepts URLs or VSIX paths, invokes the CLI, bypasses Publisher Trust, downgrades, uninstalls or silently updates extensions. Current-Profile configuration is limited to installed extensions' declared non-sensitive keys. Global changes have a 30-day/100-entry local undo journal; Workspace and Folder changes remain part of the active experiment.
+File-backed access shares one canonical path boundary with native realpath, Windows case normalization, ancestor `lstat`, reparse-point rejection and apply-time revalidation. Language providers may return external definitions or references with random exact-URI grants bound to this instance and source workspace for ten minutes. Caller-invented external or unknown virtual URIs remain denied.
+
+Marketplace orchestration uses a fixed HTTPS Gallery endpoint, strict bounded responses, proxy-aware TLS and 15-minute in-memory candidates. A versioned maintainer directory is the only source of the `official` label; Marketplace verification is reported separately. Installation is a one-use, exact-version plan through VS Code's native UI boundary. The Bridge never accepts URLs or VSIX paths, invokes the CLI, bypasses Publisher Trust, downgrades, uninstalls or silently updates extensions. Current-Profile configuration is limited to installed extensions' declared non-sensitive keys. Reads return only definition state, SHA-256, value type, scope and semantic risk. Global changes use a serialized pending/apply/commit journal with startup recovery and Doctor attention; Workspace and Folder changes remain part of the active experiment.
 
 Extension-specific state uses a static reviewed adapter catalog rather than arbitrary commands or exports. Listing the catalog never activates an extension. An explicit state request may activate only the fixed extension associated with that adapter and is annotated as non-idempotent/open-world. v0.11's first adapter uses Microsoft's pinned `@vscode/python-extension` facade for `ms-python.python` and returns only the active interpreter path, environment type/name, Python version and bitness. It cannot read environment variables, package inventories, credentials or Python logs, and cannot create environments or install packages.
 
-Every MCP process records a separate append-only local insight session with tool/category, outcome, timing and size buckets, truncation and stable error codes. Parameters, results, paths, source, hashes, terminal content, expressions, variables, environment variables and credentials are never recorded. Data stays on this computer for 30 days with a 20 MiB cap, can be cleared explicitly and can be exported only as a privacy-preserving aggregate report. Suggestions are deterministic rules backed by displayed counts, not claims about Agent personality or model learning.
+Every MCP process records a separate append-only local insight session with tool/category, outcome, timing and size buckets, truncation and stable error codes. Parameters, results, paths, source, hashes, terminal content, expressions, variables, environment variables and credentials are never recorded. Active files rotate at 1 MiB; retention is pruned after each additional 256 KiB or five minutes and total data is bounded to 20 MiB before append. The shutdown path flushes the write queue. Data can be cleared explicitly and exported only as a privacy-preserving aggregate report.
 
 ## Recoverable experiments
 
-The first experiment request in a trusted local workspace inventories `.vscode`, `settings.json`, `launch.json`, `tasks.json` and the workspace file, then asks before enabling experiments. Confirmation writes only `vscodeAgentBridge.experiments.enabled` and the selected `agentEditVisibility` through the VS Code Configuration API; cancellation makes no file change. Existing JSONC content is preserved and launch/tasks/workspace files are never modified.
+The first experiment request in a trusted local workspace inventories `.vscode`, `settings.json`, `launch.json`, `tasks.json` and the workspace file, then asks before enabling experiments. Confirmation writes only `vscodeAgentBridge.experiments.enabled` and the selected `agentEditVisibility` through the VS Code Configuration API; cancellation makes no file change. Generic configuration edits cannot author Task or Debug definitions. Prepared definitions are temporary by default and only the dedicated persist tools may update `tasks.json` or `launch.json` under exact file-hash and provenance guards.
 
 After onboarding, the Agent can name an ordinary experiment for the current task, list sessions, rename ordinary sessions and create explicit checkpoints. Accept, restore, Finalize, abandon, pin, delete and every Managed Worktree action remain user-only. Experiments keep content-addressed, gzip-compressed text snapshots in VS Code extension storage, separate from the repository and Settings Sync.
 
@@ -109,7 +115,7 @@ After onboarding, the Agent can name an ordinary experiment for the current task
 
 The default Git workflow is an ordinary experiment branch plus normal Git squash/rebase performed by the user. Automatic checkpoints never create Git commits.
 
-Agent writes appear in the native **Agent Activity** view and status bar. Depending on `agentEditVisibility`, guarded target documents are opened as fixed tabs before mutation; the default opens all targets and focuses the first. Activity is memory-only, capped at 200 entries, and records relative names and outcomes rather than source, replacement text, hashes, terminal data or absolute paths.
+Agent writes and executions appear in the native **Agent Activity** view and status bar. Depending on `agentEditVisibility`, guarded target documents are opened as fixed tabs before mutation; the default opens all targets and focuses the first. Task records retain the full command, arguments and cwd plus execution/terminal/checkpoint correlation; Debug records retain execution-relevant adapter fields. Environment values, source/replacement text, terminal output, expressions and Debug values are never retained.
 
 ## Managed worktrees and one-commit promotion (advanced)
 
@@ -185,10 +191,10 @@ bun run test:artifact
 
 Pull requests and `master` run [CI](.github/workflows/ci.yml). A version tag runs [the release workflow](.github/workflows/release.yml), creates checksums, a version-specific cross-machine test bundle and provenance, and publishes a GitHub Release. Marketplace publishing remains disabled and runs through `vsce --oidc` only if `MARKETPLACE_TRUSTED_PUBLISHING_ENABLED` is explicitly set to `true`.
 
-No PAT is stored in this repository. See the [v0.11.0 release checklist](docs/releases/v0.11.0.md) and [v0.11.0 cross-machine acceptance procedure](docs/acceptance/v0.11.0-windows-x64.md). Earlier self-bootstrap findings remain available under [docs/audits](docs/audits/README.md).
+No PAT is stored in this repository. See the [v0.12.0 release checklist](docs/releases/v0.12.0.md) and [v0.12.0 cross-machine acceptance procedure](docs/acceptance/v0.12.0-windows-x64.md). Earlier self-bootstrap findings remain available under [docs/audits](docs/audits/README.md).
 
 ## Security and license
 
-The extension uses a per-window random identifier and token over local IPC. Descriptor files are atomically replaced and live-probed. Codex configuration changes are marker-scoped, TOML-validated, backed up and atomically replaced. Experiment content never appears in Doctor output.
+The extension uses a per-window random identifier and token over local IPC. On Windows, registry directories and descriptors remove inheritance and grant only the current SID plus SYSTEM; descriptor publication uses write/fsync/ACL/atomic-rename/recheck and fails closed. Current descriptors are live-probed, while old protocol envelopes remain visible only as sanitized incompatible instances. Experiment content never appears in Doctor output.
 
 Report vulnerabilities according to [SECURITY.md](SECURITY.md). This project is licensed under the [MIT License](LICENSE).

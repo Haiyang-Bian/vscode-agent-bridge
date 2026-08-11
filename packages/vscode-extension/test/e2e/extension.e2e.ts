@@ -1041,6 +1041,9 @@ async function exerciseExtensionProfileConfiguration(
     { extensionId, key, target: "global", rootUri },
   );
   assert.equal(before.sensitive, false);
+  assert.equal("effectiveValue" in before, false);
+  assert.equal("targetValue" in before, false);
+  assert.equal(before.riskClass, "ordinary");
   const changed = await client.request<{
     changed: boolean;
     globalChangeId: string | null;
@@ -1241,13 +1244,32 @@ async function exerciseWorkspaceWorkflows(
   });
     const finished = await waitFor(async () => {
       const result = await client.request<{
-        executions: Array<{ executionId: string; status: string; exitCode: number | null; checkpointId: string | null }>;
+        executions: Array<{
+          executionId: string;
+          status: string;
+          exitCode: number | null;
+          terminalExecutionId: string | null;
+          checkpointId: string | null;
+        }>;
       }>(BRIDGE_METHODS.listTaskExecutions, { rootUri, activeOnly: false, offset: 0, limit: 50 });
       return result.executions.find(
-        (execution) => execution.executionId === started.execution.executionId && execution.status === "exited" && execution.checkpointId,
+        (execution) =>
+          execution.executionId === started.execution.executionId &&
+          execution.status === "exited" &&
+          execution.terminalExecutionId &&
+          execution.checkpointId,
       );
     }, "completed VS Code Agent Task with checkpoint", 30_000);
     assert.equal(finished.exitCode, 0);
+    const taskTerminalOutput = await waitFor(async () => {
+      const page = await client.request<ReadTerminalOutputResult>(BRIDGE_METHODS.readTerminalOutput, {
+        executionId: finished.terminalExecutionId!,
+        cursor: 0,
+        maxChars: 65_536,
+      });
+      return page.text.includes(TASK_MARKER) ? page : undefined;
+    }, "captured VS Code Agent Task terminal output");
+    assert.match(taskTerminalOutput.text, new RegExp(TASK_MARKER));
     assert.equal((await readFile(vscode.Uri.joinPath(workspaceUri, "task-output.txt").fsPath, "utf8")).trim(), TASK_MARKER);
 
     await client.request(BRIDGE_METHODS.persistTask, {
@@ -1258,14 +1280,27 @@ async function exerciseWorkspaceWorkflows(
       expectedSha256: null,
       reason: "Persist the prepared Task with an exact tasks.json precondition",
     });
-    await waitFor(async () => {
+    const persistedTask = await waitFor(async () => {
       const result = await client.request<{
         tasks: Array<{ taskId: string; fingerprint: string; label: string; origin: string }>;
       }>(BRIDGE_METHODS.listTasks, { rootUri, group: "test", offset: 0, limit: 50 });
-      return result.tasks.some((candidate) => candidate.label === taskLabel && candidate.origin === "agentPersisted")
-        ? result
-        : undefined;
+      return result.tasks.find((candidate) => candidate.label === taskLabel && candidate.origin === "agentPersisted");
     }, "persisted VS Code Agent Task");
+    const rerun = await client.request<{ execution: { executionId: string } }>(BRIDGE_METHODS.runTask, {
+      sessionId,
+      rootUri,
+      taskId: persistedTask.taskId,
+      expectedFingerprint: persistedTask.fingerprint,
+      reason: "Run the persisted Agent Task through VS Code again",
+    });
+    await waitFor(async () => {
+      const result = await client.request<{
+        executions: Array<{ executionId: string; status: string; exitCode: number | null; checkpointId: string | null }>;
+      }>(BRIDGE_METHODS.listTaskExecutions, { rootUri, activeOnly: false, offset: 0, limit: 50 });
+      return result.executions.find(
+        (execution) => execution.executionId === rerun.execution.executionId && execution.status === "exited" && execution.checkpointId,
+      );
+    }, "rerun persisted VS Code Agent Task", 30_000);
   }
 
   if (options.debug) {
@@ -1483,12 +1518,17 @@ async function exerciseDebugWorkflow(
     reason: "Terminate the bounded E2E debug session",
   });
   await waitFor(async () => {
-    const result = await client.request<{ sessions: Array<{ debugSessionId: string; status: string }> }>(
+    const result = await client.request<{
+      sessions: Array<{ debugSessionId: string; status: string; checkpointId: string | null }>;
+    }>(
       BRIDGE_METHODS.listDebugSessions,
       { rootUri, includeTerminated: true },
     );
     return result.sessions.some(
-      (candidate) => candidate.debugSessionId === debugSession.debugSessionId && candidate.status === "terminated",
+      (candidate) =>
+        candidate.debugSessionId === debugSession.debugSessionId &&
+        candidate.status === "terminated" &&
+        candidate.checkpointId,
     ) ? true : undefined;
   }, "terminated inline E2E debug session");
 
@@ -1607,6 +1647,27 @@ async function exerciseExtensionAwareness(
       isBridgeError("EXTENSION_VERSION_UNSUPPORTED"),
     );
   }
+
+  const defaultOutputInventory = await client.request<{
+    sources: Array<{ sourceType: string; canReadNow: boolean }>;
+  }>(BRIDGE_METHODS.listOutputSources, {
+    rootUri: workspaceUri.toString(true),
+    offset: 0,
+    limit: 1_000,
+  });
+  assert.ok(defaultOutputInventory.sources.every((source) => source.sourceType !== "extensionCapability"));
+  const capabilityInventory = await client.request<{
+    sources: Array<{ sourceType: string; coverage: string }>;
+  }>(BRIDGE_METHODS.listOutputSources, {
+    rootUri: workspaceUri.toString(true),
+    sourceTypes: ["extensionCapability"],
+    offset: 0,
+    limit: 1_000,
+  });
+  assert.ok(capabilityInventory.sources.length > 0);
+  assert.ok(capabilityInventory.sources.every(
+    (source) => source.sourceType === "extensionCapability" && source.coverage === "metadataOnly",
+  ));
 
   const diagnosticEvents = await waitFor(async () => {
     const result = await client.request<{

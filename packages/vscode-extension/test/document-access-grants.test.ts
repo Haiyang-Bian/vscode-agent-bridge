@@ -13,6 +13,8 @@ describe("provider-derived document access grants", () => {
     const store = new DocumentAccessGrantStore("11111111-1111-4111-8111-111111111111", () => now);
     const grant = store.issue("file:///outside/library.ts", "file:///workspace");
     expect(store.authorize(grant.accessGrantId, grant.uri)).toEqual(grant);
+    const otherInstance = new DocumentAccessGrantStore("33333333-3333-4333-8333-333333333333", () => now);
+    expect(() => otherInstance.authorize(grant.accessGrantId, grant.uri)).toThrow();
     expect(() => store.authorize(grant.accessGrantId, "file:///outside/other.ts")).toThrow();
     now += DOCUMENT_ACCESS_GRANT_TTL_MS;
     expect(() => store.authorize(grant.accessGrantId, grant.uri)).toThrow("expired");

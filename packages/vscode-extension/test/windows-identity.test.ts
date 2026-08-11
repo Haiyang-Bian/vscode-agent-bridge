@@ -27,5 +27,12 @@ describe("fixed Windows identity and descriptor ACL commands", () => {
       "*S-1-5-18:(F)",
     ]);
     expect(command.args.join(" ")).not.toMatch(/Users|Everyone|Authenticated Users/iu);
+    expect(hardenAclCommand("C:\\registry\\instances", "S-1-5-21-1-2-3-1001", true).args).toEqual([
+      "C:\\registry\\instances",
+      "/inheritance:r",
+      "/grant:r",
+      "*S-1-5-21-1-2-3-1001:(OI)(CI)F",
+      "*S-1-5-18:(OI)(CI)F",
+    ]);
   });
 });

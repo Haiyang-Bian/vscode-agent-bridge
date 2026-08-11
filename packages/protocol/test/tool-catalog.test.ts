@@ -45,4 +45,31 @@ describe("authoritative MCP tool catalog", () => {
     expect(result.friction).toContainEqual({ name: "STALE_CHANGE_SET", count: 3 });
     expect(result.suggestions[0]).toContain("stale-state");
   });
+
+  test("advertises worst-case prepared and executing workflow effects", () => {
+    const entries = new Map(MCP_TOOL_CATALOG.map((entry) => [entry.name, entry]));
+    for (const name of ["vscode_prepare_task", "vscode_prepare_debug_configuration"] as const) {
+      expect(entries.get(name)).toMatchObject({
+        sideEffectScope: "memory",
+        recoverability: "notApplicable",
+        openWorld: false,
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: false,
+        },
+      });
+    }
+    expect(entries.get("vscode_run_task")).toMatchObject({
+      sideEffectScope: "process",
+      recoverability: "none",
+      annotations: { destructiveHint: true, openWorldHint: true },
+    });
+    expect(entries.get("vscode_start_debug_session")).toMatchObject({
+      sideEffectScope: "debuggee",
+      recoverability: "none",
+      annotations: { destructiveHint: true, openWorldHint: true },
+    });
+  });
 });

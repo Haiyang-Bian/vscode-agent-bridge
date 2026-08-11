@@ -38,3 +38,4 @@ Each report should include:
 | 2026-08-10 | v0.11.0 reviewed extension integrations release candidate | `completed_with_findings` | [v0.11.0 extension integrations release audit](2026-08-10-v0.11.0-extension-integrations-release.md) |
 | 2026-08-10 | current architecture and code review | `completed_with_findings` | [current architecture and code review](2026-08-10-current-architecture-code-review.md) |
 | 2026-08-11 | tiered test gates and hermetic E2E | `completed_with_findings` | [tiered test gates audit](2026-08-11-tiered-test-gates.md) |
+| 2026-08-11 | v0.12.0 IDE-observable autonomy release candidate | `completed_with_findings` | [v0.12.0 security and autonomy release audit](2026-08-11-v0.12.0-security-autonomy-release.md) |

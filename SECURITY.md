@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Security fixes are provided for the latest side-loaded candidate while Marketplace publication remains disabled. During this cycle, `0.9.x` is the supported line.
+Security fixes are provided for the latest side-loaded candidate while Marketplace publication remains disabled. During this cycle, `0.12.x` is the supported line.
 
 ## Reporting a vulnerability
 
@@ -33,3 +33,15 @@ Terminal access is observation-only. The MCP surface cannot create, focus, close
 Version `0.8.0` adds no new workspace mutation. The authoritative catalog is public metadata. Local insight events are written per MCP process and contain only tool/category, timestamps, outcome, coarse latency and message-size buckets, truncation and stable error codes. They never retain parameters, results, paths, source, hashes, terminal content, debug expressions/values, environment variables or credentials; they remain local for at most 30 days and 20 MiB and are never uploaded.
 
 Version `0.9.0` adds read-only extension and IDE-signal awareness. Extension inspection never activates an extension, reads exports or executes contributed commands. The Bridge does not read private Profile storage or private log directories and cannot switch Output Channels. Problems history is a bounded in-memory summary without diagnostic bodies. Debug Console capture accepts only user-visible DAP output categories, sanitizes controls, stores workspace-relative locations, rejects telemetry and never retains raw DAP messages, evaluate expressions or variable values. All Output and Debug results declare visible, captured or since-activation coverage rather than claiming unavailable history.
+
+Version `0.10.0` adds fixed Marketplace and declared-setting orchestration. The Agent cannot submit a Gallery URL, VSIX path, extension CLI command, arbitrary extension action or credential-like configuration key. Installation remains behind VS Code's native Publisher Trust/reload UI. Version `0.11.0` adds only statically reviewed extension adapters; catalog listing does not activate extensions and an explicit state request can activate only the fixed extension bound to that adapter.
+
+Version `0.12.0` deliberately allows arbitrary Shell and Process command specifications, network access and external programs only through experiment-scoped VS Code Tasks or adapter-specific Debug configurations. There is no generic Shell API that bypasses the IDE, terminal input, generic `executeCommand`, arbitrary DAP request or Agent Git surface. Prepared definitions expire after 30 minutes, bind instance/session/root, include the complete normalized execution in their fingerprint and are temporary unless a separate exact-hash/provenance persist call succeeds. Task/Debug start is open-world and destructive because services, databases, networks, processes and environment changes are not recoverable from workspace checkpoints.
+
+Task Activity displays command, arguments and cwd so execution is observable in VS Code, but environment values never enter Activity, Doctor, logs, insights or experiment Blobs. Debug Activity shows execution-relevant adapter fields under the same exclusion. Generic workspace configuration cannot author `tasks` or `launch`; `runOn`, dependencies and Agent-generated compounds are rejected. The legacy `aggressive` mode is ignored as `explicit`, and existing delayed user configuration is warned about rather than deleted.
+
+All file-backed authorization uses canonical native real paths, Windows case normalization and link/reparse-point rejection, with revalidation immediately before apply. Arbitrary external document URIs are denied. A language provider may issue a random, exact-URI, instance-bound ten-minute grant for its own definition/reference result; the grant does not authorize sibling paths or caller-invented virtual URIs.
+
+On Windows, descriptor directories and files remove inherited ACLs and grant only the current user SID plus SYSTEM. SID and ACL commands use fixed `whoami.exe`/`icacls.exe` argument vectors without a shell. Descriptor publication writes and fsyncs a private temporary file, hardens it, atomically renames it and rechecks the final ACL; any ACL failure removes the bearer-token descriptor and prevents publication. This boundary protects against other local users, not malicious code already running as the same user or SYSTEM.
+
+Extension configuration reads return only defined state, SHA-256, type, scope and risk classification. Global updates persist `pending` before applying the setting, then commit or roll back; ambiguous/corrupt states fail Doctor workspace-data health. Usage Insight files rotate at 1 MiB, prune on 256 KiB/five-minute intervals, remain below 20 MiB before append and flush on STDIO shutdown without recording parameters or results.

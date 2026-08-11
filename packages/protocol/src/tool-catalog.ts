@@ -41,6 +41,7 @@ const READ_ONLY = annotations(true, false, true, false);
 const READ_ONLY_OPEN_WORLD = annotations(true, false, true, true);
 const READ_ONLY_ACTIVATING = annotations(true, false, false, true);
 const PREPARE = annotations(true, false, false, false);
+const STATEFUL_PREPARE = annotations(false, false, false, false);
 const PREPARE_OPEN_WORLD = annotations(true, false, false, true);
 const GUARDED_WRITE = annotations(false, false, false, false);
 const DESTRUCTIVE_LOCAL_WRITE = annotations(false, true, false, false);
@@ -98,16 +99,16 @@ export const MCP_TOOL_CATALOG = [
   entry("vscode_read_terminal_output", "terminals", "observe", "none", false, "notApplicable", "terminal", READ_ONLY),
 
   entry("vscode_list_tasks", "tasks", "observe", "none", false, "notApplicable", "workspaceMetadata", READ_ONLY),
-  entry("vscode_prepare_task", "tasks", "prepare", "memory", true, "notApplicable", "terminal", PREPARE),
+  entry("vscode_prepare_task", "tasks", "prepare", "memory", true, "notApplicable", "terminal", STATEFUL_PREPARE),
   entry("vscode_persist_task", "tasks", "act", "workspace", true, "partial", "terminal", OPEN_WORLD_WRITE),
-  entry("vscode_run_task", "tasks", "control", "process", true, "partial", "terminal", OPEN_WORLD_WRITE),
+  entry("vscode_run_task", "tasks", "control", "process", true, "none", "terminal", OPEN_WORLD_WRITE),
   entry("vscode_list_task_executions", "tasks", "observe", "none", false, "notApplicable", "terminal", READ_ONLY),
   entry("vscode_terminate_task", "tasks", "control", "process", true, "none", "terminal", OPEN_WORLD_WRITE),
 
   entry("vscode_list_debug_configurations", "debug", "observe", "none", false, "notApplicable", "workspaceMetadata", READ_ONLY),
-  entry("vscode_prepare_debug_configuration", "debug", "prepare", "memory", true, "notApplicable", "debug", PREPARE),
+  entry("vscode_prepare_debug_configuration", "debug", "prepare", "memory", true, "notApplicable", "debug", STATEFUL_PREPARE),
   entry("vscode_persist_debug_configuration", "debug", "act", "workspace", true, "partial", "debug", OPEN_WORLD_WRITE),
-  entry("vscode_start_debug_session", "debug", "control", "process", true, "partial", "debug", OPEN_WORLD_WRITE),
+  entry("vscode_start_debug_session", "debug", "control", "debuggee", true, "none", "debug", OPEN_WORLD_WRITE),
   entry("vscode_list_debug_sessions", "debug", "observe", "none", false, "notApplicable", "debug", READ_ONLY),
   entry("vscode_get_debug_state", "debug", "observe", "none", false, "notApplicable", "debug", READ_ONLY),
   entry("vscode_control_debug_session", "debug", "control", "debuggee", true, "none", "debug", OPEN_WORLD_WRITE),

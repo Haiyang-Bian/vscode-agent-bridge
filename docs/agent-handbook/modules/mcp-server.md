@@ -8,10 +8,10 @@
 
 | File | Responsibility |
 | --- | --- |
-| `src/index.ts` | Process composition, MCP server lifecycle and bounded tool registration |
-| `src/instances.ts` | Descriptor discovery, live probing and explicit instance selection |
+| `src/index.ts` | Process composition, typed tracked-tool registration, catalog completeness and shutdown flush |
+| `src/instances.ts` | Version-tolerant descriptor discovery, current live probing, incompatible-instance reporting and explicit selection |
 | `src/rpc-client.ts` | Authentication, protocol initialization, request timeout and cancellation |
-| `src/usage-insights.ts` | Privacy-preserving local aggregate event recording |
+| `src/usage-insights.ts` | Privacy-preserving local aggregate recording, rotation, capacity, recurring prune and flush |
 
 The package's tests mirror those four boundaries. `test/stdio.test.ts` is the closest proof that the exposed MCP surface matches the bounded catalog.
 
@@ -21,8 +21,8 @@ The package's tests mirror those four boundaries. `test/stdio.test.ts` is the cl
 - Do not use this process as a shortcut around extension trust, policy or mutation enforcement.
 - Do not return descriptor tokens, pipe/socket names or raw transport failures.
 - Preserve clear distinction between no instance, multiple instances, unavailable instances, timeout, cancellation and protocol mismatch.
-- Derive tool behavior and metadata from `packages/protocol`; avoid hand-maintained parallel name/category lists.
-- Usage recording is an aggregate evidence channel, not telemetry for source, inputs, outputs or user identity.
+- Derive tool behavior and metadata from `packages/protocol`; typed registration rejects duplicates and startup fails if any catalog name is missing.
+- Usage recording is an aggregate evidence channel, not telemetry for source, inputs, outputs or user identity. Active files rotate at 1 MiB, append is bounded by 20 MiB total and STDIO shutdown awaits the queue.
 
 ## Investigation route
 

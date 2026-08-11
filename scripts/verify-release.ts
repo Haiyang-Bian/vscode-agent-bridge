@@ -60,7 +60,7 @@ assert(
   Array.isArray(extensionManifest.extensionKind) && extensionManifest.extensionKind.includes("ui"),
   "Extension must run as a desktop UI extension.",
 );
-assert(MCP_TOOL_NAMES.length === 60, "The release must expose exactly sixty MCP tools.");
+assert(MCP_TOOL_NAMES.length === 64, "The release must expose exactly sixty-four MCP tools.");
 assert(
   rootDevDependencies["@vscode/vsce"] === "3.9.3-4",
   "The release must pin the verified OIDC-capable vsce build exactly.",
@@ -185,10 +185,14 @@ assert(
     "vscode_rename_experiment",
     "vscode_create_experiment_checkpoint",
     "vscode_update_workspace_configuration",
-    "vscode_prepare_resource_changes",
-    "vscode_run_task",
-    "vscode_terminate_task",
-    "vscode_start_debug_session",
+      "vscode_prepare_resource_changes",
+      "vscode_prepare_task",
+      "vscode_persist_task",
+      "vscode_run_task",
+      "vscode_terminate_task",
+      "vscode_prepare_debug_configuration",
+      "vscode_persist_debug_configuration",
+      "vscode_start_debug_session",
     "vscode_control_debug_session",
     "vscode_update_breakpoints",
     "vscode_evaluate_debug_expression",
@@ -228,16 +232,20 @@ assert(
   MCP_TOOL_NAMES.filter((name) => name.includes("task")).join(",") ===
     [
       "vscode_list_tasks",
+      "vscode_prepare_task",
+      "vscode_persist_task",
       "vscode_run_task",
       "vscode_list_task_executions",
       "vscode_terminate_task",
     ].join(","),
-  "The Task surface must remain the four fingerprinted workspace workflow tools.",
+  "The Task surface must remain the six fingerprinted IDE-mediated workflow tools.",
 );
 assert(
   MCP_TOOL_NAMES.filter((name) => name.includes("debug") || name.includes("breakpoint")).join(",") ===
     [
       "vscode_list_debug_configurations",
+      "vscode_prepare_debug_configuration",
+      "vscode_persist_debug_configuration",
       "vscode_start_debug_session",
       "vscode_list_debug_sessions",
       "vscode_get_debug_state",
@@ -249,7 +257,7 @@ assert(
       "vscode_list_debug_output",
       "vscode_read_debug_output",
     ].join(","),
-  "The Debug surface must remain the eleven bounded launch, state, control, breakpoint and output tools.",
+  "The Debug surface must remain the thirteen bounded prepare, persistence, launch, state, control, breakpoint and output tools.",
 );
 
 const releaseTag = resolveReleaseTag(process.env);

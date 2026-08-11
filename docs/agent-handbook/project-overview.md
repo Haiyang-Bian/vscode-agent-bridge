@@ -2,7 +2,7 @@
 
 ## Mission
 
-VS Code Agent Bridge gives MCP clients bounded access to IDE-native VS Code state and workflows. It is deliberately not another shell, filesystem API, arbitrary command runner or general remote-control surface.
+VS Code Agent Bridge gives MCP clients bounded access to IDE-native VS Code state and workflows. It allows arbitrary command specifications only as observable, fingerprinted VS Code Task/Debug workflows; it is not a terminal-input, unrestricted filesystem or IDE-bypassing shell API.
 
 The product separates a conventional STDIO MCP endpoint from the VS Code Extension Host. The bridge adds value where the IDE has authoritative state: unsaved buffers, language services, diagnostics, experiments, visible/captured IDE output, Tasks, Debug, extension metadata and guarded workspace changes.
 
@@ -12,9 +12,9 @@ This page was last reconciled on 2026-08-11. Verify drift-sensitive values at th
 
 | Fact | Current snapshot | Authoritative source |
 | --- | --- | --- |
-| Package version | 0.11.0 candidate | root and workspace `package.json` files |
-| Internal bridge protocol | v10 | `packages/protocol/src/constants.ts` and version tests |
-| MCP surface | 60 bounded tools | `packages/protocol/src/tool-catalog.ts` and catalog tests |
+| Package version | 0.12.0 candidate | root and workspace `package.json` files |
+| Internal bridge protocol | v11 | `packages/protocol/src/constants.ts` and version tests |
+| MCP surface | 64 catalog-derived tools | `packages/protocol/src/tool-catalog.ts`, startup registration assertion and STDIO tests |
 | Primary distribution | Side-loaded Windows x64 VSIX with bundled MCP executable | root README and release scripts |
 | Supported runtime context | Local desktop VS Code workspace | ADR 0001 and runtime policy |
 | Dependency/build owner | Bun workspaces; Node only where the official packaging tool requires it | root `package.json` and README |
@@ -23,12 +23,13 @@ This is an engineering candidate with a broad implemented surface, not evidence 
 
 ## Product invariants
 
-- The Agent selects an explicit live VS Code instance; discovery never returns bearer credentials or IPC endpoints.
+- The Agent selects an explicit live VS Code instance; discovery never returns bearer credentials or IPC endpoints, and old protocols remain sanitized incompatible entries.
 - The extension owns VS Code API access, workspace trust and mutation enforcement.
 - Reads are bounded and report truncation or incomplete coverage.
 - Writes use experiments plus the strongest applicable concurrency precondition.
 - Recoverability claims cover captured workspace text/resource state, not arbitrary external effects.
 - User-confirmed operations remain user-confirmed; MCP annotations describe side effects but do not replace client approval policy.
+- Shell/Process execution is allowed only through IDE-visible Task/Debug definitions whose complete execution fingerprint is revalidated at start.
 
 ## Repository map
 
