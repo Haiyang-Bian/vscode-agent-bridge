@@ -9,6 +9,11 @@ import {
   getAllDomainTestFiles,
   parseTestDomains,
 } from "./test-impact.ts";
+import {
+  cleanupE2EEnvironment,
+  createE2EEnvironment,
+  parseE2EScenarios,
+} from "./e2e-runner.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -133,6 +138,24 @@ describe("Git change collection", () => {
     const head = (await runGit(repository, ["rev-parse", "HEAD"])).trim();
 
     expect(await collectChangedPaths({ cwd: repository, base, head })).toEqual(["tracked.txt"]);
+  });
+});
+
+describe("E2E runner selection and cleanup", () => {
+  test("expands full and validates individual scenarios", () => {
+    expect(parseE2EScenarios([])).toHaveLength(8);
+    expect(parseE2EScenarios(["debug,task-terminal", "debug"])).toEqual([
+      "debug",
+      "task-terminal",
+    ]);
+    expect(() => parseE2EScenarios(["full", "debug"])).toThrow();
+    expect(() => parseE2EScenarios(["unknown"])).toThrow("Unknown E2E scenario");
+  });
+
+  test("removes the complete per-run profile root", async () => {
+    const environment = await createE2EEnvironment("bridge-e2e-runner-test-");
+    await cleanupE2EEnvironment(environment);
+    expect(await Bun.file(environment.root).exists()).toBeFalse();
   });
 });
 

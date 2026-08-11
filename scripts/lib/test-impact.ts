@@ -130,6 +130,19 @@ const DOMAIN_WORKSPACES: Record<TestDomain, readonly WorkspaceName[]> = {
   "release-tooling": [],
 };
 
+const DOMAIN_E2E_SCENARIOS: Record<TestDomain, readonly E2EScenario[]> = {
+  protocol: E2E_SCENARIOS,
+  "mcp-runtime": ["core-language"],
+  lifecycle: ["lifecycle", "master-switch"],
+  "experiment-resource": ["experiment-resource"],
+  "task-terminal": ["task-terminal"],
+  debug: ["debug"],
+  "extension-ecosystem": ["extension-ecosystem"],
+  "managed-git": ["managed-worktree"],
+  "ui-insights": [],
+  "release-tooling": [],
+};
+
 const TEST_FILE_DOMAINS: ReadonlyArray<readonly [RegExp, TestDomain]> = [
   [/packages\/protocol\/test\/extension-(awareness|integration|orchestration)/, "extension-ecosystem"],
   [/packages\/protocol\/test\//, "protocol"],
@@ -287,6 +300,12 @@ export function classifyTestImpact(
   for (const domain of options.additionalDomains ?? []) {
     markAffected();
     addDomain(domain);
+    for (const scenario of DOMAIN_E2E_SCENARIOS[domain]) {
+      e2eScenarios.add(scenario);
+    }
+    if (domain === "protocol") {
+      fullE2E = true;
+    }
     reasons.add(`Additional test domain requested: ${domain}`);
   }
 
@@ -349,6 +368,10 @@ export function getDomainTestFiles(domains: readonly TestDomain[]): string[] {
 
 export function getAllDomainTestFiles(): string[] {
   return getDomainTestFiles(TEST_DOMAINS);
+}
+
+export function getDomainE2EScenarios(domain: TestDomain): readonly E2EScenario[] {
+  return DOMAIN_E2E_SCENARIOS[domain];
 }
 
 function classifyExtensionSource(
@@ -466,6 +489,8 @@ function isE2EInfrastructurePath(changedPath: string): boolean {
   return (
     changedPath === "scripts/run-extension-e2e.ts" ||
     changedPath === "scripts/run-vsix-e2e.ts" ||
+    changedPath === "scripts/test-e2e-affected.ts" ||
+    changedPath === "scripts/lib/e2e-runner.ts" ||
     changedPath === "packages/vscode-extension/.vscode-test.mjs" ||
     changedPath === "packages/vscode-extension/.vscode-test-artifact.mjs" ||
     changedPath.startsWith("packages/vscode-extension/test/e2e/") ||

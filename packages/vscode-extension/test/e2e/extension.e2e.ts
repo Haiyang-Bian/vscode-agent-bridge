@@ -34,6 +34,11 @@ import {
   type WorkspaceSetupResult,
 } from "@vscode-agent-bridge/protocol";
 
+import {
+  E2E_SCENARIOS,
+  type E2EScenario,
+} from "../../../../scripts/lib/test-impact.js";
+
 import { isPathWithin, samePath } from "../../src/git-path.js";
 
 const UNSAVED_MARKER = "UNSAVED_VSCODE_AGENT_BRIDGE_E2E";
@@ -44,12 +49,19 @@ const TASK_MARKER = "TASK_OUTPUT_VSCODE_AGENT_BRIDGE_E2E";
 const VISIBLE_OUTPUT_MARKER = "VISIBLE_OUTPUT_VSCODE_AGENT_BRIDGE_E2E";
 const DEBUG_OUTPUT_MARKER = "DEBUG_OUTPUT_VSCODE_AGENT_BRIDGE_E2E";
 const execFileAsync = promisify(execFile);
+const requestedScenarios = resolveRequestedScenarios();
+const actualScenarios = new Set<E2EScenario>();
 
 suite("VS Code Agent Bridge Extension Host", function () {
   this.timeout(150_000);
 
-  test("serves unsaved text, diagnostics, symbols, navigation, and hover", async () => {
+  test("runs selected IDE workflow scenarios", async () => {
     if (!(await isPrimaryTestWindow())) {
+      return;
+    }
+    const primaryRequested = requestedScenarios.filter((scenario) => scenario !== "managed-worktree");
+    if (primaryRequested.length === 0) {
+      await writePrimaryCompletionMarker("workspace-restored");
       return;
     }
     const extension = vscode.extensions.all.find(
@@ -57,10 +69,17 @@ suite("VS Code Agent Bridge Extension Host", function () {
     );
     assert.ok(extension, "the extension under development should be installed");
     const bridgeConfiguration = vscode.workspace.getConfiguration("vscodeAgentBridge");
+    const previousGlobalConfiguration = captureGlobalConfiguration(bridgeConfiguration, [
+      "enabled",
+      "executionMode",
+      "enableAcceptanceFixtures",
+    ]);
     await bridgeConfiguration.update("enabled", true, vscode.ConfigurationTarget.Global);
     await bridgeConfiguration.update("executionMode", "explicit", vscode.ConfigurationTarget.Global);
     if (process.env.VSCODE_AGENT_BRIDGE_EXPECT_PACKAGED === "1") {
-      assert.match(extension.extensionPath.replaceAll("\\", "/"), /\.vscode-test\/extensions\//iu);
+      const extensionsDirectory = process.env.VSCODE_AGENT_BRIDGE_E2E_EXTENSIONS_DIR;
+      assert.ok(extensionsDirectory);
+      assert.equal(isPathWithin(extensionsDirectory, extension.extensionPath), true);
       assert.equal(extension.packageJSON.version, BRIDGE_RELEASE_VERSION);
     }
     await extension.activate();
@@ -96,38 +115,41 @@ suite("VS Code Agent Bridge Extension Host", function () {
         client: { name: "extension-host-e2e", version: BRIDGE_RELEASE_VERSION },
       });
 
-      const setupBefore = await client.request<WorkspaceSetupResult>(
-        BRIDGE_METHODS.getWorkspaceSetup,
-        { rootUri: workspaceFolder.uri.toString(true) },
-      );
-      assert.equal(setupBefore.onboarding, "unconfigured");
-      assert.equal(setupBefore.vscodeDirectory, "missing");
-      assert.ok(setupBefore.files.every((file) => file.state === "missing"));
+      if (isScenarioRequested("lifecycle")) {
+        const setupBefore = await client.request<WorkspaceSetupResult>(
+          BRIDGE_METHODS.getWorkspaceSetup,
+          { rootUri: workspaceFolder.uri.toString(true) },
+        );
+        assert.equal(setupBefore.onboarding, "unconfigured");
+        assert.equal(setupBefore.vscodeDirectory, "missing");
+        assert.ok(setupBefore.files.every((file) => file.state === "missing"));
 
-      const cancelledClient = await BridgeRpcClient.connect(descriptor.transport.endpoint);
-      try {
-        await cancelledClient.request(BRIDGE_METHODS.initialize, {
-          protocolVersion: BRIDGE_PROTOCOL_VERSION,
-          authToken: descriptor.authToken,
-          client: { name: "extension-host-e2e", version: BRIDGE_RELEASE_VERSION },
-        });
-        const cancelledStart = cancelledClient.request(BRIDGE_METHODS.startExperiment, {
-          rootUri: workspaceFolder.uri.toString(true),
-          title: "Cancelled onboarding must not persist",
-          reason: "Exercise socket-close cancellation while user confirmation is pending",
-        });
-        setTimeout(() => cancelledClient.close(), 250);
-        await assert.rejects(cancelledStart);
-      } finally {
-        cancelledClient.close();
+        const cancelledClient = await BridgeRpcClient.connect(descriptor.transport.endpoint);
+        try {
+          await cancelledClient.request(BRIDGE_METHODS.initialize, {
+            protocolVersion: BRIDGE_PROTOCOL_VERSION,
+            authToken: descriptor.authToken,
+            client: { name: "extension-host-e2e", version: BRIDGE_RELEASE_VERSION },
+          });
+          const cancelledStart = cancelledClient.request(BRIDGE_METHODS.startExperiment, {
+            rootUri: workspaceFolder.uri.toString(true),
+            title: "Cancelled onboarding must not persist",
+            reason: "Exercise socket-close cancellation while user confirmation is pending",
+          });
+          setTimeout(() => cancelledClient.close(), 250);
+          await assert.rejects(cancelledStart);
+        } finally {
+          cancelledClient.close();
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        const setupAfterCancellation = await client.request<WorkspaceSetupResult>(
+          BRIDGE_METHODS.getWorkspaceSetup,
+          { rootUri: workspaceFolder.uri.toString(true) },
+        );
+        assert.equal(setupAfterCancellation.onboarding, "unconfigured");
+        assert.equal(setupAfterCancellation.vscodeDirectory, "missing");
+        actualScenarios.add("lifecycle");
       }
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      const setupAfterCancellation = await client.request<WorkspaceSetupResult>(
-        BRIDGE_METHODS.getWorkspaceSetup,
-        { rootUri: workspaceFolder.uri.toString(true) },
-      );
-      assert.equal(setupAfterCancellation.onboarding, "unconfigured");
-      assert.equal(setupAfterCancellation.vscodeDirectory, "missing");
 
       const snapshot = await client.request<Record<string, unknown>>(BRIDGE_METHODS.readDocument, {});
       assert.equal(snapshot.isDirty, true);
@@ -187,14 +209,31 @@ suite("VS Code Agent Bridge Extension Host", function () {
       });
       assert.ok(hover.contents.join("\n").includes("bridgeGreeting"));
       assert.ok(!hover.contents.join("\n").match(/command:(?!\[redacted\])/iu));
+      actualScenarios.add("core-language");
 
-      await exerciseExtensionAwareness(client, workspaceFolder.uri);
+      if (isScenarioRequested("extension-ecosystem")) {
+        await exerciseExtensionAwareness(client, workspaceFolder.uri);
+        actualScenarios.add("extension-ecosystem");
+      }
 
-      console.log("[v0.7-e2e] experiment workflow starting");
-      await exerciseExperimentWorkflow(client, descriptor, workspaceFolder.uri, document);
-      console.log("[v0.7-e2e] experiment workflow completed");
-      await exerciseTerminalObservation(client);
-      console.log("[v0.7-e2e] terminal workflow completed");
+      const experimentOptions = {
+        experimentResource: isScenarioRequested("experiment-resource"),
+        taskTerminal: isScenarioRequested("task-terminal"),
+        debug: isScenarioRequested("debug"),
+        extensionEcosystem: isScenarioRequested("extension-ecosystem"),
+      };
+      if (Object.values(experimentOptions).some(Boolean)) {
+        console.log("[e2e] selected experiment workflow starting");
+        await exerciseExperimentWorkflow(client, descriptor, workspaceFolder.uri, document, experimentOptions);
+        console.log("[e2e] selected experiment workflow completed");
+        if (experimentOptions.experimentResource) actualScenarios.add("experiment-resource");
+        if (experimentOptions.debug) actualScenarios.add("debug");
+      }
+      if (experimentOptions.taskTerminal) {
+        await exerciseTerminalObservation(client);
+        actualScenarios.add("task-terminal");
+        console.log("[e2e] selected terminal workflow completed");
+      }
 
       const plainDocument = await vscode.workspace.openTextDocument(
         vscode.Uri.joinPath(workspaceFolder.uri, ".gitignore"),
@@ -219,10 +258,12 @@ suite("VS Code Agent Bridge Extension Host", function () {
         (error: unknown) => error instanceof BridgeRpcError && error.bridgeCode === "NO_ACTIVE_EDITOR",
       );
       console.log("[v0.7-e2e] no-active-editor rejection completed");
-      console.log("[v0.7-e2e] master switch workflow starting");
-      await exerciseMasterSwitch(client);
-      console.log("[v0.7-e2e] master switch workflow completed");
-      await writePrimaryCompletionMarker();
+      if (isScenarioRequested("master-switch")) {
+        console.log("[e2e] master switch workflow starting");
+        await exerciseMasterSwitch(client);
+        actualScenarios.add("master-switch");
+        console.log("[e2e] master switch workflow completed");
+      }
     } finally {
       await vscode.commands
         .executeCommand("vscodeAgentBridge.e2eAbandonExperiment")
@@ -246,20 +287,26 @@ suite("VS Code Agent Bridge Extension Host", function () {
         "resource-accepted-e2e.txt",
       ]);
       client.close();
+      await restoreGlobalConfiguration(bridgeConfiguration, previousGlobalConfiguration);
     }
+    await writePrimaryCompletionMarker("workspace-restored");
   });
 
   test("isolates ten private commits and promotes one target commit", async () => {
+    if (!isScenarioRequested("managed-worktree")) {
+      return;
+    }
     if (!(await isPrimaryTestWindow())) {
       await waitForManagedCompletionMarker();
       return;
     }
     const extension = vscode.extensions.getExtension("AliceLin.vscode-agent-bridge");
     assert.ok(extension);
-    await vscode.workspace
-      .getConfiguration("vscodeAgentBridge")
-      .update("enabled", true, vscode.ConfigurationTarget.Global);
-    await extension.activate();
+    const bridgeConfiguration = vscode.workspace.getConfiguration("vscodeAgentBridge");
+    const previousGlobalConfiguration = captureGlobalConfiguration(bridgeConfiguration, ["enabled"]);
+    try {
+      await bridgeConfiguration.update("enabled", true, vscode.ConfigurationTarget.Global);
+      await extension.activate();
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     assert.ok(workspaceFolder);
     for (const dirtyDocument of vscode.workspace.textDocuments.filter(
@@ -293,6 +340,7 @@ suite("VS Code Agent Bridge Extension Host", function () {
     );
     const descriptor = await waitForDescriptorForWorkspace(worktreePath);
     const worktreeClient = await BridgeRpcClient.connect(descriptor.transport.endpoint);
+    let managedCompleted = false;
     try {
       await worktreeClient.request(BRIDGE_METHODS.initialize, {
         protocolVersion: BRIDGE_PROTOCOL_VERSION,
@@ -393,15 +441,27 @@ suite("VS Code Agent Bridge Extension Host", function () {
         (await readGitOutput(workspaceFolder.uri.fsPath, ["rev-parse", `${formalCommit}^{tree}`])).trim(),
         (await readGitOutput(worktreePath, ["rev-parse", `${acceptedCommit}^{tree}`])).trim(),
       );
+      managedCompleted = true;
+    } finally {
+      worktreeClient.close();
+    }
+    if (managedCompleted) {
       const registryDirectory = process.env.VSCODE_AGENT_BRIDGE_REGISTRY_DIR;
       assert.ok(registryDirectory);
       await writeFile(
         path.join(registryDirectory, "managed-e2e-passed.json"),
-        `${JSON.stringify({ privateCommitCount: 10, promotedCommitCount: 1, treeMatches: true })}\n`,
+        `${JSON.stringify({
+          privateCommitCount: 10,
+          promotedCommitCount: 1,
+          treeMatches: true,
+          scenario: "managed-worktree",
+          cleanupStatus: "client-closed",
+        })}\n`,
         "utf8",
       );
+    }
     } finally {
-      worktreeClient.close();
+      await restoreGlobalConfiguration(bridgeConfiguration, previousGlobalConfiguration);
     }
   });
 });
@@ -466,6 +526,12 @@ async function exerciseExperimentWorkflow(
   descriptor: InstanceDescriptor,
   workspaceUri: vscode.Uri,
   document: vscode.TextDocument,
+  options: {
+    experimentResource: boolean;
+    taskTerminal: boolean;
+    debug: boolean;
+    extensionEcosystem: boolean;
+  },
 ): Promise<void> {
   const initialHead = await readGitHead(workspaceUri.fsPath);
   const started = await client.request<ExperimentInfo>(BRIDGE_METHODS.startExperiment, {
@@ -493,13 +559,21 @@ async function exerciseExperimentWorkflow(
   const active = await client.request<ExperimentInfo>(BRIDGE_METHODS.getExperiment, {});
   assert.equal(active.sessionId, started.sessionId);
   assert.ok(active.currentCheckpointId, "the experiment should create a baseline checkpoint");
-  await exerciseExtensionProfileConfiguration(client, active.sessionId, workspaceUri);
+  if (options.extensionEcosystem) {
+    await exerciseExtensionProfileConfiguration(client, active.sessionId, workspaceUri);
+  }
   const acceptedResourceUri = await exerciseWorkspaceWorkflows(
     client,
     active.sessionId,
     workspaceUri,
+    options,
   );
-  console.log("[v0.7-e2e] task, debug, and resource creation completed");
+  console.log("[e2e] selected workspace workflows completed");
+
+  if (!options.experimentResource) {
+    return;
+  }
+  assert.ok(acceptedResourceUri);
 
   const listed = await client.request<ExperimentsResult>(BRIDGE_METHODS.listExperiments, {
     rootUri: workspaceUri.toString(true),
@@ -1060,29 +1134,37 @@ async function exerciseWorkspaceWorkflows(
   client: BridgeRpcClient,
   sessionId: string,
   workspaceUri: vscode.Uri,
-): Promise<vscode.Uri> {
+  options: {
+    experimentResource: boolean;
+    taskTerminal: boolean;
+    debug: boolean;
+  },
+): Promise<vscode.Uri | null> {
   const rootUri = workspaceUri.toString(true);
-  const settings = await client.request<{
-    exists: boolean;
-    contentSha256: string | null;
-  }>(BRIDGE_METHODS.getWorkspaceConfiguration, { rootUri, target: "settings" });
-  assert.equal(settings.exists, true);
-  const settingsUpdate = await client.request<{ saved: boolean; deferredEffects: boolean }>(
-    BRIDGE_METHODS.updateWorkspaceConfiguration,
-    {
-      sessionId,
-      rootUri,
-      target: "settings",
-      expectedExists: true,
-      expectedSha256: settings.contentSha256,
-      operations: [{ operation: "add", path: "/vscodeAgentBridge.e2eMarker", value: true }],
-      reason: "Verify comment-preserving JSONC workspace settings updates",
-    },
-  );
-  assert.equal(settingsUpdate.saved, true);
-  assert.equal(settingsUpdate.deferredEffects, false);
+  if (options.experimentResource) {
+    const settings = await client.request<{
+      exists: boolean;
+      contentSha256: string | null;
+    }>(BRIDGE_METHODS.getWorkspaceConfiguration, { rootUri, target: "settings" });
+    assert.equal(settings.exists, true);
+    const settingsUpdate = await client.request<{ saved: boolean; deferredEffects: boolean }>(
+      BRIDGE_METHODS.updateWorkspaceConfiguration,
+      {
+        sessionId,
+        rootUri,
+        target: "settings",
+        expectedExists: true,
+        expectedSha256: settings.contentSha256,
+        operations: [{ operation: "add", path: "/vscodeAgentBridge.e2eMarker", value: true }],
+        reason: "Verify comment-preserving JSONC workspace settings updates",
+      },
+    );
+    assert.equal(settingsUpdate.saved, true);
+    assert.equal(settingsUpdate.deferredEffects, false);
+  }
 
-  const missingTasks = await client.request<{ exists: boolean; contentSha256: string | null }>(
+  if (options.taskTerminal) {
+    const missingTasks = await client.request<{ exists: boolean; contentSha256: string | null }>(
     BRIDGE_METHODS.getWorkspaceConfiguration,
     { rootUri, target: "tasks" },
   );
@@ -1191,10 +1273,16 @@ async function exerciseWorkspaceWorkflows(
     operations: [{ operation: "remove", path: "/tasks/0/runOptions" }],
     reason: "Remove the temporary deferred E2E setting",
   });
-  await configuration.update("executionMode", "explicit", vscode.ConfigurationTarget.Global);
+    await configuration.update("executionMode", "explicit", vscode.ConfigurationTarget.Global);
+  }
 
-  await exerciseDebugWorkflow(client, sessionId, workspaceUri);
+  if (options.debug) {
+    await exerciseDebugWorkflow(client, sessionId, workspaceUri);
+  }
 
+  if (!options.experimentResource) {
+    return null;
+  }
   const createdUri = vscode.Uri.joinPath(workspaceUri, "resource-created-e2e.txt");
   const acceptedUri = vscode.Uri.joinPath(workspaceUri, "resource-accepted-e2e.txt");
   const resourceText = "recoverable resource E2E\n";
@@ -1612,14 +1700,53 @@ async function exerciseMasterSwitch(client: BridgeRpcClient): Promise<void> {
   }
 }
 
-async function writePrimaryCompletionMarker(): Promise<void> {
+async function writePrimaryCompletionMarker(cleanupStatus: "workspace-restored"): Promise<void> {
   const registryDirectory = process.env.VSCODE_AGENT_BRIDGE_REGISTRY_DIR;
   assert.ok(registryDirectory, "the E2E registry directory must be configured");
   await writeFile(
     path.join(registryDirectory, "primary-e2e-passed.json"),
-    `${JSON.stringify({ protocolVersion: BRIDGE_PROTOCOL_VERSION, toolCount: MCP_TOOL_NAMES.length })}\n`,
+    `${JSON.stringify({
+      protocolVersion: BRIDGE_PROTOCOL_VERSION,
+      toolCount: MCP_TOOL_NAMES.length,
+      requestedScenarios,
+      actualScenarios: [...actualScenarios],
+      cleanupStatus,
+    })}\n`,
     "utf8",
   );
+}
+
+function resolveRequestedScenarios(): E2EScenario[] {
+  const configured = process.env.VSCODE_AGENT_BRIDGE_E2E_SCENARIOS ?? "full";
+  const values = configured.split(",").filter(Boolean);
+  if (values.includes("full")) {
+    assert.equal(values.length, 1, "full cannot be combined with individual E2E scenarios");
+    return [...E2E_SCENARIOS];
+  }
+  for (const value of values) {
+    assert.ok(E2E_SCENARIOS.includes(value as E2EScenario), `unknown E2E scenario: ${value}`);
+  }
+  return [...new Set(values as E2EScenario[])];
+}
+
+function isScenarioRequested(scenario: E2EScenario): boolean {
+  return requestedScenarios.includes(scenario);
+}
+
+function captureGlobalConfiguration(
+  configuration: vscode.WorkspaceConfiguration,
+  keys: readonly string[],
+): Map<string, unknown> {
+  return new Map(keys.map((key) => [key, configuration.inspect(key)?.globalValue]));
+}
+
+async function restoreGlobalConfiguration(
+  configuration: vscode.WorkspaceConfiguration,
+  snapshot: ReadonlyMap<string, unknown>,
+): Promise<void> {
+  for (const [key, value] of snapshot) {
+    await configuration.update(key, value, vscode.ConfigurationTarget.Global);
+  }
 }
 
 function isBridgeError(code: string): (error: unknown) => boolean {

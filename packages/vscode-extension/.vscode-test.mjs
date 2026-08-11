@@ -4,6 +4,8 @@ const workspaceFolder =
   process.env.VSCODE_AGENT_BRIDGE_E2E_WORKSPACE ?? "test/fixtures/typescript-workspace";
 const extensionDevelopmentPath =
   process.env.VSCODE_AGENT_BRIDGE_E2E_EXTENSION ?? ".";
+const userDataDirectory = process.env.VSCODE_AGENT_BRIDGE_E2E_USER_DATA_DIR;
+const extensionsDirectory = process.env.VSCODE_AGENT_BRIDGE_E2E_EXTENSIONS_DIR;
 
 export default defineConfig({
   files: "dist-test/e2e/**/*.e2e.js",
@@ -11,6 +13,8 @@ export default defineConfig({
   workspaceFolder,
   extensionDevelopmentPath: [extensionDevelopmentPath, "test/harness"],
   launchArgs: [
+    ...(userDataDirectory ? [`--user-data-dir=${userDataDirectory}`] : []),
+    ...(extensionsDirectory ? [`--extensions-dir=${extensionsDirectory}`] : []),
     "--disable-extensions",
     "--disable-workspace-trust",
     "--skip-welcome",
