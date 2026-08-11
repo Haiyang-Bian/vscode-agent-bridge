@@ -23,6 +23,7 @@ import {
 
 import type { TaskManager } from "./task-manager.js";
 import type { TerminalObserver } from "./terminal-observer.js";
+import { selectAndSortOutputSources } from "./output-source-order.js";
 
 const DIAGNOSTIC_RETENTION_MS = 15 * 60 * 1_000;
 const MAX_DIAGNOSTIC_EVENTS = 2_000;
@@ -266,10 +267,7 @@ export class ExtensionAwarenessManager implements vscode.Disposable {
         warningCount: 0,
       });
     }
-    const filtered = params.sourceTypes
-      ? sources.filter((source) => params.sourceTypes!.includes(source.sourceType))
-      : sources;
-    filtered.sort((left, right) => left.label.localeCompare(right.label));
+    const filtered = selectAndSortOutputSources(sources, params.sourceTypes);
     const page = filtered.slice(params.offset, params.offset + params.limit);
     return {
       instanceId: this.#instanceId,

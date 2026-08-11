@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -92,5 +92,10 @@ describe("STDIO MCP server", () => {
     } finally {
       await client.close();
     }
+    const insightDirectory = path.join(temporaryRegistry, "insights");
+    const recorded = await Promise.all(
+      (await readdir(insightDirectory)).map((name) => readFile(path.join(insightDirectory, name), "utf8")),
+    );
+    expect(recorded.join("\n").split(/\r?\n/u).filter(Boolean).length).toBeGreaterThanOrEqual(6);
   });
 });

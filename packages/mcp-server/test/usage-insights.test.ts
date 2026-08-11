@@ -53,4 +53,52 @@ describe("privacy-preserving local usage insights", () => {
     await expect(stat(expired)).rejects.toBeDefined();
     expect(await readdir(insightDirectory)).toHaveLength(1);
   });
+
+  test("rotates the active file and flushes concurrent records", async () => {
+    const store = new UsageInsightStore(temporaryRoot, {
+      maxActiveFileBytes: 1_024,
+      pruneIntervalBytes: 512,
+    });
+    await Promise.all(Array.from({ length: 40 }, (_, index) =>
+      store.track("vscode_list_instances", { index }, async () => ({ structuredContent: {} })),
+    ));
+    await store.flush();
+    const insightDirectory = path.join(temporaryRoot, "insights");
+    const files = await readdir(insightDirectory);
+    expect(files.length).toBeGreaterThan(1);
+    for (const file of files) {
+      expect((await stat(path.join(insightDirectory, file))).size).toBeLessThanOrEqual(1_024);
+    }
+    expect((await store.getInsights(30)).totalCalls).toBe(40);
+  });
+
+  test("prunes before append to keep the configured total capacity", async () => {
+    const insightDirectory = path.join(temporaryRoot, "insights");
+    await mkdir(insightDirectory, { recursive: true });
+    await writeFile(path.join(insightDirectory, "old.jsonl"), "x".repeat(1_900));
+    const store = new UsageInsightStore(temporaryRoot, { maxTotalBytes: 2_000 });
+    await store.track("vscode_list_instances", {}, async () => ({ structuredContent: {} }));
+    await store.flush();
+    const sizes = await Promise.all(
+      (await readdir(insightDirectory)).map(async (file) => (await stat(path.join(insightDirectory, file))).size),
+    );
+    expect(sizes.reduce((sum, size) => sum + size, 0)).toBeLessThanOrEqual(2_000);
+    expect(await readdir(insightDirectory)).toHaveLength(1);
+  });
+
+  test("repeats retention pruning after the five-minute interval", async () => {
+    let now = new Date("2026-08-11T00:00:00.000Z");
+    const store = new UsageInsightStore(temporaryRoot, { now: () => now });
+    await store.track("vscode_list_instances", {}, async () => ({ structuredContent: {} }));
+    await store.flush();
+    const insightDirectory = path.join(temporaryRoot, "insights");
+    const expired = path.join(insightDirectory, "expired-after-start.jsonl");
+    await writeFile(expired, "{}\n");
+    const old = new Date(now.getTime() - 31 * 24 * 60 * 60 * 1_000);
+    await utimes(expired, old, old);
+    now = new Date(now.getTime() + 5 * 60 * 1_000 + 1);
+    await store.track("vscode_list_instances", {}, async () => ({ structuredContent: {} }));
+    await store.flush();
+    await expect(stat(expired)).rejects.toBeDefined();
+  });
 });

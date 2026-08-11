@@ -14,21 +14,47 @@ import {
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 const MAX_TOTAL_BYTES = 20 * 1_048_576;
 const MAX_EVENT_BYTES = 16 * 1_024;
+const MAX_ACTIVE_FILE_BYTES = 1_048_576;
+const PRUNE_INTERVAL_BYTES = 256 * 1_024;
+const PRUNE_INTERVAL_MS = 5 * 60 * 1_000;
+
+export interface UsageInsightStoreOptions {
+  readonly maxTotalBytes?: number;
+  readonly maxActiveFileBytes?: number;
+  readonly pruneIntervalBytes?: number;
+  readonly pruneIntervalMs?: number;
+  readonly now?: () => Date;
+}
 
 export class UsageInsightStore {
   readonly #sessionId = randomUUID();
   readonly #directory: string;
-  readonly #filePath: string;
+  readonly #filePrefix: string;
+  readonly #maxTotalBytes: number;
+  readonly #maxActiveFileBytes: number;
+  readonly #pruneIntervalBytes: number;
+  readonly #pruneIntervalMs: number;
+  readonly #now: () => Date;
+  #filePath: string;
+  #fileSequence = 0;
+  #activeFileBytes = 0;
+  #bytesSincePrune = 0;
+  #lastPrunedAt = 0;
   #sequence = 0;
   #writeQueue = Promise.resolve();
-  #pruned = false;
 
-  constructor(baseDirectory = resolveRegistryDirectories().base) {
+  constructor(
+    baseDirectory = resolveRegistryDirectories().base,
+    options: UsageInsightStoreOptions = {},
+  ) {
     this.#directory = path.join(baseDirectory, "insights");
-    this.#filePath = path.join(
-      this.#directory,
-      `${new Date().toISOString().replaceAll(":", "-")}-${process.pid}-${this.#sessionId}.jsonl`,
-    );
+    this.#now = options.now ?? (() => new Date());
+    this.#filePrefix = `${this.#now().toISOString().replaceAll(":", "-")}-${process.pid}-${this.#sessionId}`;
+    this.#filePath = this.#resolveFilePath();
+    this.#maxTotalBytes = options.maxTotalBytes ?? MAX_TOTAL_BYTES;
+    this.#maxActiveFileBytes = options.maxActiveFileBytes ?? MAX_ACTIVE_FILE_BYTES;
+    this.#pruneIntervalBytes = options.pruneIntervalBytes ?? PRUNE_INTERVAL_BYTES;
+    this.#pruneIntervalMs = options.pruneIntervalMs ?? PRUNE_INTERVAL_MS;
   }
 
   async track<T>(toolName: string, input: unknown, operation: () => Promise<T>): Promise<T> {
@@ -60,19 +86,45 @@ export class UsageInsightStore {
   }
 
   async getInsights(days: number): Promise<UsageInsightsResult> {
-    await this.#writeQueue.catch(() => undefined);
+    await this.flush();
     return aggregateUsageInsights(await this.#readEvents(), days);
+  }
+
+  async flush(): Promise<void> {
+    await this.#writeQueue.catch(() => undefined);
   }
 
   async #append(event: UsageInsightEvent): Promise<void> {
     await mkdir(this.#directory, { recursive: true, mode: 0o700 });
-    if (!this.#pruned) {
-      this.#pruned = true;
-      await pruneInsightFiles(this.#directory, this.#filePath);
-    }
     const line = `${JSON.stringify(event)}\n`;
-    if (Buffer.byteLength(line, "utf8") > MAX_EVENT_BYTES) return;
+    const lineBytes = Buffer.byteLength(line, "utf8");
+    if (lineBytes > MAX_EVENT_BYTES || lineBytes > this.#maxTotalBytes) return;
+    if (this.#activeFileBytes > 0 && this.#activeFileBytes + lineBytes > this.#maxActiveFileBytes) {
+      this.#fileSequence += 1;
+      this.#filePath = this.#resolveFilePath();
+      this.#activeFileBytes = 0;
+    }
+    const now = this.#now().getTime();
+    const periodicPrune =
+      this.#lastPrunedAt === 0 ||
+      this.#bytesSincePrune + lineBytes >= this.#pruneIntervalBytes ||
+      now - this.#lastPrunedAt >= this.#pruneIntervalMs;
+    const capacityAvailable = await pruneInsightFiles(
+      this.#directory,
+      this.#filePath,
+      lineBytes,
+      this.#maxTotalBytes,
+      periodicPrune,
+      now,
+    );
+    if (!capacityAvailable) return;
+    if (periodicPrune) {
+      this.#bytesSincePrune = 0;
+      this.#lastPrunedAt = now;
+    }
     await appendFile(this.#filePath, line, { encoding: "utf8", mode: 0o600 });
+    this.#activeFileBytes += lineBytes;
+    this.#bytesSincePrune += lineBytes;
   }
 
   async #readEvents(): Promise<UsageInsightEvent[]> {
@@ -96,6 +148,10 @@ export class UsageInsightStore {
       }
     }
     return events;
+  }
+
+  #resolveFilePath(): string {
+    return path.join(this.#directory, `${this.#filePrefix}-${this.#fileSequence}.jsonl`);
   }
 }
 
@@ -195,12 +251,21 @@ function sizeBucket(bytes: number): UsageInsightEvent["requestSizeBucket"] {
   return "over256KiB";
 }
 
-async function pruneInsightFiles(directory: string, activeFile: string): Promise<void> {
+async function pruneInsightFiles(
+  directory: string,
+  activeFile: string,
+  incomingBytes: number,
+  maxTotalBytes: number,
+  removeExpired: boolean,
+  now: number,
+): Promise<boolean> {
   const files = await listInsightFiles(directory);
-  const cutoff = Date.now() - RETENTION_MS;
-  for (const file of files) {
-    if (file.path !== activeFile && file.modifiedAt < cutoff) {
-      await rm(file.path, { force: true }).catch(() => undefined);
+  if (removeExpired) {
+    const cutoff = now - RETENTION_MS;
+    for (const file of files) {
+      if (file.path !== activeFile && file.modifiedAt < cutoff) {
+        await rm(file.path, { force: true }).catch(() => undefined);
+      }
     }
   }
   const retained = (await listInsightFiles(directory)).sort(
@@ -208,11 +273,13 @@ async function pruneInsightFiles(directory: string, activeFile: string): Promise
   );
   let total = retained.reduce((sum, file) => sum + file.size, 0);
   for (const file of retained) {
-    if (total <= MAX_TOTAL_BYTES) break;
+    if (total + incomingBytes <= maxTotalBytes) break;
     if (file.path === activeFile) continue;
-    await rm(file.path, { force: true }).catch(() => undefined);
-    total -= file.size;
+    const removed = await rm(file.path, { force: true }).then(() => true).catch(() => false);
+    if (removed) total -= file.size;
   }
+  const finalTotal = (await listInsightFiles(directory)).reduce((sum, file) => sum + file.size, 0);
+  return finalTotal + incomingBytes <= maxTotalBytes;
 }
 
 async function listInsightFiles(

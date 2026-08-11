@@ -1,7 +1,18 @@
 #!/usr/bin/env node
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import {
+  McpServer,
+  type RegisteredTool,
+  type ToolCallback,
+} from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
+import type {
+  CallToolResult,
+  ServerNotification,
+  ServerRequest,
+  ToolAnnotations,
+} from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
 import {
@@ -14,6 +25,7 @@ import {
   GetUsageInsightsInputSchema,
   INTERACTIVE_BRIDGE_TIMEOUT_MS,
   MCP_TOOL_CATALOG,
+  MCP_TOOL_NAMES,
   UsageInsightsResultSchema,
   AppliedChangeSetSchema,
   ApplyCodeActionInputSchema,
@@ -135,15 +147,44 @@ const server = new McpServer(
   },
 );
 const usageInsights = new UsageInsightStore();
-const rawRegisterTool = server.registerTool.bind(server) as (...args: any[]) => unknown;
-(server as unknown as { registerTool: (...args: any[]) => unknown }).registerTool = (
-  name: string,
-  configuration: unknown,
-  handler: (...args: any[]) => Promise<unknown>,
-): unknown =>
-  rawRegisterTool(name, configuration, (...args: any[]) =>
-    usageInsights.track(name, args[0], () => handler(...args)),
-  );
+type McpToolName = (typeof MCP_TOOL_NAMES)[number];
+const registeredToolNames = new Set<McpToolName>();
+
+interface TrackedToolConfiguration<
+  InputSchema extends z.ZodObject,
+  OutputSchema extends z.ZodObject,
+> {
+  readonly title: string;
+  readonly description: string;
+  readonly inputSchema: InputSchema;
+  readonly outputSchema: OutputSchema;
+  readonly annotations: ToolAnnotations;
+}
+
+type TrackedToolHandler<InputSchema extends z.ZodObject> = (
+  input: z.output<InputSchema>,
+  extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
+) => CallToolResult | Promise<CallToolResult>;
+
+function registerTrackedTool<
+  InputSchema extends z.ZodObject,
+  OutputSchema extends z.ZodObject,
+>(
+  name: McpToolName,
+  configuration: TrackedToolConfiguration<InputSchema, OutputSchema>,
+  handler: TrackedToolHandler<InputSchema>,
+): RegisteredTool {
+  if (registeredToolNames.has(name)) {
+    throw new Error(`MCP tool was registered more than once: ${name}`);
+  }
+  registeredToolNames.add(name);
+  const trackedHandler = async (
+    input: z.output<InputSchema>,
+    extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
+  ): Promise<CallToolResult> =>
+    usageInsights.track(name, input, async () => await handler(input, extra));
+  return server.registerTool(name, configuration, trackedHandler as ToolCallback<InputSchema>);
+}
 
 const readOnlyAnnotations = annotationsFor("vscode_list_instances");
 const prepareAnnotations = annotationsFor("vscode_prepare_text_edits");
@@ -151,7 +192,7 @@ const guardedWriteAnnotations = annotationsFor("vscode_save_document");
 const destructiveLocalWriteAnnotations = annotationsFor("vscode_apply_change_set");
 const openWorldWriteAnnotations = annotationsFor("vscode_run_task");
 
-server.registerTool(
+registerTrackedTool(
   "vscode_get_bridge_capabilities",
   {
     title: "Get VS Code Agent Bridge capabilities",
@@ -172,7 +213,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTrackedTool(
   "vscode_get_usage_insights",
   {
     title: "Get local VS Code Agent Bridge usage insights",
@@ -188,7 +229,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTrackedTool(
   "vscode_list_instances",
   {
     title: "List VS Code instances",
@@ -213,7 +254,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTrackedTool(
   "vscode_get_editor_context",
   {
     title: "Get VS Code editor context",
@@ -239,7 +280,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTrackedTool(
   "vscode_get_workspace_setup",
   {
     title: "Get VS Code workspace experiment setup",
@@ -269,7 +310,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTrackedTool(
   "vscode_read_document",
   {
     title: "Read VS Code document buffer",
@@ -299,7 +340,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTrackedTool(
   "vscode_get_diagnostics",
   {
     title: "Get VS Code diagnostics",
@@ -329,7 +370,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTrackedTool(
   "vscode_get_document_symbols",
   {
     title: "Get VS Code document symbols",
@@ -373,7 +414,7 @@ registerLocationsTool(
   BRIDGE_METHODS.getReferences,
 );
 
-server.registerTool(
+registerTrackedTool(
   "vscode_get_hover",
   {
     title: "Get VS Code hover information",
@@ -405,7 +446,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTrackedTool(
   "vscode_get_experiment",
   {
     title: "Get active VS Code experiment",
@@ -431,7 +472,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTrackedTool(
   "vscode_list_experiments",
   {
     title: "List VS Code experiments",
@@ -461,7 +502,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTrackedTool(
   "vscode_start_experiment",
   {
     title: "Start ordinary VS Code experiment",
@@ -489,7 +530,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTrackedTool(
   "vscode_rename_experiment",
   {
     title: "Rename ordinary VS Code experiment",
@@ -517,7 +558,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTrackedTool(
   "vscode_create_experiment_checkpoint",
   {
     title: "Create VS Code experiment checkpoint",
@@ -548,7 +589,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTrackedTool(
   "vscode_list_experiment_checkpoints",
   {
     title: "List VS Code experiment checkpoints",
@@ -578,7 +619,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTrackedTool(
   "vscode_prepare_text_edits",
   {
     title: "Prepare guarded VS Code text edits",
@@ -608,7 +649,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTrackedTool(
   "vscode_prepare_rename",
   {
     title: "Prepare guarded VS Code rename",
@@ -638,7 +679,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTrackedTool(
   "vscode_apply_change_set",
   {
     title: "Apply guarded VS Code change set",
@@ -669,7 +710,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTrackedTool(
   "vscode_record_experiment_evidence",
   {
     title: "Record VS Code experiment evidence",
@@ -700,7 +741,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTrackedTool(
   "vscode_save_document",
   {
     title: "Save guarded VS Code document",
@@ -731,7 +772,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTrackedTool(
   "vscode_format_document",
   {
     title: "Format guarded VS Code document",
@@ -764,7 +805,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTrackedTool(
   "vscode_list_code_actions",
   {
     title: "List guarded VS Code Code Actions",
@@ -794,7 +835,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTrackedTool(
   "vscode_apply_code_action",
   {
     title: "Apply guarded VS Code Code Action",
@@ -825,7 +866,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTrackedTool(
   "vscode_list_terminals",
   {
     title: "List VS Code terminals",
@@ -852,7 +893,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTrackedTool(
   "vscode_list_terminal_executions",
   {
     title: "List observed VS Code terminal executions",
@@ -879,7 +920,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+registerTrackedTool(
   "vscode_read_terminal_output",
   {
     title: "Read captured VS Code terminal output",
@@ -1341,13 +1382,15 @@ registerRoutedWorkflowTool({
   summarize: (result) => `Reviewed integration ${result.integrationId} state: ${result.status}.`,
 });
 
+assertCompleteToolRegistration();
+
 function registerLocationsTool(
   name: "vscode_get_definitions" | "vscode_get_references",
   title: string,
   description: string,
   method: string,
 ): void {
-  server.registerTool(
+registerTrackedTool(
     name,
     {
       title,
@@ -1374,45 +1417,48 @@ function registerLocationsTool(
   );
 }
 
-interface RoutedWorkflowToolRegistration {
-  readonly name: string;
+interface RoutedWorkflowToolRegistration<
+  InputSchema extends z.ZodObject,
+  ParamsSchema extends z.ZodType,
+  OutputSchema extends z.ZodObject,
+> {
+  readonly name: McpToolName;
   readonly title: string;
   readonly description: string;
   readonly method: string;
-  readonly inputSchema: z.ZodTypeAny;
-  readonly paramsSchema: z.ZodTypeAny;
-  readonly outputSchema: z.ZodTypeAny;
-  readonly annotations: {
-    readonly readOnlyHint: boolean;
-    readonly destructiveHint: boolean;
-    readonly idempotentHint: boolean;
-    readonly openWorldHint: boolean;
-  };
-  readonly summarize: (result: any) => string;
+  readonly inputSchema: InputSchema;
+  readonly paramsSchema: ParamsSchema;
+  readonly outputSchema: OutputSchema;
+  readonly annotations: ToolAnnotations;
+  readonly summarize: (result: z.output<OutputSchema>) => string;
 }
 
-function registerRoutedWorkflowTool(registration: RoutedWorkflowToolRegistration): void {
-  server.registerTool(
+function registerRoutedWorkflowTool<
+  InputSchema extends z.ZodObject,
+  ParamsSchema extends z.ZodType,
+  OutputSchema extends z.ZodObject,
+>(registration: RoutedWorkflowToolRegistration<InputSchema, ParamsSchema, OutputSchema>): void {
+  registerTrackedTool(
     registration.name,
     {
       title: registration.title,
       description: registration.description,
-      inputSchema: registration.inputSchema as any,
-      outputSchema: registration.outputSchema as any,
+      inputSchema: registration.inputSchema,
+      outputSchema: registration.outputSchema,
       annotations: registration.annotations,
     },
-    async (rawInput: any, context: any) => {
+    async (rawInput, context) => {
       try {
-        const input = registration.inputSchema.parse(rawInput) as Record<string, unknown>;
+        const input = registration.inputSchema.parse(rawInput);
         const { instanceId, ...rawParams } = input;
-        const descriptor = await resolveInstance(instanceId as string | undefined);
+        const descriptor = await resolveInstance(typeof instanceId === "string" ? instanceId : undefined);
         const params = registration.paramsSchema.parse(rawParams);
         const result = await requestBridgeResult(
           descriptor,
           registration.method,
           params,
-          (value) => registration.outputSchema.parse(value) as Record<string, unknown>,
-          { signal: context.signal as AbortSignal, timeoutMilliseconds: INTERACTIVE_BRIDGE_TIMEOUT_MS },
+          (value) => registration.outputSchema.parse(value),
+          { signal: context.signal, timeoutMilliseconds: INTERACTIVE_BRIDGE_TIMEOUT_MS },
         );
         return toolSuccess(registration.summarize(result), result);
       } catch (error) {
@@ -1422,12 +1468,19 @@ function registerRoutedWorkflowTool(registration: RoutedWorkflowToolRegistration
   );
 }
 
-function annotationsFor(name: string): RoutedWorkflowToolRegistration["annotations"] {
+function annotationsFor(name: McpToolName): ToolAnnotations {
   const entry = getMcpToolCatalogEntry(name);
   if (!entry) {
     throw new Error(`MCP tool is missing from the authoritative catalog: ${name}`);
   }
   return entry.annotations;
+}
+
+function assertCompleteToolRegistration(): void {
+  const missing = MCP_TOOL_NAMES.filter((name) => !registeredToolNames.has(name));
+  if (registeredToolNames.size !== MCP_TOOL_NAMES.length || missing.length > 0) {
+    throw new Error(`MCP tool registration does not match the protocol catalog; missing: ${missing.join(", ") || "none"}.`);
+  }
 }
 
 async function resolveInstance(instanceId?: string): Promise<InstanceDescriptor> {
@@ -1462,8 +1515,21 @@ function toolError(error: BridgeError): {
 
 await server.connect(new StdioServerTransport());
 
+let shutdownPromise: Promise<void> | undefined;
+function shutdown(exitProcess: boolean): Promise<void> {
+  shutdownPromise ??= (async () => {
+    await server.close().catch(() => undefined);
+    await usageInsights.flush();
+    if (exitProcess) process.exit(0);
+  })();
+  return shutdownPromise;
+}
+
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {
-    void server.close().finally(() => process.exit(0));
+    void shutdown(true);
   });
 }
+process.stdin.once("end", () => {
+  void shutdown(false);
+});

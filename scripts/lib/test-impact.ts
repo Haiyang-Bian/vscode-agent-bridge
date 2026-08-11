@@ -122,6 +122,7 @@ const DOMAIN_TEST_FILES: Record<TestDomain, readonly string[]> = {
     "packages/vscode-extension/test/agent-activity.test.ts",
     "packages/vscode-extension/test/bridge-hub-manifest.test.ts",
     "packages/vscode-extension/test/local-usage-insights.test.ts",
+    "packages/vscode-extension/test/output-source-order.test.ts",
   ],
   "release-tooling": ["scripts/lib/release-environment.test.ts"],
 };
@@ -165,7 +166,7 @@ const TEST_FILE_DOMAINS: ReadonlyArray<readonly [RegExp, TestDomain]> = [
   [/(debug-output-capture)/, "debug"],
   [/(git-baseline|git-runner)/, "managed-git"],
   [/(extension-awareness|extension-install|extension-integration|extension-marketplace|extension-profile|python-environment)/, "extension-ecosystem"],
-  [/(agent-activity|bridge-hub|local-usage-insights)/, "ui-insights"],
+  [/(agent-activity|bridge-hub|local-usage-insights|output-source-order)/, "ui-insights"],
   [/(codex-config|instances|rpc-client)/, "lifecycle"],
   [/scripts\/.*\.test\.ts$/, "release-tooling"],
 ];
@@ -484,7 +485,7 @@ function classifyExtensionSource(
     }
     return;
   }
-  if (/^(agent-|bridge-hub-|editor-|language-services|local-usage-insights)/.test(fileName) || fileName === "experiment-ui.ts") {
+  if (/^(agent-|bridge-hub-|editor-|language-services|local-usage-insights|output-source-)/.test(fileName) || fileName === "experiment-ui.ts") {
     actions.addDomain("ui-insights");
     if (fileName === "language-services.ts" || fileName === "editor-context.ts") {
       actions.addScenario("core-language");
