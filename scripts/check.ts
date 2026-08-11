@@ -1,5 +1,6 @@
 const commands = [
   ["bun", "scripts/check-agent-handbook.ts"],
+  ["bun", "scripts/check-vscode-workspace.ts"],
   ["bun", "run", "typecheck"],
   ["bun", "run", "test"],
   ["bun", "run", "build"],

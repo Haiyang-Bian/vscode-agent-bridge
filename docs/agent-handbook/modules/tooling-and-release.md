@@ -15,6 +15,7 @@ Root scripts make validation and distribution reproducible without adding anothe
 | Build/package | `build-mcp-executable.ts`, `package-vsix.ts` |
 | Release artifacts | `create-checksums.ts`, `create-test-bundle.ts`, `test-artifacts.ts`, `verify-release.ts` |
 | Release environment | `lib/release-environment.ts` |
+| Curated VS Code development environment | root `.code-workspace`, `.vscode/tasks.json`, `.vscode/launch.json`, `check-vscode-workspace.ts` |
 
 ## Ownership rules
 
@@ -25,6 +26,7 @@ Root scripts make validation and distribution reproducible without adding anothe
 - E2E runs create unique workspace, registry, user-data, extensions and managed-worktree roots. Only lifecycle pays lifecycle delay.
 - Helpers throw errors. The outer runner owns exit status, marker verification and `finally` cleanup.
 - Development-extension and packaged-VSIX runners share isolation behavior; packaged installation targets the temporary extensions directory, not a user default.
+- The manual Extension Host debugger also uses a repository-local ignored profile. Shared Tasks never run on folder open and expose affected validation as the default.
 
 ## CI layers
 

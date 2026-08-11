@@ -21,6 +21,7 @@ When sources disagree:
 | New persistent/open-world/user-confirmed behavior | Architecture security/side-effect section and an ADR |
 | New test domain, E2E scenario or gate command | Root rules, testing playbook, command reference, testing strategy and registry tests |
 | New packaging/install boundary | Tooling module, command reference, artifact classification and acceptance docs |
+| Changed `.code-workspace`, Tasks, launch or shared VS Code settings | VS Code workspace playbook, workspace checker and impact classification |
 | Changed release version or supported platform | Source manifests first, then project overview/README/release docs |
 | New recurring diagnosis pattern | Debugging playbook, without copying sensitive logs or one-off output |
 
@@ -40,9 +41,10 @@ When sources disagree:
 Before closing a handbook change:
 
 1. Run `bun scripts/check-agent-handbook.ts` to validate required pages, links, machine-specific paths and instruction-chain size.
-2. Confirm the ownership map agrees with imports/composition and nearest tests.
-3. Check that a new production path is classified by `scripts/lib/test-impact.ts`.
-4. Run `bun run test:plan`; documentation-only changes should not trigger code/E2E gates.
-5. Run `git diff --check` and inspect the final scope.
+2. Run `bun scripts/check-vscode-workspace.ts` when shared VS Code configuration changed.
+3. Confirm the ownership map agrees with imports/composition and nearest tests.
+4. Check that a new production path is classified by `scripts/lib/test-impact.ts`.
+5. Run `bun run test:plan`; documentation-only changes should not trigger code/E2E gates.
+6. Run `git diff --check` and inspect the final scope.
 
 Use a focused commit for handbook governance. A standalone handbook audit may create a dated report; ordinary handbook creation or maintenance does not require an audit report.

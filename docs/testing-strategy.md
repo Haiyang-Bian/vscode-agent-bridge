@@ -25,6 +25,8 @@ Unknown package production paths also require full E2E. E2E runner, harness, fix
 
 Root/nested `AGENTS.md` and `docs/agent-handbook` changes remain documentation-only but add `bun scripts/check-agent-handbook.ts` to validate required pages, local links, machine-specific paths and the default instruction-size budget.
 
+Executable developer-workspace configuration (`.code-workspace`, shared Tasks, launch profiles and settings) requires the full fast gate because it can start processes or change validation behavior. It does not require Extension Host E2E or artifacts by itself. `bun scripts/check-vscode-workspace.ts` validates the fixed Task/debug boundaries as part of the full gate.
+
 Manual domains are additive. There is no supported flag for subtracting automatically selected coverage.
 
 ## E2E scenarios

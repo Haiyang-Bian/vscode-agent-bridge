@@ -2,21 +2,271 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "bun: build",
+      "label": "Bridge: Plan affected validation",
       "type": "process",
       "command": "bun",
-      "args": [
-        "run",
-        "build"
-      ],
+      "args": ["run", "test:plan"],
       "options": {
-        "cwd": "${workspaceFolder}"
+        "cwd": "${workspaceFolder:Repository}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    },
+    {
+      "label": "Bridge: Check affected",
+      "detail": "Default development test task selected by the impact registry",
+      "type": "process",
+      "command": "bun",
+      "args": ["run", "check:affected"],
+      "options": {
+        "cwd": "${workspaceFolder:Repository}"
+      },
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": ["$tsc"],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    },
+    {
+      "label": "Bridge: Build all",
+      "type": "process",
+      "command": "bun",
+      "args": ["run", "build"],
+      "options": {
+        "cwd": "${workspaceFolder:Repository}"
       },
       "group": {
         "kind": "build",
         "isDefault": true
       },
-      "problemMatcher": []
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    },
+    {
+      "label": "Bridge: Typecheck all",
+      "type": "process",
+      "command": "bun",
+      "args": ["run", "typecheck"],
+      "options": {
+        "cwd": "${workspaceFolder:Repository}"
+      },
+      "group": "build",
+      "problemMatcher": ["$tsc"],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    },
+    {
+      "label": "Bridge: Test active file",
+      "type": "process",
+      "command": "bun",
+      "args": ["test", "${file}"],
+      "options": {
+        "cwd": "${workspaceFolder:Repository}"
+      },
+      "group": "test",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    },
+    {
+      "label": "Bridge: Test domain...",
+      "type": "process",
+      "command": "bun",
+      "args": ["run", "test:domain", "--", "${input:testDomain}"],
+      "options": {
+        "cwd": "${workspaceFolder:Repository}"
+      },
+      "group": "test",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    },
+    {
+      "label": "Bridge: Handbook check",
+      "type": "process",
+      "command": "bun",
+      "args": ["scripts/check-agent-handbook.ts"],
+      "options": {
+        "cwd": "${workspaceFolder:Repository}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    },
+    {
+      "label": "Bridge: E2E smoke",
+      "detail": "Isolated core-language Extension Host scenario",
+      "type": "process",
+      "command": "bun",
+      "args": ["run", "test:e2e:smoke"],
+      "options": {
+        "cwd": "${workspaceFolder:Repository}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    },
+    {
+      "label": "Bridge: E2E scenario...",
+      "detail": "Run only the scenario selected by the impact plan",
+      "type": "process",
+      "command": "bun",
+      "args": ["run", "test:e2e:scenario", "--", "${input:e2eScenario}"],
+      "options": {
+        "cwd": "${workspaceFolder:Repository}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    },
+    {
+      "label": "Bridge: Full check (high risk / PR)",
+      "detail": "Not a routine development task; use only when the impact plan or integration boundary requires it",
+      "type": "process",
+      "command": "bun",
+      "args": ["run", "check"],
+      "options": {
+        "cwd": "${workspaceFolder:Repository}"
+      },
+      "problemMatcher": ["$tsc"],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    },
+    {
+      "label": "Bridge Release: Package VSIX",
+      "detail": "Packaging boundary only; never a routine development validation task",
+      "type": "process",
+      "command": "bun",
+      "args": ["run", "package:vsix"],
+      "options": {
+        "cwd": "${workspaceFolder:Repository}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    },
+    {
+      "label": "Bridge Release: Artifact smoke",
+      "detail": "Installed VSIX and executable boundary; packaging or release use only",
+      "type": "process",
+      "command": "bun",
+      "args": ["run", "test:artifact"],
+      "options": {
+        "cwd": "${workspaceFolder:Repository}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "testDomain",
+      "type": "pickString",
+      "description": "Add one focused test domain",
+      "options": [
+        "protocol",
+        "mcp-runtime",
+        "lifecycle",
+        "experiment-resource",
+        "task-terminal",
+        "debug",
+        "extension-ecosystem",
+        "managed-git",
+        "ui-insights",
+        "release-tooling"
+      ]
+    },
+    {
+      "id": "e2eScenario",
+      "type": "pickString",
+      "description": "Run one selected Extension Host scenario",
+      "options": [
+        "core-language",
+        "lifecycle",
+        "experiment-resource",
+        "task-terminal",
+        "debug",
+        "extension-ecosystem",
+        "master-switch",
+        "managed-worktree"
+      ]
     }
   ]
 }

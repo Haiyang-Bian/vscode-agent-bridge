@@ -11,6 +11,7 @@
 | `bun run test:domain -- <domain...>` | Add one or more focused domains | Test fixtures |
 | `bun run check` | Full typecheck, all non-E2E tests and all workspace builds | Workspace build outputs |
 | `bun scripts/check-agent-handbook.ts` | Validate handbook structure, links and scoped instruction size | Read-only repository scan |
+| `bun scripts/check-vscode-workspace.ts` | Validate shared VS Code roots, Tasks, launch profiles and recommendations | Read-only repository scan |
 | `bun run test:e2e:smoke` | Isolated `core-language` Extension Host scenario | Temporary profile/processes |
 | `bun run test:e2e:scenario -- <scenario...>` | Explicit selected Extension Host scenarios | Temporary profile/processes/settings restored by test |
 | `bun run test:e2e:affected` | E2E selected from the same impact registry | Depends on plan; may skip |

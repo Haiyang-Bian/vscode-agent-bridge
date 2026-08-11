@@ -27,6 +27,7 @@ Do not preload every ADR, release checklist, audit or source file. If the select
 | Change extension discovery, Marketplace, Profile or adapters | [VS Code extension module](modules/vscode-extension.md) | ADR 0015–0017 |
 | Change Git or Managed Worktree behavior | [VS Code extension module](modules/vscode-extension.md) | ADR 0008 and managed-git tests |
 | Change build, test selection, E2E, packaging, CI or release | [Tooling and release](modules/tooling-and-release.md) | [Testing playbook](playbooks/testing.md) and ADR 0018 |
+| Open or maintain the VS Code development environment | [VS Code workspace](playbooks/vscode-workspace.md) | [Tooling and release](modules/tooling-and-release.md) |
 | Implement a feature or fix a bug | [Change workflow](playbooks/change-workflow.md) | Module page, [Debugging](playbooks/debugging.md), nearest regression test |
 | Choose or diagnose validation | [Testing playbook](playbooks/testing.md) | [Authoritative testing strategy](../testing-strategy.md) |
 | Create an ADR, audit, release or handbook update | [Handbook maintenance](maintenance.md) | [Decision index](reference/decision-index.md) |
@@ -48,6 +49,6 @@ Do not preload every ADR, release checklist, audit or source file. If the select
 - [Project overview](project-overview.md): goals, maturity, supported environment and repository map.
 - [System architecture](architecture.md): runtime flow, ownership, state and security boundaries.
 - `modules/`: ownership and change routes for each workspace and repository tooling.
-- `playbooks/`: feature/bug workflow, testing and diagnosis.
+- `playbooks/`: feature/bug workflow, testing, diagnosis and the curated VS Code workspace.
 - `reference/`: stable commands and ADR routing.
 - [Maintenance](maintenance.md): update triggers and anti-staleness rules.

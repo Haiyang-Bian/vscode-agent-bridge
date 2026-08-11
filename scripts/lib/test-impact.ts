@@ -202,6 +202,12 @@ export function classifyTestImpact(
 
     markAffected();
 
+    if (isDeveloperWorkspacePath(changedPath)) {
+      addDomain("release-tooling");
+      markFull(`VS Code developer workspace configuration changed: ${changedPath}`);
+      continue;
+    }
+
     if (isE2EInfrastructurePath(changedPath)) {
       addDomain("lifecycle");
       workspaces.add("vscode-extension");
@@ -492,6 +498,16 @@ function isAgentHandbookPath(changedPath: string): boolean {
     changedPath === "AGENTS.md" ||
     changedPath.endsWith("/AGENTS.md") ||
     changedPath.startsWith("docs/agent-handbook/")
+  );
+}
+
+function isDeveloperWorkspacePath(changedPath: string): boolean {
+  return (
+    changedPath.endsWith(".code-workspace") ||
+    changedPath === ".vscode/settings.json" ||
+    changedPath === ".vscode/tasks.json" ||
+    changedPath === ".vscode/launch.json" ||
+    changedPath === ".vscode/extensions.json"
   );
 }
 

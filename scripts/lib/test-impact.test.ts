@@ -46,6 +46,20 @@ describe("test impact classification", () => {
     ]);
   });
 
+  test("treats executable VS Code developer configuration as full fast validation", () => {
+    const plan = classifyTestImpact([
+      "vscode-agent-bridge.code-workspace",
+      ".vscode/tasks.json",
+      ".vscode/launch.json",
+    ]);
+    expect(plan.risk).toBe("full");
+    expect(plan.domains).toEqual(["release-tooling"]);
+    expect(plan.fullE2E).toBeFalse();
+    expect(plan.repeatE2E).toBeFalse();
+    expect(plan.artifact).toBeFalse();
+    expect(plan.commands).toEqual(["bun run check"]);
+  });
+
   test("selects one extension domain without widening to the full gate", () => {
     const plan = classifyTestImpact(["packages/vscode-extension/src/terminal-capture.ts"]);
     expect(plan.risk).toBe("affected");

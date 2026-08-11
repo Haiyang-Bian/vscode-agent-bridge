@@ -142,6 +142,14 @@ Install Bun 1.3.11 and Node.js 22 or newer. Node is used only by Microsoft's off
 
 Coding agents and new contributors should begin with the [agent development handbook](docs/agent-handbook/README.md). It routes work by subsystem and task so the whole repository does not need to be scanned before each change.
 
+Open the curated workspace to use focused Tasks, isolated Extension Host debugging, Bun test/debug integration and project extension recommendations:
+
+```powershell
+code vscode-agent-bridge.code-workspace
+```
+
+The workspace exposes the repository and all three packages as named roots so folder-bound extensions activate, while hiding duplicate package trees from the repository view. See the [VS Code workspace guide](docs/agent-handbook/playbooks/vscode-workspace.md) for the root layout, Task and debug entry points.
+
 For ordinary development, inspect the impact plan and run only the affected gate:
 
 ```powershell

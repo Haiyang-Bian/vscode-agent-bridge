@@ -23,6 +23,7 @@ const requiredHandbookFiles = [
   "docs/agent-handbook/playbooks/change-workflow.md",
   "docs/agent-handbook/playbooks/testing.md",
   "docs/agent-handbook/playbooks/debugging.md",
+  "docs/agent-handbook/playbooks/vscode-workspace.md",
   "docs/agent-handbook/reference/commands.md",
   "docs/agent-handbook/reference/decision-index.md",
 ];
