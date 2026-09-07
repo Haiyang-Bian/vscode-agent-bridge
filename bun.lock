@@ -30,6 +30,7 @@
       "name": "@vscode-agent-bridge/protocol",
       "version": "0.12.0",
       "dependencies": {
+        "smol-toml": "1.6.1",
         "zod": "4.4.3",
       },
     },

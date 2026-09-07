@@ -1,4 +1,5 @@
 import net, { type Socket } from "node:net";
+import { bridgeRequestSignal } from "./request-context.js";
 
 import {
   BRIDGE_METHODS,
@@ -48,22 +49,25 @@ export class BridgeRpcClient {
   static async connect(
     descriptor: InstanceDescriptor,
     timeoutMilliseconds = DEFAULT_BRIDGE_TIMEOUT_MS,
+    signal?: AbortSignal,
   ): Promise<BridgeRpcClient> {
+    if (signal?.aborted) throw new BridgeError("REQUEST_CANCELLED", "The bridge request was cancelled.");
     const socket = net.createConnection(descriptor.transport.endpoint);
 
     await new Promise<void>((resolve, reject) => {
+      let cancelled = false;
       const timeout = setTimeout(() => {
+        cleanup();
         socket.destroy();
         reject(new BridgeError("TIMEOUT", "Timed out while connecting to VS Code."));
       }, timeoutMilliseconds);
       const handleConnect = (): void => {
-        clearTimeout(timeout);
-        socket.off("error", handleError);
+        cleanup();
+        if (cancelled) { socket.destroy(); return; }
         resolve();
       };
       const handleError = (error: Error): void => {
-        clearTimeout(timeout);
-        socket.off("connect", handleConnect);
+        cleanup();
         reject(
           new BridgeError("INSTANCE_UNAVAILABLE", "Could not connect to the VS Code bridge.", {
             cause: error.message,
@@ -71,8 +75,24 @@ export class BridgeRpcClient {
         );
       };
 
+      const handleAbort = (): void => {
+        cancelled = true;
+        signal?.removeEventListener("abort", handleAbort);
+        // Bun's Windows named-pipe connect cannot be cancelled reliably before
+        // its connect event. Keep the bounded connect/error handlers installed
+        // and close immediately on connection; never send authentication/work.
+        reject(new BridgeError("REQUEST_CANCELLED", "The bridge request was cancelled."));
+      };
+      const cleanup = (): void => {
+        clearTimeout(timeout);
+        socket.off("error", handleError);
+        socket.off("connect", handleConnect);
+        signal?.removeEventListener("abort", handleAbort);
+      };
+
       socket.once("connect", handleConnect);
       socket.once("error", handleError);
+      signal?.addEventListener("abort", handleAbort, { once: true });
     });
 
     const client = new BridgeRpcClient(socket, timeoutMilliseconds);
@@ -85,7 +105,7 @@ export class BridgeRpcClient {
             name: BRIDGE_NAME,
             version: BRIDGE_RELEASE_VERSION,
           },
-        }),
+        }, signal ? { signal } : {}),
       );
 
       if (initializeResult.instanceId !== descriptor.instanceId) {
@@ -206,12 +226,13 @@ export async function requestBridgeResult<Result>(
   parseResult: (value: unknown) => Result,
   options: BridgeRequestOptions = {},
 ): Promise<Result> {
-  if (options.signal?.aborted) {
+  const signal = bridgeRequestSignal(options.signal);
+  if (signal?.aborted) {
     throw new BridgeError("REQUEST_CANCELLED", `Cancelled while calling ${method}.`);
   }
-  const client = await BridgeRpcClient.connect(descriptor);
+  const client = await BridgeRpcClient.connect(descriptor, DEFAULT_BRIDGE_TIMEOUT_MS, signal);
   try {
-    return parseResult(await client.request(method, params, options));
+    return parseResult(await client.request(method, params, signal ? { ...options, signal } : options));
   } finally {
     client.close();
   }

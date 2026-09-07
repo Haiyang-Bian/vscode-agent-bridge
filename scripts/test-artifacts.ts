@@ -13,10 +13,11 @@ const executablePath = path.join(
 );
 
 await run(["bun", "scripts/verify-release.ts", "--require-artifacts"]);
-await run(["bun", "test", "packages/mcp-server/test/stdio.test.ts"], {
+await run(["bun", "test", "packages/mcp-server/test/service-process.test.ts"], {
   ...process.env,
   VSCODE_AGENT_BRIDGE_TEST_EXE: executablePath,
 });
+await run(["bun", "scripts/test-http-service.ts"]);
 await run(["bun", "scripts/run-vsix-e2e.ts"]);
 
 console.log(`Artifact smoke tests passed for ${BRIDGE_RELEASE_VERSION}.`);

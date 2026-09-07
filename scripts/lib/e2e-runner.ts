@@ -113,7 +113,7 @@ export function createE2EEnvironmentVariables(
   scenarios: readonly E2EScenario[],
   extra: NodeJS.ProcessEnv = {},
 ): NodeJS.ProcessEnv {
-  const lifecycle = scenarios.includes("lifecycle");
+  const lifecycle = scenarios.includes("lifecycle") || scenarios.includes("http-bridge");
   return {
     ...process.env,
     ...extra,

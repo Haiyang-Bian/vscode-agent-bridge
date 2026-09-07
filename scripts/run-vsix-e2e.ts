@@ -1,4 +1,5 @@
 import path from "node:path";
+import { startHttpE2EService } from "./lib/http-e2e-service.ts";
 
 import { BRIDGE_RELEASE_VERSION } from "@vscode-agent-bridge/protocol";
 import { runVSCodeCommand } from "@vscode/test-electron";
@@ -22,6 +23,7 @@ const vsixPath = path.join(
 );
 const scenarios = parseE2EScenarios(["full"]);
 const environment = await createE2EEnvironment("vscode-agent-bridge-vsix-e2e-");
+const httpService = await startHttpE2EService(environment, path.join(extensionRoot, "resources", "bin", "vscode-agent-bridge-mcp.exe"));
 
 try {
   await prepareFixtureWorkspace(
@@ -46,6 +48,7 @@ try {
     ],
     extensionRoot,
     createE2EEnvironmentVariables(environment, scenarios, {
+      ...httpService.env,
       VSCODE_AGENT_BRIDGE_EXPECT_PACKAGED: "1",
     }),
   );
@@ -54,5 +57,5 @@ try {
   console.error(error);
   process.exitCode = 1;
 } finally {
-  await cleanupE2EEnvironment(environment);
+  try { await httpService.close(); } finally { await cleanupE2EEnvironment(environment); }
 }

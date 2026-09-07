@@ -210,7 +210,8 @@ describe("Git change collection", () => {
 
 describe("E2E runner selection and cleanup", () => {
   test("expands full and validates individual scenarios", () => {
-    expect(parseE2EScenarios([])).toHaveLength(8);
+    expect(parseE2EScenarios([])).toHaveLength(9);
+    expect(parseE2EScenarios(["http-bridge"])).toEqual(["http-bridge"]);
     expect(parseE2EScenarios(["debug,task-terminal", "debug"])).toEqual([
       "debug",
       "task-terminal",

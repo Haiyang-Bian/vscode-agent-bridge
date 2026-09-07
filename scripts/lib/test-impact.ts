@@ -14,6 +14,7 @@ export const TEST_DOMAINS = [
 ] as const;
 
 export const E2E_SCENARIOS = [
+  "http-bridge",
   "core-language",
   "lifecycle",
   "experiment-resource",
@@ -65,7 +66,7 @@ const WORKSPACE_DIRECTORIES: Record<WorkspaceName, string> = {
 const DOMAIN_TEST_FILES: Record<TestDomain, readonly string[]> = {
   protocol: [
     "packages/protocol/test",
-    "packages/mcp-server/test/stdio.test.ts",
+    "packages/mcp-server/test/service-process.test.ts",
     "packages/mcp-server/test/rpc-client.test.ts",
   ],
   "mcp-runtime": ["packages/mcp-server/test"],
@@ -264,6 +265,11 @@ export function classifyTestImpact(
       }
       if (changedPath.endsWith("index.ts")) {
         markFull("The MCP server composition root changed.", true);
+      }
+      if (/(?:http-runtime|mcp-session|request-context|service-[^/]+|windows-service-native)\.ts$/u.test(changedPath)) {
+        addDomain("lifecycle");
+        markFull(`HTTP session, service lifecycle or installation boundary changed: ${changedPath}`, true);
+        artifact = true;
       }
       continue;
     }

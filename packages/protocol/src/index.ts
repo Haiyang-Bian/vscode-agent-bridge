@@ -9,6 +9,8 @@ export * from "./insights.js";
 export * from "./registry.js";
 export * from "./rpc.js";
 export * from "./schemas.js";
+export * from "./service.js";
+export * from "./codex-config.js";
 export * from "./terminals.js";
 export * from "./tool-catalog.js";
 export * from "./workspace.js";

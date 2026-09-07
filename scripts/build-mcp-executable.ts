@@ -24,6 +24,7 @@ const result = await Bun.build({
     autoloadDotenv: false,
     autoloadBunfig: false,
     windows: {
+      hideConsole: true,
       title: "VS Code Agent Bridge MCP",
       description: "Authenticated local MCP bridge for VS Code",
       publisher: "Alice Lin",
