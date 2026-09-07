@@ -45,6 +45,22 @@ async function connect() {
 }
 
 describe("HTTP daemon process boundary", () => {
+  test("the formal service identity is independent of packaged LocalAppData views", async () => {
+    const oldDirectory = process.env[SERVICE_DIRECTORY_ENV];
+    const oldLocal = process.env.LOCALAPPDATA;
+    delete process.env[SERVICE_DIRECTORY_ENV];
+    try {
+      const standard = await resolveServicePaths();
+      expect(standard.directory).toBe(path.join(os.homedir(), ".vscode-agent-bridge", "service"));
+      process.env.LOCALAPPDATA = path.join(root, "PackagedLocalCache");
+      expect(await resolveServicePaths()).toEqual(standard);
+      expect(await resolveServicePaths(standard.directory)).toEqual(standard);
+    } finally {
+      if (oldDirectory === undefined) delete process.env[SERVICE_DIRECTORY_ENV]; else process.env[SERVICE_DIRECTORY_ENV] = oldDirectory;
+      if (oldLocal === undefined) delete process.env.LOCALAPPDATA; else process.env.LOCALAPPDATA = oldLocal;
+    }
+  });
+
   test("an empty connected management pipe waits for client data without dropping the connection", async () => {
     const owner = WindowsControlPipe.acquire(paths.endpoint, paths.userSid, () => ({ accepted: true }))!;
     const socket = createConnection(paths.endpoint);

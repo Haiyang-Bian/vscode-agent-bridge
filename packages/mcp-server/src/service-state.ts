@@ -31,7 +31,9 @@ export async function resolveServicePaths(directoryOverride?: string): Promise<S
   const userSid = (await new Response(child.stdout).text()).match(/S-1-(?:\d+-)+\d+/u)?.[0];
   if (await child.exited !== 0 || !userSid) throw new ServiceError("SERVICE_PERMISSION_DENIED", "The current Windows identity could not be verified.");
   assertSid(userSid);
-  const standard = path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), "AppData", "Local"), "VSCodeAgentBridge");
+  // Packaged clients can redirect LocalAppData writes into their private MSIX
+  // cache. The external login task and VS Code must see the same installation.
+  const standard = path.join(os.homedir(), ".vscode-agent-bridge", "service");
   const directory = path.resolve(directoryOverride ?? process.env[SERVICE_DIRECTORY_ENV] ?? standard);
   const isolated = directory.toLowerCase() !== path.resolve(standard).toLowerCase();
   const serviceId = createHash("sha256").update(`VSCodeAgentBridge:${userSid}${isolated ? ":isolated:" + directory.toLowerCase() : ""}`).digest("hex").slice(0, 32);

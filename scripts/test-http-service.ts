@@ -11,9 +11,11 @@ import { assertPrivateWindowsFiles } from "./lib/windows-acl-test.ts";
 
 const repository = path.resolve(import.meta.dir, "..");
 const sourceExecutable = path.join(repository, "packages/vscode-extension/resources/bin/vscode-agent-bridge-mcp.exe");
-const temporaryParent = await realpath(os.tmpdir());
-const root = await realpath(await mkdtemp(path.join(temporaryParent, "bridge-http-install-")));
-assert.ok(root.startsWith(temporaryParent + path.sep) && path.basename(root).startsWith("bridge-http-install-"));
+// Exercise the same non-AppData boundary as the formal installation while
+// retaining a unique test identity, task, registry and configuration.
+const temporaryParent = await realpath(os.homedir());
+const root = await realpath(await mkdtemp(path.join(temporaryParent, ".bridge-http-install-")));
+assert.ok(root.startsWith(temporaryParent + path.sep) && path.basename(root).startsWith(".bridge-http-install-"));
 const paths = await resolveServicePaths(path.join(root, "service"));
 const configPath = path.join(root, "codex", "config.toml");
 const registryDirectory = path.join(root, "registry");
@@ -25,6 +27,8 @@ try {
   const first = await installer.install({ sourceExecutable, configPath, registryDirectory });
   const identity = await readIdentity(paths);
   const installation = JSON.parse((await readOptional(paths.installation))!);
+  assert.equal(await realpath(installation.executablePath), installation.executablePath, "The external login task must see the published EXE path without application redirection");
+  evidence.outsideAppDataVirtualization = true;
   const xml = (await installer.scheduler.query())!;
   assert.ok(isCurrentLoginTask(xml, paths, installation.executablePath, registryDirectory), "actual Task Scheduler XML must retain every lifecycle setting");
   evidence.firstPid = first.status.pid;
