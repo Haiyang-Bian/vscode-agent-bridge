@@ -29,6 +29,7 @@ Each report should include:
 
 | Date | Scope | Status | Report |
 | --- | --- | --- | --- |
+| 2026-09-07 | top-level MCP server lifecycle and process multiplicity | `completed_with_findings` | [top-level server lifecycle investigation](2026-09-07-top-level-server-lifecycle-investigation.md) |
 | 2026-08-10 | v0.6.0 self-bootstrap reload | `completed_with_findings` | [v0.6.0 self-bootstrap reload audit](2026-08-10-v0.6.0-self-bootstrap-reload.md) |
 | 2026-08-10 | v0.6.1 automated remediation | `completed_with_findings` | [v0.6.1 self-bootstrap remediation](2026-08-10-v0.6.1-self-bootstrap-remediation.md) |
 | 2026-08-10 | v0.7.0 IDE workflow self-bootstrap | `completed` | [v0.7.0 IDE workflow self-bootstrap audit](2026-08-10-v0.7.0-ide-workflow-self-bootstrap.md) |
