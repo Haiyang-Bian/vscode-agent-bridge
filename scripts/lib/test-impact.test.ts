@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -223,6 +223,23 @@ describe("E2E runner selection and cleanup", () => {
     const environment = await createE2EEnvironment("bridge-e2e-runner-test-");
     await cleanupE2EEnvironment(environment);
     expect(await Bun.file(environment.root).exists()).toBeFalse();
+  });
+
+  test("uses one canonical root when the temporary parent has an alias", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "bridge-e2e-alias-test-"));
+    temporaryDirectories.push(directory);
+    const parent = path.join(directory, "actual-parent");
+    const alias = path.join(directory, "alias-parent");
+    await mkdir(parent);
+    await symlink(parent, alias, process.platform === "win32" ? "junction" : "dir");
+    const environment = await createE2EEnvironment("fixture-", alias);
+    try {
+      expect(path.dirname(environment.root)).toBe(await realpath(parent));
+      expect(environment.managedWorktrees).toBe(path.join(environment.root, "managed-worktrees"));
+      expect(environment.workspace).toBe(path.join(environment.root, "workspace"));
+    } finally {
+      await cleanupE2EEnvironment(environment);
+    }
   });
 });
 

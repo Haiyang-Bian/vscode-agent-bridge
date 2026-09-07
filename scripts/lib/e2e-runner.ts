@@ -1,4 +1,4 @@
-import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -23,8 +23,10 @@ export interface PrimaryCompletionMarker {
   cleanupStatus: string;
 }
 
-export async function createE2EEnvironment(prefix: string): Promise<E2EEnvironment> {
-  const root = await mkdtemp(path.join(os.tmpdir(), prefix));
+export async function createE2EEnvironment(prefix: string, temporaryDirectory = os.tmpdir()): Promise<E2EEnvironment> {
+  // Windows runners can expose TEMP through an 8.3 alias. Publish one canonical
+  // fixture root to VS Code, Git and the security boundary, including new paths.
+  const root = await realpath(await mkdtemp(path.join(temporaryDirectory, prefix)));
   const environment = {
     root,
     workspace: path.join(root, "workspace"),
