@@ -1087,7 +1087,16 @@ async function exerciseExtensionProfileConfiguration(
 
 async function exerciseTerminalObservation(client: BridgeRpcClient): Promise<void> {
   const terminalName = `bridge-e2e-${Date.now()}`;
-  const terminal = vscode.window.createTerminal({ name: terminalName, shellPath: "powershell.exe" });
+  // Custom -NoProfile arguments disable VS Code's automatic injection. Load its
+  // bundled integration explicitly, without the user's PowerShell profile.
+  const integrationScript = path.join(
+    vscode.env.appRoot, "out", "vs", "workbench", "contrib", "terminal", "common", "scripts", "shellIntegration.ps1",
+  );
+  const terminal = vscode.window.createTerminal({
+    name: terminalName,
+    shellPath: "pwsh.exe",
+    shellArgs: ["-NoLogo", "-NoProfile", "-NoExit", "-ExecutionPolicy", "RemoteSigned", "-Command", `. '${integrationScript.replaceAll("'", "''")}'`],
+  });
   terminal.show(false);
   try {
     const shellIntegration = await waitFor(
