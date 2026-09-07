@@ -1,5 +1,12 @@
 # Change Log
 
+## 0.13.0 - 2026-09-07 (unpublished)
+
+- Replaced client-launched STDIO with one authenticated, per-user Streamable HTTP daemon; all 64 tools and extension RPC v11 remain compatible.
+- Added a Windows singleton/control pipe, session admission/cancellation limits, private credentials, login startup and transactional upgrade/rollback.
+- Updated Configure Codex and Doctor for HTTP service health, task settings, executable integrity and shared PID visibility.
+- Added concurrent EXE startup, actual login-task rollback, real window reload/multiple-window and HTTP-to-IDE cancellation acceptance.
+
 ## 0.12.0 - 2026-08-11
 
 - Upgraded to Bridge protocol v11 and exactly 64 catalog-derived tools.

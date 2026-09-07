@@ -29,6 +29,8 @@ Each report should include:
 
 | Date | Scope | Status | Report |
 | --- | --- | --- | --- |
+| 2026-09-07 | shared HTTP daemon, login service and formal Codex migration | `completed_with_findings` | [Phase 1 HTTP daemon acceptance](2026-09-07-http-daemon-phase1-acceptance.md) |
+| 2026-09-07 | v0.12 remote branch integration and master CI | `completed_with_findings` | [v0.12 master integration verification](2026-09-07-v012-master-integration.md) |
 | 2026-09-07 | top-level MCP server lifecycle and process multiplicity | `completed_with_findings` | [top-level server lifecycle investigation](2026-09-07-top-level-server-lifecycle-investigation.md) |
 | 2026-08-10 | v0.6.0 self-bootstrap reload | `completed_with_findings` | [v0.6.0 self-bootstrap reload audit](2026-08-10-v0.6.0-self-bootstrap-reload.md) |
 | 2026-08-10 | v0.6.1 automated remediation | `completed_with_findings` | [v0.6.1 self-bootstrap remediation](2026-08-10-v0.6.1-self-bootstrap-remediation.md) |

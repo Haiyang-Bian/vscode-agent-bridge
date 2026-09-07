@@ -30,10 +30,12 @@ Planning options include `--base`, `--head`, additive `--domain`, `--full` and `
 | `bun run release:checksums` | Generate release artifact hashes |
 | `bun run package:test-bundle` | Build the cross-machine Windows test bundle |
 | `bun run verify:release` | Verify release version/environment invariants |
-| `bun run test:artifact` | Validate release metadata, installed packaged VSIX E2E and MCP STDIO |
+| `bun run test:artifact` | Validate release metadata, installed packaged VSIX HTTP E2E, singleton EXE and isolated login-task installation |
 
 Artifact commands are not ordinary development checks. Run them only when the impact plan marks the packaging boundary, on `master`/release, or by explicit request.
 
 ## Direct focused tests
+
+`bun scripts/test-http-service.ts` exercises real isolated Windows login tasks using the built EXE. It belongs to the artifact gate. `bun run test:e2e:scenario -- http-bridge` tests shared HTTP clients against the actual Extension Host, including cancellation before delayed onboarding can modify settings. Local product commands are documented in [installation and recovery](../../installation.md).
 
 Prefer the exact changed test during diagnosis, for example `bun test <test-file>`. After it passes, return to the impact-selected command. Do not use an ad hoc direct test to claim a required wider gate passed.

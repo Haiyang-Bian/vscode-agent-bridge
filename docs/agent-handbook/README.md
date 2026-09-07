@@ -20,7 +20,7 @@ Do not preload every ADR, release checklist, audit or source file. If the select
 | --- | --- | --- |
 | Understand product scope or repository shape | [Project overview](project-overview.md) | [System architecture](architecture.md) |
 | Change schemas, RPC, errors, protocol version or tool catalog | [Protocol module](modules/protocol.md) | ADR 0001, 0002, 0003 and the closest contract test |
-| Change MCP discovery, STDIO, RPC client or usage recording | [MCP server module](modules/mcp-server.md) | [Architecture](architecture.md), ADR 0001/0002 |
+| Change HTTP sessions, daemon lifecycle, discovery, RPC or usage recording | [MCP server module](modules/mcp-server.md) | [Architecture](architecture.md), ADR 0022 |
 | Change extension lifecycle, policy, onboarding or composition | [VS Code extension module](modules/vscode-extension.md) | ADR 0010–0012 and the lifecycle tests |
 | Change experiments, edits, resources or workspace configuration | [VS Code extension module](modules/vscode-extension.md) | ADR 0005–0007, 0010 and 0013 |
 | Change Task, terminal or Debug behavior | [VS Code extension module](modules/vscode-extension.md) | ADR 0009, 0011, 0013 and [Debugging](playbooks/debugging.md) |

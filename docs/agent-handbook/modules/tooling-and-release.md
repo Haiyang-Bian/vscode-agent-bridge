@@ -11,8 +11,8 @@ Root scripts make validation and distribution reproducible without adding anothe
 | Impact planning and affected checks | `test-plan.ts`, `check-affected.ts`, `test-domain.ts`, `lib/test-impact.ts` |
 | Full workspace orchestration | `check.ts`, `run-workspaces.ts` |
 | Extension Host E2E | `run-extension-e2e.ts`, `test-e2e-affected.ts`, `lib/e2e-runner.ts` |
-| Packaged VSIX E2E | `run-vsix-e2e.ts`, VS Code test configuration files |
-| Build/package | `build-mcp-executable.ts`, `package-vsix.ts` |
+| Packaged VSIX E2E | `run-vsix-e2e.ts`, `lib/http-e2e-service.ts`, VS Code test configuration files |
+| Build/package | `build-mcp-executable.ts`, `lib/windows-executable.ts`, `package-vsix.ts` |
 | Release artifacts | `create-checksums.ts`, `create-test-bundle.ts`, `test-artifacts.ts`, `verify-release.ts` |
 | Release environment | `lib/release-environment.ts` |
 | Curated VS Code development environment | root `.code-workspace`, `.vscode/tasks.json`, `.vscode/launch.json`, `check-vscode-workspace.ts` |
@@ -23,9 +23,10 @@ Root scripts make validation and distribution reproducible without adding anothe
 - Local planning reads staged, unstaged and untracked changes. CI always supplies explicit base/head revisions with enough Git history.
 - Unknown production paths and classification failures widen gates. A manual domain cannot subtract required work.
 - Full `check`, full E2E and release commands keep stable meanings; optimized commands are separate entry points.
-- E2E runs create unique workspace, registry, user-data, extensions and managed-worktree roots. Only lifecycle pays lifecycle delay.
+- E2E runs create unique workspace, registry, user-data, extensions and managed-worktree roots. Lifecycle and HTTP cancellation scenarios retain the explicit lifecycle delay.
 - Helpers throw errors. The outer runner owns exit status, marker verification and `finally` cleanup.
 - Development-extension and packaged-VSIX runners share isolation behavior; packaged installation targets the temporary extensions directory, not a user default.
+- The pinned Bun's hide-console defect is corrected on fresh unsigned PE output before hashing; artifact verification checks the GUI subsystem and the checksum with Windows ImageHlp. See ADR 0022 before changing that workaround.
 - The manual Extension Host debugger also uses a repository-local ignored profile. Shared Tasks never run on folder open and expose affected validation as the default.
 
 ## CI layers
