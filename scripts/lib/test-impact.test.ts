@@ -12,6 +12,7 @@ import {
 import {
   cleanupE2EEnvironment,
   createE2EEnvironment,
+  createE2EEnvironmentVariables,
   parseE2EScenarios,
 } from "./e2e-runner.ts";
 
@@ -114,6 +115,10 @@ describe("test impact classification", () => {
     const packaged = classifyTestImpact(["scripts/run-vsix-e2e.ts"]);
     expect(packaged.artifact).toBeTrue();
     expect(packaged.repeatE2E).toBeTrue();
+    const httpLifecycle = classifyTestImpact(["scripts/test-http-window-lifecycle.ts", "packages/vscode-extension/test/http-lifecycle-harness/extension.js"]);
+    expect(httpLifecycle.repeatE2E).toBeTrue();
+    expect(httpLifecycle.artifact).toBeTrue();
+    expect(classifyTestImpact(["packages/mcp-server/src/service-installer.ts", "packages/vscode-extension/tsconfig.json"]).artifact).toBeTrue();
   });
 
   test("validates explicit domain names", () => {
@@ -222,6 +227,9 @@ describe("E2E runner selection and cleanup", () => {
 
   test("removes the complete per-run profile root", async () => {
     const environment = await createE2EEnvironment("bridge-e2e-runner-test-");
+    const variables = createE2EEnvironmentVariables(environment, ["http-bridge"]);
+    expect(variables.VSCODE_AGENT_BRIDGE_SERVICE_DIR).toBe(path.join(environment.root, "http-service"));
+    expect(variables.CODEX_HOME).toBe(path.join(environment.root, "codex-home"));
     await cleanupE2EEnvironment(environment);
     expect(await Bun.file(environment.root).exists()).toBeFalse();
   });

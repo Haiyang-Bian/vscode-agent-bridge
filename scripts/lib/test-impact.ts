@@ -227,7 +227,8 @@ export function classifyTestImpact(
       workspaces.add("vscode-extension");
       repeatE2E = true;
       if (
-        changedPath === "scripts/run-vsix-e2e.ts" ||
+        isArtifactScript(changedPath) || changedPath === "scripts/lib/http-e2e-service.ts" ||
+        changedPath.startsWith("packages/vscode-extension/test/http-lifecycle-harness/") ||
         changedPath === "packages/vscode-extension/.vscode-test-artifact.mjs"
       ) {
         artifact = true;
@@ -290,7 +291,7 @@ export function classifyTestImpact(
 
     if (isManifestOrCompilerPath(changedPath)) {
       addDomain("release-tooling");
-      artifact = isPackagingManifestPath(changedPath);
+      artifact ||= isPackagingManifestPath(changedPath);
       markFull(`Manifest, dependency lock or compiler configuration changed: ${changedPath}`);
       continue;
     }
@@ -570,10 +571,13 @@ function isE2EInfrastructurePath(changedPath: string): boolean {
     changedPath === "scripts/run-vsix-e2e.ts" ||
     changedPath === "scripts/test-e2e-affected.ts" ||
     changedPath === "scripts/lib/e2e-runner.ts" ||
+    changedPath === "scripts/lib/http-e2e-service.ts" ||
+    changedPath === "scripts/test-http-window-lifecycle.ts" ||
     changedPath === "packages/vscode-extension/.vscode-test.mjs" ||
     changedPath === "packages/vscode-extension/.vscode-test-artifact.mjs" ||
     changedPath.startsWith("packages/vscode-extension/test/e2e/") ||
-    changedPath.startsWith("packages/vscode-extension/test/harness/")
+    changedPath.startsWith("packages/vscode-extension/test/harness/") ||
+    changedPath.startsWith("packages/vscode-extension/test/http-lifecycle-harness/")
   );
 }
 
@@ -596,7 +600,7 @@ function isPackagingManifestPath(changedPath: string): boolean {
 }
 
 function isArtifactScript(changedPath: string): boolean {
-  return /scripts\/(build-mcp-executable|package-vsix|create-test-bundle|create-checksums|test-artifacts|run-vsix-e2e|verify-release)\.ts$/.test(changedPath);
+  return /scripts\/(build-mcp-executable|package-vsix|create-test-bundle|create-checksums|test-artifacts|test-http-service|test-http-window-lifecycle|run-vsix-e2e|verify-release)\.ts$/.test(changedPath) || changedPath === "scripts/lib/windows-acl-test.ts";
 }
 
 function normalizeRepositoryPath(value: string): string {

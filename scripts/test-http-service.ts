@@ -7,6 +7,7 @@ import { resolveServicePaths, readIdentity, readOptional } from "../packages/mcp
 import { controlRequest, stopVerifiedService, waitForReady } from "../packages/mcp-server/src/service-control.ts";
 import { isCurrentLoginTask } from "../packages/mcp-server/src/service-scheduler.ts";
 import { BRIDGE_RELEASE_VERSION } from "@vscode-agent-bridge/protocol";
+import { assertPrivateWindowsFiles } from "./lib/windows-acl-test.ts";
 
 const repository = path.resolve(import.meta.dir, "..");
 const sourceExecutable = path.join(repository, "packages/vscode-extension/resources/bin/vscode-agent-bridge-mcp.exe");
@@ -28,6 +29,8 @@ try {
   assert.ok(isCurrentLoginTask(xml, paths, installation.executablePath, registryDirectory), "actual Task Scheduler XML must retain every lifecycle setting");
   evidence.firstPid = first.status.pid;
   evidence.loginTaskVerified = true;
+  await assertPrivateWindowsFiles([paths.identity, paths.installation, configPath, first.backupPath!], paths.userSid);
+  evidence.currentUserAndSystemAclVerified = true;
   const second = await installer.install({ sourceExecutable, configPath, registryDirectory });
   assert.equal(second.status.bootId, first.status.bootId, "idempotent install must keep the daemon");
   assert.equal(second.changed, false);

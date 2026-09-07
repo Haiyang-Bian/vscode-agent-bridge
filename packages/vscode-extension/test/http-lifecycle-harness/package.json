@@ -1,0 +1,9 @@
+{
+  "name": "vscode-agent-bridge-http-lifecycle-test",
+  "displayName": "Bridge HTTP Lifecycle Test",
+  "publisher": "vscode-agent-bridge-tests",
+  "version": "0.0.0",
+  "main": "extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "engines": { "vscode": "^1.95.0" }
+}
