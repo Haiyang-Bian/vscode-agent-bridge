@@ -25,5 +25,6 @@ Read only the decisions that constrain the task. Accepted ADRs are authoritative
 | [0019](../../adr/0019-progressive-agent-handbook.md) | Progressive-disclosure Agent handbook | Instruction scope, handbook layers, maintenance and validation |
 | [0020](../../adr/0020-ide-mediated-autonomous-execution.md) | IDE-mediated autonomous execution | Prepared/persisted Task and Debug definitions, provenance, deferred execution |
 | [0021](../../adr/0021-canonical-path-document-grants-and-windows-identity.md) | Canonical paths, document grants and Windows identity | Path containment, external language reads, descriptor ACLs |
+| [0022](../../adr/0022-per-user-http-daemon.md) | Per-user HTTP MCP daemon | Singleton ownership, sessions, cancellation, credentials, logon startup and migration |
 
 Create a new ADR rather than rewriting an Accepted decision when the project deliberately changes direction. Link superseding and superseded records in both directions.

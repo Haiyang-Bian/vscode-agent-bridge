@@ -3,6 +3,8 @@
 - Status: Accepted
 - Date: 2026-08-02
 
+[ADR 0022](0022-per-user-http-daemon.md), accepted 2026-09-07, supersedes the no-fixed-TCP-port rule for the external MCP endpoint with authenticated loopback HTTP and mandatory private credential ACLs. The extension RPC security boundary remains applicable.
+
 ## Context
 
 An editor bridge can expose unsaved code, workspace metadata, and eventually file mutations. A listener without authentication or a generic command executor would create a high-risk local control surface.

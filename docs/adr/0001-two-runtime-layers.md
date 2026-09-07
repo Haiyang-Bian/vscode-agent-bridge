@@ -3,6 +3,8 @@
 - Status: Accepted
 - Date: 2026-08-02
 
+The client-launched STDIO transport decision is superseded by [ADR 0022](0022-per-user-http-daemon.md), accepted 2026-09-07. The two runtime layers and shared protocol library remain unchanged.
+
 ## Context
 
 Codex needs a conventional MCP endpoint, while IDE-native state is only available inside the VS Code Extension Host. Coupling MCP framing directly to the extension would mix client lifecycle, editor lifecycle, instance discovery, and VS Code API access.
