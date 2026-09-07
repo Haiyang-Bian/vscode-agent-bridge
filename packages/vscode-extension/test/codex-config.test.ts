@@ -88,6 +88,16 @@ describe("Codex managed MCP configuration", () => {
     ).toBe("conflict");
   });
 
+  test("refuses markers that enclose unrelated settings during update, inspection and removal", () => {
+    const connection = { url: "http://127.0.0.1:54321/mcp", token: "a".repeat(64) };
+    for (const foreign of ['[plugins."keep"]\nenabled = true\n', '[mcp_servers.other]\ncommand = "other.exe"\n']) {
+      const source = createManagedConfigBlock(connection).replace("# vscode-agent-bridge:end", foreign + "# vscode-agent-bridge:end");
+      expect(() => updateManagedConfigText(source, connection)).toThrow(CodexConfigConflictError);
+      expect(() => removeManagedConfigText(source)).toThrow(CodexConfigConflictError);
+      expect(inspectManagedConfigText(source, connection)).toBe("conflict");
+    }
+  });
+
   test("removes only the managed block", () => {
     const source = updateManagedConfigText(
       "model = \"gpt-test\"\n",

@@ -1,4 +1,5 @@
 import { parse } from "smol-toml";
+import { isDeepStrictEqual } from "node:util";
 import { MCP_TOOL_NAMES } from "./tool-catalog.js";
 
 export interface CodexHttpConnection { readonly url: string; readonly token: string; }
@@ -142,7 +143,27 @@ function findManagedMarkerRange(source: string): { start: number; end: number } 
   if (endMarker < start) {
     throw new CodexConfigConflictError("The managed Codex configuration markers are reversed.");
   }
-  return { start, end: endMarker + MANAGED_BLOCK_END.length };
+  const end = endMarker + MANAGED_BLOCK_END.length;
+  // TOML editors can insert an unrelated table before our trailing comment.
+  // Markers alone therefore do not prove that the enclosed settings are ours.
+  try {
+    const remainder = source.slice(0, start) + source.slice(end);
+    if (!isDeepStrictEqual(withoutBridgeSettings(source), withoutBridgeSettings(remainder))) throw new Error();
+  } catch {
+    throw new CodexConfigConflictError(
+      "The managed markers include settings outside the bridge table. Move those settings outside the markers before updating or removing the bridge.",
+    );
+  }
+  return { start, end };
+}
+
+function withoutBridgeSettings(source: string): Record<string, unknown> {
+  const settings = parse(source) as Record<string, unknown>;
+  if (isRecord(settings.mcp_servers)) {
+    delete settings.mcp_servers.vscode_agent_bridge;
+    if (Object.keys(settings.mcp_servers).length === 0) delete settings.mcp_servers;
+  }
+  return settings;
 }
 
 function containsUnmanagedBridgeTable(source: string): boolean {

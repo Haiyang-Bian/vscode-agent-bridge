@@ -81,6 +81,17 @@ describe("Transactional service installation", () => {
     expect(await readOptional(paths.installation)).toBeNull(); expect(await readOptional(paths.transaction)).toBeNull();
   });
 
+  test("rejects foreign settings inside managed markers before changing service or configuration", async () => {
+    const source = '# vscode-agent-bridge:begin\n[mcp_servers.vscode_agent_bridge]\ncommand = "old.exe"\n[plugins."keep"]\nenabled = true\n# vscode-agent-bridge:end\n';
+    await writeFile(configPath, source);
+    const f = fixture();
+    await expect(f.installer.install({ sourceExecutable: "source.exe", configPath })).rejects.toMatchObject({ code: "SERVICE_INSTALL_CONFLICT" });
+    expect(await readFile(configPath, "utf8")).toBe(source);
+    expect(f.events).toEqual([]);
+    expect(await readOptional(paths.identity)).toBeNull();
+    expect(await readOptional(paths.installation)).toBeNull();
+  });
+
   test("failed upgrades restore the prior task, credentials, config and running service", async () => {
     const f = fixture(); await f.installer.install({ sourceExecutable: "source.exe", configPath });
     const oldTask = f.task, oldIdentity = await readFile(paths.identity, "utf8"), oldConfig = await readFile(configPath, "utf8");
