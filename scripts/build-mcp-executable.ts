@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { BRIDGE_RELEASE_VERSION } from "@vscode-agent-bridge/protocol";
+import { prepareHiddenWindowsExecutable, verifyNativeWindowsChecksum } from "./lib/windows-executable.ts";
 
 const repositoryRoot = path.resolve(import.meta.dir, "..");
 const outputDirectory = path.join(
@@ -41,6 +42,10 @@ if (!result.success) {
   process.exit(1);
 }
 
-const digest = createHash("sha256").update(await readFile(outputPath)).digest("hex");
+const executableBytes = await readFile(outputPath);
+prepareHiddenWindowsExecutable(executableBytes);
+await writeFile(outputPath, executableBytes);
+await verifyNativeWindowsChecksum(outputPath);
+const digest = createHash("sha256").update(executableBytes).digest("hex");
 await writeFile(`${outputPath}.sha256`, `${digest}\n`, "utf8");
 console.log(`Built ${path.relative(repositoryRoot, outputPath)} (${digest}).`);

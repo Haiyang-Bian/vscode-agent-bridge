@@ -125,7 +125,7 @@ const DOMAIN_TEST_FILES: Record<TestDomain, readonly string[]> = {
     "packages/vscode-extension/test/local-usage-insights.test.ts",
     "packages/vscode-extension/test/output-source-order.test.ts",
   ],
-  "release-tooling": ["scripts/lib/release-environment.test.ts"],
+  "release-tooling": ["scripts/lib/release-environment.test.ts", "scripts/lib/windows-executable.test.ts"],
 };
 
 const DOMAIN_WORKSPACES: Record<TestDomain, readonly WorkspaceName[]> = {
@@ -600,7 +600,8 @@ function isPackagingManifestPath(changedPath: string): boolean {
 }
 
 function isArtifactScript(changedPath: string): boolean {
-  return /scripts\/(build-mcp-executable|package-vsix|create-test-bundle|create-checksums|test-artifacts|test-http-service|test-http-window-lifecycle|run-vsix-e2e|verify-release)\.ts$/.test(changedPath) || changedPath === "scripts/lib/windows-acl-test.ts";
+  return /scripts\/(build-mcp-executable|package-vsix|create-test-bundle|create-checksums|test-artifacts|test-http-service|test-http-window-lifecycle|run-vsix-e2e|verify-release)\.ts$/.test(changedPath) ||
+    changedPath === "scripts/lib/windows-acl-test.ts" || changedPath === "scripts/lib/windows-executable.ts";
 }
 
 function normalizeRepositoryPath(value: string): string {

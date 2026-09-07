@@ -23,6 +23,12 @@ afterEach(async () => {
 });
 
 describe("test impact classification", () => {
+  test("classifies Windows executable header changes as a packaging boundary", () => {
+    const plan = classifyTestImpact(["scripts/lib/windows-executable.ts"]);
+    expect(plan.risk).toBe("full");
+    expect(plan.artifact).toBeTrue();
+    expect(plan.testFiles).toContain("scripts/lib/windows-executable.test.ts");
+  });
   test("keeps documentation changes out of code gates", () => {
     const plan = classifyTestImpact(["docs/testing-strategy.md", "README.md"]);
     expect(plan.risk).toBe("docs");

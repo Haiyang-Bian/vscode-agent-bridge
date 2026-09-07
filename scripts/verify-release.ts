@@ -9,6 +9,7 @@ import {
 } from "@vscode-agent-bridge/protocol";
 import { sha256File } from "./lib/hash.ts";
 import { resolveReleaseTag } from "./lib/release-environment.ts";
+import { verifyHiddenWindowsExecutable, verifyNativeWindowsChecksum } from "./lib/windows-executable.ts";
 
 const repositoryRoot = path.resolve(import.meta.dir, "..");
 const extensionRoot = path.join(repositoryRoot, "packages", "vscode-extension");
@@ -266,6 +267,8 @@ if (releaseTag) {
 }
 
 if (requireExecutable || requireArtifacts) {
+  verifyHiddenWindowsExecutable(await readFile(executablePath));
+  await verifyNativeWindowsChecksum(executablePath);
   const expectedHash = (await readFile(`${executablePath}.sha256`, "utf8")).trim().toLowerCase();
   assert(expectedHash === (await sha256File(executablePath)), "MCP executable SHA-256 mismatch.");
 
