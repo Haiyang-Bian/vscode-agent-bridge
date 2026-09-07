@@ -119,4 +119,20 @@ describe("Transactional service installation", () => {
     expect(await readOptional(paths.installation)).toBeNull();
     expect(await readFile(configPath, "utf8")).toContain(original);
   });
+
+  test("a concurrent edit during upgrade preserves that edit and still restores the previous running service", async () => {
+    const f = fixture(); await f.installer.install({ sourceExecutable: "source.exe", configPath });
+    const previousTask = f.task, previousIdentity = await readFile(paths.identity, "utf8");
+    f.upgrade();
+    const run = f.scheduler.run; let editOnce = true;
+    f.scheduler.run = async () => {
+      await run();
+      if (editOnce) { editOnce = false; await writeFile(configPath, 'model = "concurrent-user-edit"\n'); }
+    };
+    await expect(f.installer.install({ sourceExecutable: "next.exe", configPath })).rejects.toMatchObject({ code: "SERVICE_INSTALL_CONFLICT" });
+    expect(await readFile(configPath, "utf8")).toBe('model = "concurrent-user-edit"\n');
+    expect(await readFile(paths.identity, "utf8")).toBe(previousIdentity);
+    expect(f.task).toBe(previousTask); expect(f.current?.state).toBe("ready");
+    expect(await readOptional(paths.transaction)).not.toBeNull();
+  });
 });

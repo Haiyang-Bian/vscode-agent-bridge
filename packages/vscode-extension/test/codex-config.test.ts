@@ -10,9 +10,7 @@ import {
   CodexConfigConflictError,
   createManagedConfigBlock,
   inspectManagedConfigText,
-  removeCodexConfigBlock,
   removeManagedConfigText,
-  updateCodexConfigFile,
   updateManagedConfigText,
 } from "../src/codex-config.js";
 
@@ -29,7 +27,7 @@ afterEach(async () => {
 describe("Codex managed MCP configuration", () => {
   test("adds a valid managed block without changing existing settings", () => {
     const source = "# keep this comment\nmodel = \"gpt-test\"\n";
-    const executable = path.join(temporaryRoot, "bridge.exe");
+    const executable = { url: "http://127.0.0.1:54321/mcp", token: "a".repeat(64) };
     const result = updateManagedConfigText(source, executable);
 
     expect(result).toStartWith(source);
@@ -43,7 +41,7 @@ describe("Codex managed MCP configuration", () => {
   });
 
   test("delegates approval to Codex while enabling all annotated tools", () => {
-    const executable = path.join(temporaryRoot, "bridge.exe");
+    const executable = { url: "http://127.0.0.1:54321/mcp", token: "a".repeat(64) };
     const block = createManagedConfigBlock(executable);
     expect(block).not.toContain("default_tools_approval_mode");
     for (const toolName of MCP_TOOL_NAMES) {
@@ -52,7 +50,7 @@ describe("Codex managed MCP configuration", () => {
   });
 
   test("detects a pre-v0.7 managed block with extension-owned approval", () => {
-    const executable = path.join(temporaryRoot, "bridge.exe");
+    const executable = { url: "http://127.0.0.1:54321/mcp", token: "a".repeat(64) };
     const source = createManagedConfigBlock(executable).replace(
       "tool_timeout_sec = 120",
       'tool_timeout_sec = 120\ndefault_tools_approval_mode = "writes"',
@@ -61,13 +59,13 @@ describe("Codex managed MCP configuration", () => {
   });
 
   test("updates only the existing managed block", () => {
-    const firstExecutable = path.join(temporaryRoot, "0.1.0", "bridge.exe");
-    const nextExecutable = path.join(temporaryRoot, "0.2.0", "bridge.exe");
+    const firstExecutable = { url: "http://127.0.0.1:54321/mcp", token: "a".repeat(64) };
+    const nextExecutable = { url: "http://127.0.0.1:54322/mcp", token: "b".repeat(64) };
     const first = updateManagedConfigText("model = \"gpt-test\"\n", firstExecutable);
     const next = updateManagedConfigText(first, nextExecutable);
 
     expect(next).toContain("model = \"gpt-test\"");
-    expect(next).not.toContain(firstExecutable.replaceAll("\\", "/"));
+    expect(next).not.toContain(firstExecutable.url);
     expect(inspectManagedConfigText(next, nextExecutable)).toBe("current");
     expect(inspectManagedConfigText(first, nextExecutable)).toBe("outdated");
   });
@@ -75,25 +73,25 @@ describe("Codex managed MCP configuration", () => {
   test("refuses to overwrite an unmanaged table", () => {
     const source =
       "[mcp_servers.vscode_agent_bridge]\ncommand = \"C:/custom/bridge.exe\"\n";
-    expect(() => updateManagedConfigText(source, path.join(temporaryRoot, "bridge.exe"))).toThrow(
+    expect(() => updateManagedConfigText(source, { url: "http://127.0.0.1:54321/mcp", token: "a".repeat(64) })).toThrow(
       CodexConfigConflictError,
     );
-    expect(inspectManagedConfigText(source, path.join(temporaryRoot, "bridge.exe"))).toBe(
+    expect(inspectManagedConfigText(source, { url: "http://127.0.0.1:54321/mcp", token: "a".repeat(64) })).toBe(
       "conflict",
     );
   });
 
   test("refuses malformed TOML and malformed markers", () => {
-    expect(() => updateManagedConfigText("invalid = [", "C:/bridge.exe")).toThrow();
+    expect(() => updateManagedConfigText("invalid = [", { url: "http://127.0.0.1:54321/mcp", token: "a".repeat(64) })).toThrow();
     expect(
-      inspectManagedConfigText("# vscode-agent-bridge:begin\n", "C:/bridge.exe"),
+      inspectManagedConfigText("# vscode-agent-bridge:begin\n", { url: "http://127.0.0.1:54321/mcp", token: "a".repeat(64) }),
     ).toBe("conflict");
   });
 
   test("removes only the managed block", () => {
     const source = updateManagedConfigText(
       "model = \"gpt-test\"\n",
-      path.join(temporaryRoot, "bridge.exe"),
+      { url: "http://127.0.0.1:54321/mcp", token: "a".repeat(64) },
     );
     const result = removeManagedConfigText(source);
 
@@ -102,52 +100,4 @@ describe("Codex managed MCP configuration", () => {
     expect(result).not.toContain("mcp_servers.vscode_agent_bridge");
   });
 
-  test("backs up and atomically replaces an existing config file", async () => {
-    const configPath = path.join(temporaryRoot, ".codex", "config.toml");
-    await mkdir(path.dirname(configPath), { recursive: true });
-    await writeFile(configPath, "model = \"gpt-test\"\n", "utf8");
-
-    const result = await updateCodexConfigFile(
-      configPath,
-      path.join(temporaryRoot, "bridge.exe"),
-    );
-    expect(result.changed).toBe(true);
-    expect(result.backupPath).toBeDefined();
-    expect(await readFile(result.backupPath!, "utf8")).toBe("model = \"gpt-test\"\n");
-    expect(await readFile(configPath, "utf8")).toContain("vscode-agent-bridge:begin");
-    expect((await readdir(path.dirname(configPath))).some((name) => name.endsWith(".tmp"))).toBe(
-      false,
-    );
-  });
-
-  test("does not create a backup for a new config file", async () => {
-    const configPath = path.join(temporaryRoot, "new", "config.toml");
-    const result = await updateCodexConfigFile(
-      configPath,
-      path.join(temporaryRoot, "bridge.exe"),
-    );
-    expect(result.changed).toBe(true);
-    expect(result.backupPath).toBeUndefined();
-  });
-
-  test("removes only the managed block from disk and backs up the original", async () => {
-    const configPath = path.join(temporaryRoot, ".codex", "config.toml");
-    await mkdir(path.dirname(configPath), { recursive: true });
-    await writeFile(
-      configPath,
-      updateManagedConfigText(
-        "model = \"gpt-test\"\nanalytics.enabled = false\n",
-        path.join(temporaryRoot, "bridge.exe"),
-      ),
-      "utf8",
-    );
-
-    const result = await removeCodexConfigBlock(configPath);
-    const remaining = await readFile(configPath, "utf8");
-    expect(result.changed).toBe(true);
-    expect(result.backupPath).toBeDefined();
-    expect(remaining).toContain("model = \"gpt-test\"");
-    expect(remaining).toContain("analytics.enabled = false");
-    expect(remaining).not.toContain("vscode-agent-bridge:begin");
-  });
 });

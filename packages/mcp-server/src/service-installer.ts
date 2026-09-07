@@ -93,7 +93,7 @@ export class ServiceInstaller {
           ? await writeConfigChange(options.configPath, previousConfig, publishedConfig, paths.userSid) : { changed: false };
         const installation: ServiceInstallation = { contractVersion: 1, version: BRIDGE_RELEASE_VERSION,
           executablePath: prepared.executablePath, executableSha256: prepared.sha256, taskName: paths.taskName,
-          codexConfigPath: options.configPath, installedAt: new Date().toISOString() };
+          codexConfigPath: options.configPath, registryDirectory: options.registryDirectory ?? null, installedAt: new Date().toISOString() };
         await writePrivateJson(paths.installation, installation, paths.userSid);
         await rm(paths.transaction);
         return { ...configChange, executableInstalled: prepared.changed, status };
@@ -131,22 +131,36 @@ export class ServiceInstaller {
   }
 
   async start(): Promise<ServiceStatus> {
-    return this.exclusive(async () => {
+    return this.exclusive(() => this.#start());
+  }
+
+  async #start(): Promise<ServiceStatus> {
       const identity = await readIdentity(this.paths);
-      if (!await readInstallation(this.paths)) throw new ServiceError("SERVICE_NOT_INSTALLED", "The shared HTTP service is not installed.");
+      const installation = await readInstallation(this.paths);
+      if (!installation) throw new ServiceError("SERVICE_NOT_INSTALLED", "The shared HTTP service is not installed.");
+      if (await inspectInstalledExecutable(installation) !== "present") throw new ServiceError("SERVICE_CONFIGURATION_INVALID", "The installed executable failed its checksum check.");
       const current = await this.#tryCurrent(identity);
       if (current?.state === "ready") return this.#ready(this.paths, identity);
+      const task = await this.scheduler.query();
+      if (!task || !isCurrentLoginTask(task, this.paths, installation.executablePath, installation.registryDirectory ?? undefined)) {
+        throw new ServiceError("SERVICE_CONFIGURATION_INVALID", "The login task no longer matches the installation. Rerun service install to repair it.");
+      }
       await this.scheduler.run();
       return this.#ready(this.paths, identity);
-    });
   }
 
   async stop(): Promise<void> {
-    return this.exclusive(async () => {
+    return this.exclusive(() => this.#stopCurrent());
+  }
+
+  async #stopCurrent(): Promise<void> {
       const identity = await readIdentity(this.paths);
       const status = await this.#tryCurrent(identity);
       if (status) await this.#stop(this.paths, identity, status);
-    });
+  }
+
+  async restart(): Promise<ServiceStatus> {
+    return this.exclusive(async () => { await this.#stopCurrent(); return this.#start(); });
   }
 
   async current(identity: ServiceIdentity): Promise<ServiceStatus | null> { return this.#tryCurrent(identity); }
@@ -186,12 +200,14 @@ export class ServiceInstaller {
         }
       }
       if (transaction.previousTask) await this.scheduler.register(transaction.previousTask); else await this.scheduler.remove();
+      let configurationConflict = false;
       if (transaction.configPath) {
         const current = await readOptional(transaction.configPath);
         if (current !== transaction.previousConfig && current !== transaction.publishedConfig) {
-          throw new ServiceError("SERVICE_INSTALL_CONFLICT", "Concurrent Codex edits were preserved. The protected rollback record requires review.");
+          configurationConflict = true;
+        } else {
+          await restore(this.paths, transaction.configPath, transaction.previousConfig);
         }
-        await restore(this.paths, transaction.configPath, transaction.previousConfig);
       }
       await restore(this.paths, this.paths.identity, transaction.previousIdentity);
       await restore(this.paths, this.paths.installation, transaction.previousInstallation);
@@ -199,12 +215,18 @@ export class ServiceInstaller {
         await this.scheduler.run();
         await this.#ready(this.paths, await readIdentity(this.paths));
       }
+      if (configurationConflict) throw new ServiceError("SERVICE_INSTALL_CONFLICT", "Concurrent Codex edits were preserved and the previous service was restored. The protected rollback record requires review.");
       await rm(this.paths.transaction);
     } catch (error) {
       if (error instanceof ServiceError && error.code === "SERVICE_INSTALL_CONFLICT") throw error;
       throw new ServiceError("SERVICE_INSTALL_FAILED", "Installation rollback could not finish. The private recovery record was retained; retry service management to recover.");
     }
   }
+}
+
+export async function inspectInstalledExecutable(installation: ServiceInstallation): Promise<"present" | "missing" | "invalid"> {
+  try { return createHash("sha256").update(await readFile(installation.executablePath)).digest("hex") === installation.executableSha256 ? "present" : "invalid"; }
+  catch (error) { return (error as NodeJS.ErrnoException).code === "ENOENT" ? "missing" : "invalid"; }
 }
 
 async function restore(paths: ServicePaths, target: string, value: string | null): Promise<void> {

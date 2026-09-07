@@ -46,7 +46,7 @@ export async function runCli(args: string[] = process.argv.slice(2)): Promise<vo
       console.log(JSON.stringify(await serve(paths)));
       return;
     }
-    const { ServiceInstaller } = await import("./service-installer.js");
+    const { ServiceInstaller, inspectInstalledExecutable } = await import("./service-installer.js");
     const installer = new ServiceInstaller(paths);
     const { controlRequest, verifyHttpHealth } = await import("./service-control.js");
     let result: unknown;
@@ -58,7 +58,7 @@ export async function runCli(args: string[] = process.argv.slice(2)): Promise<vo
         break;
       case "start": result = await installer.start(); break;
       case "stop": await installer.stop(); result = { stopped: true }; break;
-      case "restart": await installer.stop(); result = await installer.start(); break;
+      case "restart": result = await installer.restart(); break;
       case "uninstall": result = await installer.uninstall(); break;
       case "status": {
         const installation = await readInstallation(paths);
@@ -72,8 +72,9 @@ export async function runCli(args: string[] = process.argv.slice(2)): Promise<vo
         const configPath = options.get("--config") ?? installation.codexConfigPath;
         const { httpConnection } = await import("./service-config.js");
         const { isCurrentLoginTask } = await import("./service-scheduler.js");
-        result = { installed: true, transport: "streamable-http", installedVersion: installation.version, service, serviceError,
-          loginTask: task ? (isCurrentLoginTask(task, paths, installation.executablePath, options.get("--registry-dir")) ? "present" : "invalid") : "missing",
+        result = { installed: true, transport: "streamable-http", installedVersion: installation.version,
+          installedExecutable: await inspectInstalledExecutable(installation), service, serviceError,
+          loginTask: task ? (isCurrentLoginTask(task, paths, installation.executablePath, installation.registryDirectory ?? undefined) ? "present" : "invalid") : "missing",
           codexConfig: configPath ? inspectManagedConfigText(await readOptional(configPath) ?? "", httpConnection(identity)) : "missing" };
         break;
       }

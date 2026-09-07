@@ -62,6 +62,7 @@ export const ServiceInstallationSchema = z.object({
   executableSha256: SecretSchema,
   taskName: z.string().min(1).max(240),
   codexConfigPath: z.string().min(1).max(4096).nullable(),
+  registryDirectory: z.string().min(1).max(4096).nullable().default(null),
   installedAt: z.string().datetime(),
 }).strict();
 export type ServiceInstallation = z.infer<typeof ServiceInstallationSchema>;

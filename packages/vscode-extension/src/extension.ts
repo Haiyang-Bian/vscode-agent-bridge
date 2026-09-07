@@ -9,7 +9,7 @@ import { AgentActivityTracker } from "./agent-activity.js";
 import { registerAgentActivityUi } from "./agent-activity-ui.js";
 import { AgentEditorVisibility } from "./agent-editor-visibility.js";
 import { ChangeSetManager } from "./change-set-manager.js";
-import { CodexConfigConflictError, createManagedConfigBlock } from "./codex-config.js";
+import { CodexConfigConflictError } from "./codex-config.js";
 import { DebugManager } from "./debug-manager.js";
 import { createDebugRequestHandlers } from "./debug-request-handlers.js";
 import {
@@ -17,7 +17,6 @@ import {
   inspectInstallation,
   removeCodexIntegration,
   resolveCodexConfigPath,
-  resolveInstalledExecutablePath,
 } from "./installation.js";
 import { ExperimentManager } from "./experiment-manager.js";
 import { ExtensionAwarenessManager } from "./extension-awareness-manager.js";
@@ -167,7 +166,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await onboarding.configureInteractively();
     }),
     vscode.commands.registerCommand("vscodeAgentBridge.removeCodexConfiguration", async () => {
-      await removeCodexCommand(output);
+      await removeCodexCommand(context, output);
     }),
     vscode.commands.registerCommand("vscodeAgentBridge.runDoctor", async () => {
       await runDoctorCommand(context, host, experiments, managed, terminals, tasks, debug, configurations, extensionProfiles, output);
@@ -447,7 +446,7 @@ async function configureCodexCommand(
   output: vscode.LogOutputChannel,
 ): Promise<void> {
   const choice = await vscode.window.showWarningMessage(
-    "VS Code Agent Bridge will install its local MCP executable, back up ~/.codex/config.toml when it exists, and update only its managed configuration block. Restart Codex after configuration.",
+    "VS Code Agent Bridge will install a shared HTTP service and a current-user login task, start and verify the service, then back up and update its managed Codex configuration. New Codex clients will share this service.",
     { modal: true },
     "Configure Codex",
   );
@@ -459,17 +458,14 @@ async function configureCodexCommand(
     const result = await configureCodexIntegration(context);
     await vscode.window.showInformationMessage(
       result.changed || result.executableInstalled
-        ? "Codex integration configured. Restart Codex to load the MCP server."
+        ? "Shared HTTP service configured. Start a new Codex client to use it."
         : "Codex integration is already current.",
     );
   } catch (error) {
     if (error instanceof CodexConfigConflictError) {
-      await vscode.env.clipboard.writeText(
-        `${createManagedConfigBlock(resolveInstalledExecutablePath())}\n`,
-      );
       await openCodexConfig();
       await vscode.window.showWarningMessage(
-        "An unmanaged vscode_agent_bridge table already exists. No configuration was overwritten; the managed snippet was copied to the clipboard.",
+        "The bridge configuration conflicts with an existing entry or another installation is running. Review the configuration and retry Configure Codex.",
       );
       return;
     }
@@ -478,9 +474,9 @@ async function configureCodexCommand(
   }
 }
 
-async function removeCodexCommand(output: vscode.LogOutputChannel): Promise<void> {
+async function removeCodexCommand(context: vscode.ExtensionContext, output: vscode.LogOutputChannel): Promise<void> {
   const choice = await vscode.window.showWarningMessage(
-    "Remove only the configuration block managed by VS Code Agent Bridge? Other Codex settings and installed versioned executables will be preserved.",
+    "Stop the shared HTTP service, remove its login task and managed Codex configuration? Other settings and installed version files will be preserved.",
     { modal: true },
     "Remove Configuration",
   );
@@ -489,7 +485,7 @@ async function removeCodexCommand(output: vscode.LogOutputChannel): Promise<void
   }
 
   try {
-    const result = await removeCodexIntegration();
+    const result = await removeCodexIntegration(context);
     await vscode.window.showInformationMessage(
       result.changed
         ? "VS Code Agent Bridge configuration removed. Restart Codex to apply the change."
@@ -621,7 +617,7 @@ async function runDoctorCommand(
     report.versionAligned &&
     report.bundledExecutable === "present" &&
     report.installedExecutable === "present" &&
-    report.codexConfig === "current";
+    report.codexConfig === "current" && report.httpService === "ready" && report.loginTask === "present";
   const runtimeHealthy =
     policy.publishAllowed &&
     host.isListening &&
@@ -648,6 +644,10 @@ async function runDoctorCommand(
     `bundledExecutable=${report.bundledExecutable}`,
     `installedExecutable=${report.installedExecutable}`,
     `codexConfig=${report.codexConfig}`,
+    `httpService=${report.httpService}`,
+    `loginTask=${report.loginTask}`,
+    `serviceVersion=${report.serviceVersion ?? "unavailable"}`,
+    `servicePid=${report.servicePid ?? "unavailable"}`,
     `bridgeEnabled=${policy.enabled}`,
     `executionMode=${policy.executionMode}`,
     `legacyAggressiveExecutionMode=${policy.legacyAggressiveExecutionMode}`,
