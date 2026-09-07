@@ -97,12 +97,17 @@ export class WindowsControlPipe {
     if (this.#closed) return;
     const connected = kernel.symbols.ConnectNamedPipe(this.#handle, null);
     const connectionError = connected ? 0 : kernel.symbols.GetLastError();
-    if ((connected || connectionError === 535) && !this.#connectedAt) this.#connectedAt = Date.now();
+    // In NOWAIT mode success means "listening", while 535 confirms a client.
+    // Connect's 232 means the old client closed; ReadFile's 232 only means
+    // the connected client's input buffer is currently empty.
+    if (connectionError === 232 || connectionError === 109) { this.#disconnect(); return; }
+    if (connectionError !== 535) return;
+    if (!this.#connectedAt) this.#connectedAt = Date.now();
     if (this.#connectedAt && Date.now() - this.#connectedAt > 2000) { this.#disconnect(); return; }
     const read = kernel.symbols.ReadFile(this.#handle, ptr(this.#readBuffer), this.#readBuffer.length, ptr(this.#count), null);
     if (!read) {
       const error = kernel.symbols.GetLastError();
-      if (error === 109 || error === 232) this.#disconnect();
+      if (error === 109) this.#disconnect();
       return;
     }
     const bytes = this.#count[0] ?? 0;

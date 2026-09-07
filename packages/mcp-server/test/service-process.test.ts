@@ -1,6 +1,8 @@
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { createConnection } from "node:net";
+import { once } from "node:events";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -43,6 +45,20 @@ async function connect() {
 }
 
 describe("HTTP daemon process boundary", () => {
+  test("an empty connected management pipe waits for client data without dropping the connection", async () => {
+    const owner = WindowsControlPipe.acquire(paths.endpoint, paths.userSid, () => ({ accepted: true }))!;
+    const socket = createConnection(paths.endpoint);
+    try {
+      const error = new Promise<never>((_, reject) => socket.once("error", reject));
+      await Promise.race([once(socket, "connect"), error]);
+      await Promise.race([Bun.sleep(150), error]);
+      const response = once(socket, "data");
+      socket.write("{}\n");
+      const [bytes] = await Promise.race([response, error]);
+      expect(JSON.parse(bytes.toString())).toEqual({ accepted: true });
+    } finally { socket.destroy(); owner.close(); }
+  });
+
   test("20 concurrent launch attempts share one authenticated daemon and flush usage on stop", async () => {
     const attempts = Array.from({ length: 20 }, () => launch());
     const status = await waitForReady(paths, identity);
@@ -86,6 +102,18 @@ describe("HTTP daemon process boundary", () => {
     expect(current.port).toBe(old.port);
     await stopVerifiedService(paths, identity, current);
   }, 20_000);
+
+  test("back-to-back and concurrent management clients wait for the single pipe connection", async () => {
+    const child = launch();
+    const status = await waitForReady(paths, identity);
+    for (let attempt = 0; attempt < 12; attempt++) {
+      expect((await controlRequest(paths, identity, "status")).bootId).toBe(status.bootId);
+    }
+    const statuses = await Promise.all(Array.from({ length: 12 }, () => controlRequest(paths, identity, "status")));
+    expect(statuses.every(value => value.pid === child.pid && value.bootId === status.bootId)).toBe(true);
+    await stopVerifiedService(paths, identity, status);
+    expect(await child.exited).toBe(0);
+  }, 10_000);
 
   test("port conflicts fail without moving the service or exposing credentials", async () => {
     const occupied = Bun.serve({ hostname: "127.0.0.1", port: identity.port, fetch: () => new Response(null) });

@@ -1,4 +1,4 @@
-import { createConnection } from "node:net";
+import { createConnection, type Socket } from "node:net";
 import { randomBytes } from "node:crypto";
 import { SERVICE_LIMITS, ServiceManagementResponseSchema, ServiceStatusSchema, type ServiceIdentity, type ServiceStatus } from "@vscode-agent-bridge/protocol";
 import { managementProof, validManagementProof } from "./service-auth.js";
@@ -9,21 +9,43 @@ export async function controlRequest(paths: ServicePaths, identity: ServiceIdent
   const payload = { contractVersion: 1, serviceId: identity.serviceId, nonce: randomBytes(16).toString("hex"), timestamp: Date.now(), command,
     ...(expectedBootId ? { expectedBootId } : {}) };
   const raw = await new Promise<unknown>((resolve, reject) => {
-    const socket = createConnection(paths.endpoint);
+    let socket: Socket | undefined;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let settled = false;
     let incoming = Buffer.alloc(0);
     const timer = setTimeout(() => fail(), 2500);
-    function finish() { clearTimeout(timer); socket.destroy(); }
-    function fail() { finish(); reject(new ServiceError("SERVICE_IDENTITY_UNVERIFIED", "The existing service identity could not be verified.")); }
-    socket.once("error", fail);
-    socket.once("end", fail);
-    socket.once("connect", () => socket.write(JSON.stringify({ ...payload, proof: managementProof(identity.managementToken, "request", payload) }) + "\n"));
-    socket.on("data", bytes => {
+    function finish() { settled = true; clearTimeout(timer); clearTimeout(retry); socket?.destroy(); }
+    function fail() { if (settled) return; finish(); reject(new ServiceError("SERVICE_IDENTITY_UNVERIFIED", "The existing service identity could not be verified.")); }
+    function connect() {
+      if (settled) return;
+      let connected = false;
+      const attempt = createConnection(paths.endpoint);
+      socket = attempt;
+      attempt.once("error", () => {
+        if (settled) return;
+        if (connected) { fail(); return; }
+        // The singleton has one pipe instance; its previous client may have
+        // closed before the server's next poll releases that connection. Wait
+        // only before connecting: once any request is sent it is never replayed.
+        attempt.destroy();
+        retry = setTimeout(connect, 20 + Math.random() * 30);
+      });
+      attempt.once("end", fail);
+      attempt.once("connect", () => {
+        connected = true;
+        if (settled) { attempt.destroy(); return; }
+        attempt.write(JSON.stringify({ ...payload, proof: managementProof(identity.managementToken, "request", payload) }) + "\n");
+      });
+      attempt.on("data", onData);
+    }
+    function onData(bytes: Buffer | string) {
       incoming = Buffer.concat([incoming, typeof bytes === "string" ? Buffer.from(bytes) : bytes]);
       if (incoming.length > SERVICE_LIMITS.managementMessageBytes) { fail(); return; }
       if (!incoming.includes(10)) return;
       try { const value: unknown = JSON.parse(incoming.toString("utf8")); finish(); resolve(value); }
       catch { fail(); }
-    });
+    }
+    connect();
   });
   const response = ServiceManagementResponseSchema.safeParse(raw);
   if (!response.success || response.data.nonce !== payload.nonce || !validManagementProof(response.data.proof,
