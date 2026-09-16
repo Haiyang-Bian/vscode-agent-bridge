@@ -4,11 +4,10 @@ export const TEST_DOMAINS = [
   "protocol",
   "mcp-runtime",
   "lifecycle",
-  "experiment-resource",
+  "direct-ide",
   "task-terminal",
   "debug",
   "extension-ecosystem",
-  "managed-git",
   "ui-insights",
   "release-tooling",
 ] as const;
@@ -17,12 +16,11 @@ export const E2E_SCENARIOS = [
   "http-bridge",
   "core-language",
   "lifecycle",
-  "experiment-resource",
+  "direct-ide",
   "task-terminal",
   "debug",
   "extension-ecosystem",
   "master-switch",
-  "managed-worktree",
 ] as const;
 
 export const WORKSPACES = ["protocol", "mcp-server", "vscode-extension"] as const;
@@ -82,10 +80,10 @@ const DOMAIN_TEST_FILES: Record<TestDomain, readonly string[]> = {
     "packages/protocol/test/registry.test.ts",
     "packages/protocol/test/rpc.test.ts",
   ],
-  "experiment-resource": [
+  "direct-ide": [
     "packages/vscode-extension/test/canonical-path-boundary.test.ts",
-    "packages/vscode-extension/test/experiment-store.test.ts",
-    "packages/protocol/test/experiment-contracts.test.ts",
+    "packages/vscode-extension/test/agent-activity.test.ts",
+    "packages/protocol/test/change-contracts.test.ts",
     "packages/protocol/test/workflow-contracts.test.ts",
     "packages/protocol/test/ide-contracts.test.ts",
   ],
@@ -113,11 +111,6 @@ const DOMAIN_TEST_FILES: Record<TestDomain, readonly string[]> = {
     "packages/protocol/test/extension-integration-contracts.test.ts",
     "packages/protocol/test/extension-orchestration-contracts.test.ts",
   ],
-  "managed-git": [
-    "packages/vscode-extension/test/git-baseline.test.ts",
-    "packages/vscode-extension/test/git-runner.test.ts",
-    "packages/protocol/test/experiment-contracts.test.ts",
-  ],
   "ui-insights": [
     "packages/mcp-server/test/usage-insights.test.ts",
     "packages/vscode-extension/test/agent-activity.test.ts",
@@ -132,11 +125,10 @@ const DOMAIN_WORKSPACES: Record<TestDomain, readonly WorkspaceName[]> = {
   protocol: ["protocol", "mcp-server", "vscode-extension"],
   "mcp-runtime": ["mcp-server"],
   lifecycle: ["mcp-server", "vscode-extension"],
-  "experiment-resource": ["vscode-extension"],
+  "direct-ide": ["vscode-extension"],
   "task-terminal": ["vscode-extension"],
   debug: ["vscode-extension"],
   "extension-ecosystem": ["vscode-extension"],
-  "managed-git": ["vscode-extension"],
   "ui-insights": ["mcp-server", "vscode-extension"],
   "release-tooling": [],
 };
@@ -145,11 +137,10 @@ const DOMAIN_E2E_SCENARIOS: Record<TestDomain, readonly E2EScenario[]> = {
   protocol: E2E_SCENARIOS,
   "mcp-runtime": ["core-language"],
   lifecycle: ["lifecycle", "master-switch"],
-  "experiment-resource": ["experiment-resource"],
+  "direct-ide": ["direct-ide"],
   "task-terminal": ["task-terminal"],
   debug: ["debug"],
   "extension-ecosystem": ["extension-ecosystem"],
-  "managed-git": ["managed-worktree"],
   "ui-insights": [],
   "release-tooling": [],
 };
@@ -159,13 +150,11 @@ const TEST_FILE_DOMAINS: ReadonlyArray<readonly [RegExp, TestDomain]> = [
   [/packages\/protocol\/test\//, "protocol"],
   [/packages\/mcp-server\/test\/usage-insights/, "ui-insights"],
   [/packages\/mcp-server\/test\//, "mcp-runtime"],
-  [/(experiment-store|experiment-contracts)/, "experiment-resource"],
-  [/(canonical-path-boundary)/, "experiment-resource"],
+  [/(change-contracts|canonical-path-boundary)/, "direct-ide"],
   [/(document-access-grants)/, "lifecycle"],
   [/(terminal-capture)/, "task-terminal"],
   [/(workflow-provenance)/, "task-terminal"],
   [/(debug-output-capture)/, "debug"],
-  [/(git-baseline|git-runner)/, "managed-git"],
   [/(extension-awareness|extension-install|extension-integration|extension-marketplace|extension-profile|python-environment)/, "extension-ecosystem"],
   [/(agent-activity|bridge-hub|local-usage-insights|output-source-order)/, "ui-insights"],
   [/(codex-config|instances|rpc-client)/, "lifecycle"],
@@ -421,7 +410,7 @@ function classifyExtensionSource(
     actions.markFull(`Extension composition root changed: ${changedPath}`, true);
     return;
   }
-  if (["bridge-host.ts", "bridge-lifecycle.ts", "private-registry-file.ts", "windows-identity.ts", "workspace-onboarding.ts", "policies.ts", "codex-config.ts"].includes(fileName)) {
+  if (["bridge-host.ts", "bridge-lifecycle.ts", "private-registry-file.ts", "windows-identity.ts", "workspace-setup.ts", "legacy-experiment-data.ts", "workspace-onboarding.ts", "policies.ts", "codex-config.ts"].includes(fileName)) {
     actions.addDomain("lifecycle");
     actions.addScenario("lifecycle");
     actions.addScenario("master-switch");
@@ -429,28 +418,28 @@ function classifyExtensionSource(
     return;
   }
   if (/^(experiment-|change-set-|resource-change-|workspace-configuration-|ide-autonomy-)/.test(fileName)) {
-    actions.addDomain("experiment-resource");
-    actions.addScenario("experiment-resource");
+    actions.addDomain("direct-ide");
+    actions.addScenario("direct-ide");
     if (["experiment-manager.ts", "experiment-store.ts", "change-set-manager.ts", "resource-change-executor.ts"].includes(fileName)) {
       actions.markFull(`Recoverable mutation or persistence boundary changed: ${changedPath}`);
     }
     return;
   }
   if (fileName === "workflow-provenance.ts") {
-    actions.addDomain("experiment-resource");
+    actions.addDomain("direct-ide");
     actions.addDomain("task-terminal");
     actions.addDomain("debug");
-    actions.addScenario("experiment-resource");
+    actions.addScenario("direct-ide");
     actions.addScenario("task-terminal");
     actions.addScenario("debug");
     return;
   }
   if (fileName === "canonical-path-boundary.ts") {
-    actions.addDomain("experiment-resource");
+    actions.addDomain("direct-ide");
     actions.addDomain("task-terminal");
     actions.addDomain("debug");
     actions.addScenario("core-language");
-    actions.addScenario("experiment-resource");
+    actions.addScenario("direct-ide");
     actions.addScenario("task-terminal");
     actions.addScenario("debug");
     actions.markFull(`Canonical path security boundary changed: ${changedPath}`, true);
@@ -479,9 +468,9 @@ function classifyExtensionSource(
     return;
   }
   if (/^(git-|managed-worktree-)/.test(fileName)) {
-    actions.addDomain("managed-git");
-    actions.addScenario("managed-worktree");
-    actions.markFull(`Git or Managed Worktree boundary changed: ${changedPath}`);
+    actions.addDomain("lifecycle");
+    actions.addScenario("direct-ide");
+    actions.markFull(`Legacy Managed Worktree boundary changed: ${changedPath}`);
     return;
   }
   if (/^(extension-|marketplace-|python-environment-)/.test(fileName) || fileName === "installation.ts") {

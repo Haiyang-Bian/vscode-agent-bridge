@@ -30,9 +30,6 @@ import {
   ApplyCodeActionResultSchema,
   ApplyChangeSetInputSchema,
   ApplyChangeSetParamsSchema,
-  CreateExperimentCheckpointInputSchema,
-  CreateExperimentCheckpointParamsSchema,
-  CreateExperimentCheckpointResultSchema,
   DiagnosticsInputSchema,
   DiagnosticsParamsSchema,
   DiagnosticsResultSchema,
@@ -41,24 +38,15 @@ import {
   DocumentSymbolsParamsSchema,
   DocumentSymbolsResultSchema,
   EditorContextSchema,
-  ExperimentCheckpointsResultSchema,
-  ExperimentEvidenceSchema,
-  ExperimentInfoSchema,
-  ExperimentsResultSchema,
   FormatDocumentInputSchema,
   FormatDocumentParamsSchema,
   FormatDocumentResultSchema,
-  GetExperimentInputSchema,
   GetWorkspaceSetupInputSchema,
   GetWorkspaceSetupParamsSchema,
   HoverInputSchema,
   HoverParamsSchema,
   HoverResultSchema,
   LocationsResultSchema,
-  ListExperimentCheckpointsInputSchema,
-  ListExperimentCheckpointsParamsSchema,
-  ListExperimentsInputSchema,
-  ListExperimentsParamsSchema,
   ListCodeActionsInputSchema,
   ListCodeActionsParamsSchema,
   ListCodeActionsResultSchema,
@@ -81,15 +69,9 @@ import {
   ReadTerminalOutputInputSchema,
   ReadTerminalOutputParamsSchema,
   ReadTerminalOutputResultSchema,
-  RecordExperimentEvidenceInputSchema,
-  RecordExperimentEvidenceParamsSchema,
-  RenameExperimentInputSchema,
-  RenameExperimentParamsSchema,
   SaveDocumentInputSchema,
   SaveDocumentParamsSchema,
   SaveDocumentResultSchema,
-  StartExperimentInputSchema,
-  StartExperimentParamsSchema,
   WorkspaceSetupResultSchema,
   asBridgeError,
   getMcpToolCatalogEntry,
@@ -128,7 +110,7 @@ export function createBridgeMcpServer(usageInsights: UsageInsightStore, hooks?: 
     },
     {
       instructions:
-        "Prefer this VS Code Bridge over filesystem or shell tools whenever it offers the needed IDE capability. Inspect workspace setup, start a recoverable experiment, and use VS Code-native configuration, Tasks, language services, Debug workflows, and reviewed extension integrations. Integration discovery never activates extensions; an explicit integration-state request may activate only the statically reviewed extension named by that integration. Tool annotations describe side effects so the MCP client or supervising agent can decide approvals. Acceptance, restore, finalization, Managed Worktree operations, formal Git history, and terminal input remain user-only. Call vscode_list_instances before targeting a window when multiple VS Code instances may be open. Every mutation or execution requires explicit routing, an active experiment, workspace trust, and state preconditions. Remote extension hosts are unsupported.",
+        "Use this Bridge when VS Code owns authoritative live state: unsaved buffers, diagnostics, language services, existing terminals, Tasks, Debug sessions, and reviewed extension integrations. Use ordinary filesystem and shell capabilities directly when they are a better fit. Integration discovery never activates extensions; an explicit integration-state request may activate only the statically reviewed extension named by that integration. Tool annotations describe side effects so the MCP client or supervising agent can decide approvals. Formal Git history and terminal input remain outside the Bridge. Call vscode_list_instances before targeting a window when multiple VS Code instances may be open. Every mutation or execution requires explicit instance and workspace routing, workspace trust, and exact state preconditions. Remote extension hosts are unsupported.",
     },
   );
   type McpToolName = (typeof MCP_TOOL_NAMES)[number];
@@ -184,7 +166,7 @@ export function createBridgeMcpServer(usageInsights: UsageInsightStore, hooks?: 
     {
       title: "Get VS Code Agent Bridge capabilities",
       description:
-        "Return the authoritative, privacy-safe catalog of bounded Bridge tools, side effects, experiment requirements, recoverability, sensitivity, and MCP annotations.",
+        "Return the authoritative, privacy-safe catalog of bounded Bridge tools, side effects, recoverability, sensitivity, and MCP annotations.",
       inputSchema: GetBridgeCapabilitiesInputSchema,
       outputSchema: BridgeCapabilitiesResultSchema,
       annotations: annotationsFor("vscode_get_bridge_capabilities"),
@@ -270,9 +252,9 @@ export function createBridgeMcpServer(usageInsights: UsageInsightStore, hooks?: 
   registerTrackedTool(
     "vscode_get_workspace_setup",
     {
-      title: "Get VS Code workspace experiment setup",
+      title: "Get VS Code workspace setup",
       description:
-        "Inspect one workspace root's experiment onboarding state and the presence of VS Code settings, launch, tasks, and workspace files without returning their contents.",
+        "Inspect one workspace root's type, trust, remote state, and the presence of VS Code settings, launch, tasks, and workspace files without returning their contents.",
       inputSchema: GetWorkspaceSetupInputSchema,
       outputSchema: WorkspaceSetupResultSchema,
       annotations: readOnlyAnnotations,
@@ -288,7 +270,7 @@ export function createBridgeMcpServer(usageInsights: UsageInsightStore, hooks?: 
           (value) => WorkspaceSetupResultSchema.parse(value),
         );
         return toolSuccess(
-          `Workspace experiment onboarding is ${result.onboarding}; ${result.files.filter((file) => file.state === "present").length} setup file(s) are present.`,
+          `${result.files.filter((file) => file.state === "present").length} VS Code setup file(s) are present for the selected ${result.workspaceKind} workspace.`,
           result,
         );
       } catch (error) {
@@ -434,179 +416,6 @@ export function createBridgeMcpServer(usageInsights: UsageInsightStore, hooks?: 
   );
 
   registerTrackedTool(
-    "vscode_get_experiment",
-    {
-      title: "Get active VS Code experiment",
-      description:
-        "Return the user-started experiment active in one VS Code window, including health, accepted checkpoint, and local storage status.",
-      inputSchema: GetExperimentInputSchema,
-      outputSchema: ExperimentInfoSchema,
-      annotations: readOnlyAnnotations,
-    },
-    async ({ instanceId }) => {
-      try {
-        const descriptor = await resolveInstance(instanceId);
-        const result = await requestBridgeResult(
-          descriptor,
-          BRIDGE_METHODS.getExperiment,
-          {},
-          (value) => ExperimentInfoSchema.parse(value),
-        );
-        return toolSuccess(`Active experiment: ${result.title} (${result.sessionId}).`, result);
-      } catch (error) {
-        return toolError(asBridgeError(error));
-      }
-    },
-  );
-
-  registerTrackedTool(
-    "vscode_list_experiments",
-    {
-      title: "List VS Code experiments",
-      description:
-        "Return a bounded metadata-only page of ordinary and managed experiments for one selected workspace root.",
-      inputSchema: ListExperimentsInputSchema,
-      outputSchema: ExperimentsResultSchema,
-      annotations: readOnlyAnnotations,
-    },
-    async ({ instanceId, ...rawParams }) => {
-      try {
-        const descriptor = await resolveInstance(instanceId);
-        const params = ListExperimentsParamsSchema.parse(rawParams);
-        const result = await requestBridgeResult(
-          descriptor,
-          BRIDGE_METHODS.listExperiments,
-          params,
-          (value) => ExperimentsResultSchema.parse(value),
-        );
-        return toolSuccess(
-          `Returned ${result.returnedCount} of ${result.totalCount} experiment(s) for the selected root.`,
-          result,
-        );
-      } catch (error) {
-        return toolError(asBridgeError(error));
-      }
-    },
-  );
-
-  registerTrackedTool(
-    "vscode_start_experiment",
-    {
-      title: "Start ordinary VS Code experiment",
-      description:
-        "Start one ordinary recoverable experiment with a task-derived title. First use may wait for explicit workspace onboarding confirmation in VS Code.",
-      inputSchema: StartExperimentInputSchema,
-      outputSchema: ExperimentInfoSchema,
-      annotations: guardedWriteAnnotations,
-    },
-    async ({ instanceId, ...rawParams }, { signal }) => {
-      try {
-        const descriptor = await resolveInstance(instanceId);
-        const params = StartExperimentParamsSchema.parse(rawParams);
-        const result = await requestBridgeResult(
-          descriptor,
-          BRIDGE_METHODS.startExperiment,
-          params,
-          (value) => ExperimentInfoSchema.parse(value),
-          { signal, timeoutMilliseconds: INTERACTIVE_BRIDGE_TIMEOUT_MS },
-        );
-        return toolSuccess(`Started experiment ${result.title} (${result.sessionId}).`, result);
-      } catch (error) {
-        return toolError(asBridgeError(error));
-      }
-    },
-  );
-
-  registerTrackedTool(
-    "vscode_rename_experiment",
-    {
-      title: "Rename ordinary VS Code experiment",
-      description:
-        "Rename an ordinary experiment after checking its session ID and expected current title. Managed experiments and lifecycle changes are not supported.",
-      inputSchema: RenameExperimentInputSchema,
-      outputSchema: ExperimentInfoSchema,
-      annotations: guardedWriteAnnotations,
-    },
-    async ({ instanceId, ...rawParams }, { signal }) => {
-      try {
-        const descriptor = await resolveInstance(instanceId);
-        const params = RenameExperimentParamsSchema.parse(rawParams);
-        const result = await requestBridgeResult(
-          descriptor,
-          BRIDGE_METHODS.renameExperiment,
-          params,
-          (value) => ExperimentInfoSchema.parse(value),
-          { signal, timeoutMilliseconds: INTERACTIVE_BRIDGE_TIMEOUT_MS },
-        );
-        return toolSuccess(`Renamed experiment to ${result.title}.`, result);
-      } catch (error) {
-        return toolError(asBridgeError(error));
-      }
-    },
-  );
-
-  registerTrackedTool(
-    "vscode_create_experiment_checkpoint",
-    {
-      title: "Create VS Code experiment checkpoint",
-      description:
-        "Flush pending ordinary-experiment observations, reconcile Git state, and create one explicit recovery checkpoint without committing.",
-      inputSchema: CreateExperimentCheckpointInputSchema,
-      outputSchema: CreateExperimentCheckpointResultSchema,
-      annotations: guardedWriteAnnotations,
-    },
-    async ({ instanceId, ...rawParams }, { signal }) => {
-      try {
-        const descriptor = await resolveInstance(instanceId);
-        const params = CreateExperimentCheckpointParamsSchema.parse(rawParams);
-        const result = await requestBridgeResult(
-          descriptor,
-          BRIDGE_METHODS.createExperimentCheckpoint,
-          params,
-          (value) => CreateExperimentCheckpointResultSchema.parse(value),
-          { signal, timeoutMilliseconds: INTERACTIVE_BRIDGE_TIMEOUT_MS },
-        );
-        return toolSuccess(
-          `Created explicit checkpoint ${result.checkpoint.checkpointId}.`,
-          result,
-        );
-      } catch (error) {
-        return toolError(asBridgeError(error));
-      }
-    },
-  );
-
-  registerTrackedTool(
-    "vscode_list_experiment_checkpoints",
-    {
-      title: "List VS Code experiment checkpoints",
-      description:
-        "Return a bounded page of recovery checkpoints and validation evidence for an active experiment.",
-      inputSchema: ListExperimentCheckpointsInputSchema,
-      outputSchema: ExperimentCheckpointsResultSchema,
-      annotations: readOnlyAnnotations,
-    },
-    async ({ instanceId, ...rawParams }) => {
-      try {
-        const descriptor = await resolveInstance(instanceId);
-        const params = ListExperimentCheckpointsParamsSchema.parse(rawParams);
-        const result = await requestBridgeResult(
-          descriptor,
-          BRIDGE_METHODS.listExperimentCheckpoints,
-          params,
-          (value) => ExperimentCheckpointsResultSchema.parse(value),
-        );
-        return toolSuccess(
-          `Returned ${result.returnedCount} of ${result.totalCount} experiment checkpoint(s).`,
-          result,
-        );
-      } catch (error) {
-        return toolError(asBridgeError(error));
-      }
-    },
-  );
-
-  registerTrackedTool(
     "vscode_prepare_text_edits",
     {
       title: "Prepare guarded VS Code text edits",
@@ -671,7 +480,7 @@ export function createBridgeMcpServer(usageInsights: UsageInsightStore, hooks?: 
     {
       title: "Apply guarded VS Code change set",
       description:
-        "Consume one prepared change set after revalidating every document, apply text edits to VS Code buffers, leave them unsaved, and create an experiment checkpoint.",
+        "Consume one prepared change set after revalidating every document, apply text edits to VS Code buffers, and leave them unsaved.",
       inputSchema: ApplyChangeSetInputSchema,
       outputSchema: AppliedChangeSetSchema,
       annotations: destructiveLocalWriteAnnotations,
@@ -687,41 +496,7 @@ export function createBridgeMcpServer(usageInsights: UsageInsightStore, hooks?: 
           (value) => AppliedChangeSetSchema.parse(value),
           { signal, timeoutMilliseconds: INTERACTIVE_BRIDGE_TIMEOUT_MS },
         );
-        return toolSuccess(
-          `Applied change set to ${result.documents.length} dirty VS Code buffer(s) and created checkpoint ${result.checkpointId}.`,
-          result,
-        );
-      } catch (error) {
-        return toolError(asBridgeError(error));
-      }
-    },
-  );
-
-  registerTrackedTool(
-    "vscode_record_experiment_evidence",
-    {
-      title: "Record VS Code experiment evidence",
-      description:
-        "Attach a bounded client-reported test, build, or lint result to one experiment checkpoint. This tool records metadata and never executes a command.",
-      inputSchema: RecordExperimentEvidenceInputSchema,
-      outputSchema: ExperimentEvidenceSchema,
-      annotations: guardedWriteAnnotations,
-    },
-    async ({ instanceId, ...rawParams }, { signal }) => {
-      try {
-        const descriptor = await resolveInstance(instanceId);
-        const params = RecordExperimentEvidenceParamsSchema.parse(rawParams);
-        const result = await requestBridgeResult(
-          descriptor,
-          BRIDGE_METHODS.recordExperimentEvidence,
-          params,
-          (value) => ExperimentEvidenceSchema.parse(value),
-          { signal, timeoutMilliseconds: INTERACTIVE_BRIDGE_TIMEOUT_MS },
-        );
-        return toolSuccess(
-          `Recorded client-reported ${result.kind} evidence with status ${result.status}.`,
-          result,
-        );
+        return toolSuccess(`Applied change set to ${result.documents.length} dirty VS Code buffer(s).`, result);
       } catch (error) {
         return toolError(asBridgeError(error));
       }
@@ -733,7 +508,7 @@ export function createBridgeMcpServer(usageInsights: UsageInsightStore, hooks?: 
     {
       title: "Save guarded VS Code document",
       description:
-        "Save one existing open file document after revalidating its version and SHA-256, then capture the final format-on-save result as an experiment checkpoint.",
+        "Save one existing open file document after revalidating its version and SHA-256, including any format-on-save changes.",
       inputSchema: SaveDocumentInputSchema,
       outputSchema: SaveDocumentResultSchema,
       annotations: guardedWriteAnnotations,
@@ -749,10 +524,7 @@ export function createBridgeMcpServer(usageInsights: UsageInsightStore, hooks?: 
           (value) => SaveDocumentResultSchema.parse(value),
           { signal, timeoutMilliseconds: INTERACTIVE_BRIDGE_TIMEOUT_MS },
         );
-        return toolSuccess(
-          `Saved ${result.uri} and created checkpoint ${result.checkpointId}.`,
-          result,
-        );
+        return toolSuccess(`Saved ${result.uri}.`, result);
       } catch (error) {
         return toolError(asBridgeError(error));
       }
@@ -827,7 +599,7 @@ export function createBridgeMcpServer(usageInsights: UsageInsightStore, hooks?: 
     {
       title: "Apply guarded VS Code Code Action",
       description:
-        "Consume one Code Action containing only text edits, revalidate every document, apply it atomically, leave buffers unsaved, and create an experiment checkpoint.",
+        "Consume one Code Action containing only text edits, revalidate every document, apply it atomically, and leave buffers unsaved.",
       inputSchema: ApplyCodeActionInputSchema,
       outputSchema: ApplyCodeActionResultSchema,
       annotations: guardedWriteAnnotations,
@@ -843,10 +615,7 @@ export function createBridgeMcpServer(usageInsights: UsageInsightStore, hooks?: 
           (value) => ApplyCodeActionResultSchema.parse(value),
           { signal, timeoutMilliseconds: INTERACTIVE_BRIDGE_TIMEOUT_MS },
         );
-        return toolSuccess(
-          `Applied Code Action to ${result.documents.length} dirty buffer(s) and created checkpoint ${result.checkpointId}.`,
-          result,
-        );
+        return toolSuccess(`Applied Code Action to ${result.documents.length} dirty buffer(s).`, result);
       } catch (error) {
         return toolError(asBridgeError(error));
       }
@@ -1006,13 +775,13 @@ export function createBridgeMcpServer(usageInsights: UsageInsightStore, hooks?: 
     paramsSchema: WorkflowProtocol.PersistTaskParamsSchema,
     outputSchema: WorkflowProtocol.PersistTaskResultSchema,
     annotations: annotationsFor("vscode_persist_task"),
-    summarize: (result) => `Persisted Task ${result.task.label} and created checkpoint ${result.checkpointId}.`,
+    summarize: (result) => `Persisted Task ${result.task.label}.`,
   });
 
   registerRoutedWorkflowTool({
     name: "vscode_run_task",
     title: "Run fingerprinted VS Code task",
-    description: "Run a previously listed workspace task after revalidating its fingerprint and active experiment. The task may have external side effects.",
+    description: "Run a previously listed workspace task after revalidating its root and fingerprint. The task may have external side effects.",
     method: BRIDGE_METHODS.runTask,
     inputSchema: WorkflowProtocol.RunTaskInputSchema,
     paramsSchema: WorkflowProtocol.RunTaskParamsSchema,
@@ -1078,13 +847,13 @@ export function createBridgeMcpServer(usageInsights: UsageInsightStore, hooks?: 
     paramsSchema: WorkflowProtocol.PersistDebugConfigurationParamsSchema,
     outputSchema: WorkflowProtocol.PersistDebugConfigurationResultSchema,
     annotations: annotationsFor("vscode_persist_debug_configuration"),
-    summarize: (result) => `Persisted Debug configuration ${result.configuration.name} and created checkpoint ${result.checkpointId}.`,
+    summarize: (result) => `Persisted Debug configuration ${result.configuration.name}.`,
   });
 
   registerRoutedWorkflowTool({
     name: "vscode_start_debug_session",
     title: "Start fingerprinted VS Code debug session",
-    description: "Start a fingerprinted existing or prepared adapter configuration under an active experiment. Debug targets may have unrecoverable external side effects.",
+    description: "Start a fingerprinted existing or prepared adapter configuration for an explicit workspace root. Debug targets may have external side effects.",
     method: BRIDGE_METHODS.startDebugSession,
     inputSchema: WorkflowProtocol.StartDebugSessionInputSchema,
     paramsSchema: WorkflowProtocol.StartDebugSessionParamsSchema,

@@ -80,6 +80,7 @@ describe("bridge registry", () => {
       workspaceFolders: descriptor.workspaceFolders,
       transportKind: descriptor.transport.kind,
       compatibility: "incompatible",
+      releaseAlignment: "older",
     })).not.toThrow();
     expect(() => PublicInstanceSchema.parse({ ...descriptor, compatibility: "incompatible" })).toThrow();
   });

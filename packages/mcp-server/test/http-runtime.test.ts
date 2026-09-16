@@ -68,7 +68,7 @@ function slowFactory(pending: Array<{ signal: AbortSignal; finish: () => void }>
 }
 
 describe("HTTP MCP runtime", () => {
-  test("shares one process across clients while preserving all 64 tool contracts without VS Code", async () => {
+  test("shares one process across clients while preserving all 57 tool contracts without VS Code", async () => {
     start();
     const first = await connect(), second = await connect();
     const tools = await first.client.listTools();
@@ -83,7 +83,7 @@ describe("HTTP MCP runtime", () => {
     expect(first.transport.sessionId).not.toBe(second.transport.sessionId);
     await first.transport.terminateSession();
     expect(runtime.status.sessions).toBe(1);
-    expect((await second.client.listTools()).tools).toHaveLength(64);
+    expect((await second.client.listTools()).tools).toHaveLength(57);
     await first.client.close();
   });
 
@@ -108,7 +108,11 @@ describe("HTTP MCP runtime", () => {
     start({ now: () => now, limits: { sessions: 1, sessionIdleMs: 100 }, createSession: slowFactory(pending) });
     const first = await connect();
     const denied = await fetch(runtime.url, { method: "POST", headers, body: JSON.stringify({ jsonrpc: "2.0", id: 9, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "denied", version: "1" } } }) });
-    expect(denied.status).toBe(429);
+    expect(denied.status).toBe(200);
+    expect(await denied.json()).toMatchObject({
+      id: 9,
+      error: { code: -32002, data: { bridgeCode: "SERVER_CAPACITY_REACHED", scope: "sessions", limit: 1, retryable: true } },
+    });
     const call = first.client.callTool({ name: "slow", arguments: {} });
     await eventually(() => pending.length === 1);
     now += 1000;
@@ -132,7 +136,11 @@ describe("HTTP MCP runtime", () => {
     const surviving = second.client.callTool({ name: "slow", arguments: {} });
     await eventually(() => pending.length === 2);
     const denied = await fetch(runtime.url, { method: "POST", headers: { ...headers, "Mcp-Session-Id": first.transport.sessionId! }, body: JSON.stringify({ jsonrpc: "2.0", id: 900, method: "tools/list" }) });
-    expect(denied.status).toBe(429);
+    expect(denied.status).toBe(200);
+    expect(await denied.json()).toMatchObject({
+      id: 900,
+      error: { code: -32002, data: { bridgeCode: "SERVER_CAPACITY_REACHED", scope: "session", limit: 1, retryable: true } },
+    });
     controller.abort();
     await cancelled;
     await eventually(() => pending[0]!.signal.aborted);
@@ -143,6 +151,46 @@ describe("HTTP MCP runtime", () => {
     pending[1]!.finish();
     expect((await surviving).content).toEqual([{ type: "text", text: "done" }]);
     await eventually(() => runtime.status.activeRequests === 0);
+  });
+
+  test("returns correlated capacity errors to real SDK clients and leaves admitted work usable", async () => {
+    const pending: Array<{ signal: AbortSignal; finish: () => void }> = [];
+    start({ limits: { requestsPerSession: 8, requestsGlobal: 64 }, createSession: slowFactory(pending) });
+    const first = await connect();
+    const admitted = Array.from({ length: 8 }, () => first.client.callTool({ name: "slow", arguments: {} }));
+    await eventually(() => pending.length === 8);
+    const rejected = Promise.race([
+      first.client.callTool({ name: "slow", arguments: {} }),
+      Bun.sleep(1_000).then(() => { throw new Error("Capacity rejection timed out."); }),
+    ]);
+    await expect(rejected).rejects.toMatchObject({
+      code: -32002,
+      data: { bridgeCode: "SERVER_CAPACITY_REACHED", scope: "session", limit: 8, retryable: true },
+    });
+    for (const request of pending.slice(0, 8)) request.finish();
+    expect(await Promise.all(admitted)).toHaveLength(8);
+    const recovery = first.client.callTool({ name: "slow", arguments: {} });
+    await eventually(() => pending.length === 9);
+    pending[8]!.finish();
+    expect((await recovery).content).toEqual([{ type: "text", text: "done" }]);
+  });
+
+  test("isolates global capacity across SDK clients", async () => {
+    const pending: Array<{ signal: AbortSignal; finish: () => void }> = [];
+    start({ limits: { requestsPerSession: 8, requestsGlobal: 2 }, createSession: slowFactory(pending) });
+    const first = await connect(), second = await connect();
+    const left = first.client.callTool({ name: "slow", arguments: {} });
+    const right = second.client.callTool({ name: "slow", arguments: {} });
+    await eventually(() => pending.length === 2);
+    await expect(first.client.callTool({ name: "slow", arguments: {} })).rejects.toMatchObject({
+      code: -32002,
+      data: { bridgeCode: "SERVER_CAPACITY_REACHED", scope: "global", limit: 2, retryable: true },
+    });
+    pending[0]!.finish();
+    pending[1]!.finish();
+    await Promise.all([left, right]);
+    expect((await first.client.listTools()).tools).toHaveLength(1);
+    expect((await second.client.listTools()).tools).toHaveLength(1);
   });
 
   test("an HTTP disconnect alone does not cancel the operation", async () => {
@@ -188,7 +236,11 @@ describe("HTTP MCP runtime", () => {
     const work = first.client.callTool({ name: "slow", arguments: {} }).catch(() => null);
     await eventually(() => pending.length === 1);
     const denied = await fetch(runtime.url, { method: "POST", headers: { ...headers, "Mcp-Session-Id": second.transport.sessionId! }, body: JSON.stringify({ jsonrpc: "2.0", id: 111, method: "tools/list" }) });
-    expect(denied.status).toBe(429);
+    expect(denied.status).toBe(200);
+    expect(await denied.json()).toMatchObject({
+      id: 111,
+      error: { code: -32002, data: { bridgeCode: "SERVER_CAPACITY_REACHED", scope: "global", limit: 1, retryable: true } },
+    });
     pending[0]!.signal.addEventListener("abort", pending[0]!.finish, { once: true });
     const stopped = runtime.stop();
     expect(runtime.status.state).toBe("stopping");

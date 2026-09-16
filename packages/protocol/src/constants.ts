@@ -1,6 +1,6 @@
 export const BRIDGE_NAME = "vscode-agent-bridge" as const;
-export const BRIDGE_RELEASE_VERSION = "0.13.0" as const;
-export const BRIDGE_PROTOCOL_VERSION = 11 as const;
+export const BRIDGE_RELEASE_VERSION = "0.14.0" as const;
+export const BRIDGE_PROTOCOL_VERSION = 12 as const;
 export const DEFAULT_BRIDGE_TIMEOUT_MS = 5_000;
 export const INTERACTIVE_BRIDGE_TIMEOUT_MS = 90_000;
 export const MAX_RPC_MESSAGE_BYTES = 1_048_576;
@@ -16,10 +16,7 @@ export const MAX_CHANGE_SET_EDITS = 1_000;
 export const MAX_CHANGE_SET_REPLACEMENT_CHARACTERS = 500_000;
 export const DEFAULT_CHECKPOINT_LIMIT = 50;
 export const MAX_CHECKPOINT_LIMIT = 200;
-export const MAX_EXPERIMENT_TITLE_CHARACTERS = 120;
-export const MAX_AGENT_EXPERIMENT_TITLE_CHARACTERS = 80;
-export const MAX_EXPERIMENT_RATIONALE_CHARACTERS = 2_000;
-export const MAX_EXPERIMENT_EVIDENCE_CHARACTERS = 2_000;
+export const MAX_OPERATION_REASON_CHARACTERS = 2_000;
 export const CODE_ACTION_TTL_MS = 10 * 60 * 1_000;
 export const DEFAULT_TERMINAL_EXECUTION_LIMIT = 50;
 export const MAX_TERMINAL_EXECUTION_LIMIT = 200;
@@ -59,17 +56,10 @@ export const BRIDGE_METHODS = {
   getDefinitions: "languages/getDefinitions",
   getReferences: "languages/getReferences",
   getHover: "languages/getHover",
-  getExperiment: "experiment/get",
-  listExperiments: "experiment/list",
-  startExperiment: "experiment/start",
-  renameExperiment: "experiment/rename",
-  createExperimentCheckpoint: "experiment/createCheckpoint",
-  listExperimentCheckpoints: "experiment/listCheckpoints",
-  prepareTextEdits: "experiment/prepareTextEdits",
-  prepareRename: "experiment/prepareRename",
-  prepareResourceChanges: "experiment/prepareResourceChanges",
-  applyChangeSet: "experiment/applyChangeSet",
-  recordExperimentEvidence: "experiment/recordEvidence",
+  prepareTextEdits: "changes/prepareTextEdits",
+  prepareRename: "changes/prepareRename",
+  prepareResourceChanges: "changes/prepareResourceChanges",
+  applyChangeSet: "changes/applyChangeSet",
   saveDocument: "document/save",
   formatDocument: "languages/formatDocument",
   listCodeActions: "languages/listCodeActions",
@@ -123,17 +113,10 @@ export const BRIDGE_CAPABILITIES = [
   "languages.getDefinitions",
   "languages.getReferences",
   "languages.getHover",
-  "experiment.get",
-  "experiment.list",
-  "experiment.start",
-  "experiment.rename",
-  "experiment.createCheckpoint",
-  "experiment.listCheckpoints",
-  "experiment.prepareTextEdits",
-  "experiment.prepareRename",
-  "experiment.prepareResourceChanges",
-  "experiment.applyChangeSet",
-  "experiment.recordEvidence",
+  "changes.prepareTextEdits",
+  "changes.prepareRename",
+  "changes.prepareResourceChanges",
+  "changes.applyChangeSet",
   "document.save",
   "languages.formatDocument",
   "languages.listCodeActions",
@@ -182,6 +165,7 @@ export const BRIDGE_ERROR_CODES = [
   "INSTANCE_UNAVAILABLE",
   "BRIDGE_INITIALIZING",
   "BRIDGE_DEGRADED",
+  "SERVER_CAPACITY_REACHED",
   "REQUEST_CANCELLED",
   "WORKSPACE_UNTRUSTED",
   "STALE_DOCUMENT_VERSION",
@@ -196,10 +180,6 @@ export const BRIDGE_ERROR_CODES = [
   "DOCUMENT_ACCESS_DENIED",
   "DOCUMENT_ACCESS_GRANT_EXPIRED",
   "POSITION_OUT_OF_RANGE",
-  "NO_ACTIVE_EXPERIMENT",
-  "EXPERIMENT_ALREADY_ACTIVE",
-  "EXPERIMENT_NOT_FOUND",
-  "EXPERIMENT_NOT_OWNED",
   "CHANGE_SET_NOT_FOUND",
   "CHANGE_SET_EXPIRED",
   "CHANGE_SET_ALREADY_APPLIED",
@@ -207,16 +187,6 @@ export const BRIDGE_ERROR_CODES = [
   "EDIT_OUT_OF_SCOPE",
   "EDIT_LIMIT_EXCEEDED",
   "UNSUPPORTED_DOCUMENT_SCHEME",
-  "SESSION_STORAGE_LIMIT",
-  "SESSION_COVERAGE_INCOMPLETE",
-  "GIT_UNAVAILABLE",
-  "GIT_STATE_UNSUPPORTED",
-  "WORKTREE_NOT_FOUND",
-  "WORKTREE_NOT_CLEAN",
-  "TARGET_MOVED",
-  "SYNC_CONFLICTED",
-  "ACCEPTED_COMMIT_REQUIRED",
-  "PROMOTION_RECOVERY_REQUIRED",
   "POLICY_DENIED",
   "SAVE_FAILED",
   "FORMAT_PROVIDER_UNAVAILABLE",
@@ -227,11 +197,8 @@ export const BRIDGE_ERROR_CODES = [
   "TERMINAL_NOT_FOUND",
   "TERMINAL_EXECUTION_NOT_FOUND",
   "TERMINAL_OUTPUT_UNAVAILABLE",
-  "WORKSPACE_ONBOARDING_REQUIRED",
-  "WORKSPACE_ONBOARDING_DECLINED",
   "WORKSPACE_CONFIGURATION_INVALID",
   "BRIDGE_DISABLED",
-  "EXPERIMENT_UPGRADE_REQUIRED",
   "RESOURCE_NOT_FOUND",
   "RESOURCE_ALREADY_EXISTS",
   "RESOURCE_OUT_OF_SCOPE",
@@ -259,8 +226,6 @@ export const BRIDGE_ERROR_CODES = [
   "DEBUG_REQUEST_FAILED",
   "DEBUG_STATE_STALE",
   "BREAKPOINT_OUT_OF_SCOPE",
-  "EXPERIMENT_STATE_CHANGED",
-  "EDITOR_REVEAL_FAILED",
   "EXTENSION_NOT_FOUND",
   "OUTPUT_SOURCE_NOT_FOUND",
   "OUTPUT_NOT_VISIBLE",

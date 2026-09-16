@@ -3,14 +3,12 @@ import { z } from "zod";
 import {
   CODE_ACTION_TTL_MS,
   DEFAULT_RESULT_LIMIT,
-  MAX_EXPERIMENT_RATIONALE_CHARACTERS,
+  MAX_OPERATION_REASON_CHARACTERS,
   MAX_RESULT_LIMIT,
 } from "./constants.js";
 import {
-  CheckpointIdSchema,
   ContentSha256Schema,
-  ExperimentIdSchema,
-} from "./experiments.js";
+} from "./changes.js";
 import { DiagnosticItemSchema, RangeSchema } from "./schemas.js";
 
 export const AutonomyProfileSchema = z.enum(["autonomous", "review", "readOnly"]);
@@ -18,58 +16,57 @@ export const TerminalReadPolicySchema = z.enum(["allow", "metadataOnly", "deny"]
 
 const InstanceIdSchema = z.uuid();
 const UriSchema = z.string().min(1);
-const ReasonSchema = z.string().min(1).max(MAX_EXPERIMENT_RATIONALE_CHARACTERS);
+const ReasonSchema = z.string().min(1).max(MAX_OPERATION_REASON_CHARACTERS);
 const ExpectedDocumentSchema = z
   .object({
-    sessionId: ExperimentIdSchema,
     uri: UriSchema,
     expectedVersion: z.number().int().nonnegative(),
     expectedSha256: ContentSha256Schema,
-    reason: ReasonSchema,
+    reason: ReasonSchema.optional(),
   })
   .strict();
 
-export const SaveDocumentParamsSchema = ExpectedDocumentSchema;
+export const SaveDocumentParamsSchema = ExpectedDocumentSchema.safeExtend({
+  rootUri: UriSchema,
+});
 export const SaveDocumentInputSchema = SaveDocumentParamsSchema.extend({
   instanceId: InstanceIdSchema,
 }).strict();
 export const SaveDocumentResultSchema = z
   .object({
     instanceId: InstanceIdSchema,
-    sessionId: ExperimentIdSchema,
     uri: UriSchema,
     saved: z.literal(true),
     documentVersion: z.number().int().nonnegative(),
     contentSha256: ContentSha256Schema,
     isDirty: z.boolean(),
-    checkpointId: CheckpointIdSchema,
     savedAt: z.string().min(1),
     saveEffectsChangedContent: z.boolean(),
   })
   .strict();
 
-export const FormatDocumentParamsSchema = ExpectedDocumentSchema;
+export const FormatDocumentParamsSchema = ExpectedDocumentSchema.safeExtend({
+  rootUri: UriSchema,
+});
 export const FormatDocumentInputSchema = FormatDocumentParamsSchema.extend({
   instanceId: InstanceIdSchema,
 }).strict();
 export const FormatDocumentResultSchema = z
   .object({
     instanceId: InstanceIdSchema,
-    sessionId: ExperimentIdSchema,
     uri: UriSchema,
     applied: z.boolean(),
     documentVersion: z.number().int().nonnegative(),
     contentSha256: ContentSha256Schema,
     isDirty: z.boolean(),
     editCount: z.number().int().nonnegative(),
-    checkpointId: CheckpointIdSchema.nullable(),
   })
   .strict();
 
 export const CodeActionIdSchema = z.uuid();
 export const ListCodeActionsParamsSchema = z
   .object({
-    sessionId: ExperimentIdSchema,
+    rootUri: UriSchema,
     uri: UriSchema,
     range: RangeSchema,
     expectedVersion: z.number().int().nonnegative(),
@@ -95,7 +92,6 @@ export const CodeActionSummarySchema = z
 export const ListCodeActionsResultSchema = z
   .object({
     instanceId: InstanceIdSchema,
-    sessionId: ExperimentIdSchema,
     uri: UriSchema,
     actions: z.array(CodeActionSummarySchema),
     returnedCount: z.number().int().nonnegative(),
@@ -107,9 +103,8 @@ export const ListCodeActionsResultSchema = z
 
 export const ApplyCodeActionParamsSchema = z
   .object({
-    sessionId: ExperimentIdSchema,
     actionId: CodeActionIdSchema,
-    reason: ReasonSchema,
+    reason: ReasonSchema.optional(),
   })
   .strict();
 export const ApplyCodeActionInputSchema = ApplyCodeActionParamsSchema.extend({
@@ -118,9 +113,7 @@ export const ApplyCodeActionInputSchema = ApplyCodeActionParamsSchema.extend({
 export const ApplyCodeActionResultSchema = z
   .object({
     instanceId: InstanceIdSchema,
-    sessionId: ExperimentIdSchema,
     actionId: CodeActionIdSchema,
-    checkpointId: CheckpointIdSchema,
     appliedAt: z.string().min(1),
     documents: z.array(
       z

@@ -10,17 +10,11 @@ import {
 
 import { AgentActivityTracker } from "./agent-activity.js";
 import { ExtensionMarketplaceManager } from "./extension-marketplace-manager.js";
-import { ExperimentManager } from "./experiment-manager.js";
-import {
-  ensureSessionWorkspaceEnabled,
-  type BridgeRequestHandler,
-} from "./request-handlers.js";
-import { WorkspaceOnboardingService, assertRequestActive } from "./workspace-onboarding.js";
+import { type BridgeRequestHandler } from "./request-handlers.js";
+import { assertRequestActive } from "./workspace-setup.js";
 
 export function createExtensionMarketplaceRequestHandlers(
   marketplace: ExtensionMarketplaceManager,
-  experiments: ExperimentManager,
-  onboarding: WorkspaceOnboardingService,
   activity: AgentActivityTracker,
 ): ReadonlyMap<string, BridgeRequestHandler> {
   return new Map<string, BridgeRequestHandler>([
@@ -34,19 +28,8 @@ export function createExtensionMarketplaceRequestHandlers(
       BRIDGE_METHODS.prepareExtensionInstall,
       async (params, context) => {
         const parsed = PrepareExtensionInstallParamsSchema.parse(params);
-        return activity.track(
-          {
-            toolName: "vscode_prepare_extension_install",
-            title: "Prepare extension installation",
-            reason: parsed.reason,
-          },
-          async () => {
-            await ensureSessionWorkspaceEnabled(experiments, onboarding, parsed.sessionId, context.signal);
-            assertRequestActive(context.signal);
-            return PreparedExtensionInstallSchema.parse(await marketplace.prepare(parsed));
-          },
-          () => ({ status: "succeeded" }),
-        );
+        assertRequestActive(context.signal);
+        return PreparedExtensionInstallSchema.parse(await marketplace.prepare(parsed));
       },
     ],
     [
@@ -59,10 +42,7 @@ export function createExtensionMarketplaceRequestHandlers(
             title: "Apply extension installation",
           },
           async () => {
-            const experiment = await experiments.assertResourceChangesAllowed(parsed.sessionId);
-            await ensureSessionWorkspaceEnabled(experiments, onboarding, parsed.sessionId, context.signal);
             assertRequestActive(context.signal);
-            if (!experiment.rootUri) throw new Error("The experiment root is unavailable.");
             return ApplyExtensionInstallResultSchema.parse(await marketplace.apply(parsed));
           },
           (result) => ({

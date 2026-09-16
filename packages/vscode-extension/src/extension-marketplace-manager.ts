@@ -11,7 +11,7 @@ import {
   type SearchExtensionsResult,
 } from "@vscode-agent-bridge/protocol";
 
-import { ExperimentManager } from "./experiment-manager.js";
+import { assertAgentWriteAllowed } from "./policies.js";
 import {
   ExtensionMarketplaceService,
   type InstalledExtensionState,
@@ -23,11 +23,9 @@ const NATIVE_INSTALL_COMMAND = "workbench.extensions.installExtension";
 const NATIVE_DETAILS_COMMAND = "workbench.extensions.action.showExtensionsWithIds";
 
 export class ExtensionMarketplaceManager {
-  readonly #experiments: ExperimentManager;
   readonly #service: ExtensionMarketplaceService;
 
-  constructor(instanceId: string, experiments: ExperimentManager) {
-    this.#experiments = experiments;
+  constructor(instanceId: string) {
     this.#service = new ExtensionMarketplaceService({
       instanceId,
       client: new MarketplaceClient({
@@ -48,18 +46,14 @@ export class ExtensionMarketplaceManager {
   }
 
   async prepare(params: PrepareExtensionInstallParams): Promise<PreparedExtensionInstall> {
-    const experiment = await this.#experiments.assertResourceChangesAllowed(params.sessionId);
-    if (experiment.rootUri !== params.rootUri) {
-      throw new BridgeError("EXPERIMENT_NOT_OWNED", "The extension install plan is outside the active experiment root.");
-    }
+    assertAgentWriteAllowed();
     resolveRoot(params.rootUri);
-    return this.#service.prepare(params.sessionId, params.rootUri, params.candidateId);
+    return this.#service.prepare(params.rootUri, params.candidateId);
   }
 
   async apply(params: ApplyExtensionInstallParams): Promise<ApplyExtensionInstallResult> {
-    const experiment = await this.#experiments.assertResourceChangesAllowed(params.sessionId);
-    resolveRoot(experiment.rootUri);
-    return this.#service.apply(params.sessionId, experiment.rootUri, params.planId);
+    assertAgentWriteAllowed();
+    return this.#service.apply(params.planId);
   }
 }
 

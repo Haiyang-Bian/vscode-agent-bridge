@@ -6,7 +6,7 @@ import {
   MAX_CONFIGURATION_OPERATIONS,
   MAX_DEBUG_STACK_FRAMES,
   MAX_DEBUG_VARIABLES,
-  MAX_EXPERIMENT_RATIONALE_CHARACTERS,
+  MAX_OPERATION_REASON_CHARACTERS,
   MAX_PREPARED_DEBUG_CONFIGURATION_BYTES,
   MAX_PREPARED_TASK_BYTES,
   MAX_TASK_ARGUMENTS,
@@ -16,15 +16,13 @@ import {
 } from "./constants.js";
 import {
   ContentSha256Schema,
-  ExperimentIdSchema,
-} from "./experiments.js";
+} from "./changes.js";
 
 const InstanceIdSchema = z.uuid();
 const UriSchema = z.string().min(1);
-const ReasonSchema = z.string().trim().min(1).max(MAX_EXPERIMENT_RATIONALE_CHARACTERS);
+const ReasonSchema = z.string().trim().min(1).max(MAX_OPERATION_REASON_CHARACTERS);
 const NullableHashSchema = ContentSha256Schema.nullable();
 
-export const BridgeExecutionModeSchema = z.literal("explicit");
 export const WorkspaceConfigurationTargetSchema = z.enum([
   "settings",
   "launch",
@@ -71,13 +69,12 @@ export const WorkspaceConfigurationResultSchema = z
 
 export const UpdateWorkspaceConfigurationParamsSchema = z
   .object({
-    sessionId: ExperimentIdSchema,
     rootUri: UriSchema,
     target: UpdateWorkspaceConfigurationTargetSchema,
     expectedExists: z.boolean(),
     expectedSha256: NullableHashSchema,
     operations: z.array(ConfigurationOperationSchema).min(1).max(MAX_CONFIGURATION_OPERATIONS),
-    reason: ReasonSchema,
+    reason: ReasonSchema.optional(),
   })
   .strict()
   .superRefine((value, context) => {
@@ -94,14 +91,12 @@ export const UpdateWorkspaceConfigurationInputSchema =
 export const UpdateWorkspaceConfigurationResultSchema = z
   .object({
     instanceId: InstanceIdSchema,
-    sessionId: ExperimentIdSchema,
     rootUri: UriSchema,
     target: UpdateWorkspaceConfigurationTargetSchema,
     uri: UriSchema,
     created: z.boolean(),
     saved: z.literal(true),
     contentSha256: ContentSha256Schema,
-    checkpointId: z.uuid(),
     deferredEffects: z.boolean(),
     updatedAt: z.string().min(1),
   })
@@ -173,7 +168,6 @@ export const TaskSummarySchema = z
 export const ListTasksParamsSchema = z
   .object({
     rootUri: UriSchema,
-    sessionId: ExperimentIdSchema.optional(),
     type: z.string().min(1).max(200).optional(),
     group: z.enum(["build", "test", "clean", "rebuild"]).optional(),
     offset: z.number().int().nonnegative().default(0),
@@ -215,12 +209,10 @@ export const TaskExecutionSchema = z
     origin: WorkflowOriginSchema,
     definitionFingerprint: ContentSha256Schema,
     activityOperationId: z.uuid(),
-    checkpointId: z.uuid().nullable(),
   })
   .strict();
 export const PrepareTaskParamsSchema = z
   .object({
-    sessionId: ExperimentIdSchema,
     rootUri: UriSchema,
     label: z.string().trim().min(1).max(1_000),
     execution: PreparedTaskExecutionSchema,
@@ -228,7 +220,7 @@ export const PrepareTaskParamsSchema = z
     isBackground: z.boolean().default(false),
     problemMatchers: z.array(z.string().min(1).max(500)).max(MAX_TASK_PROBLEM_MATCHERS).default([]),
     detail: z.string().max(1_000).nullable().default(null),
-    reason: ReasonSchema,
+    reason: ReasonSchema.optional(),
   })
   .strict()
   .superRefine((value, context) => {
@@ -240,23 +232,20 @@ export const PrepareTaskInputSchema = PrepareTaskParamsSchema.safeExtend({ insta
 export const PrepareTaskResultSchema = z
   .object({
     instanceId: InstanceIdSchema,
-    sessionId: ExperimentIdSchema,
     preparedTaskId: PreparedTaskIdSchema,
     task: TaskSummarySchema,
     execution: TaskExecutionPreviewSchema,
     definitionFingerprint: ContentSha256Schema,
-    activityOperationId: z.uuid(),
     expiresAt: z.string().min(1),
   })
   .strict();
 export const PersistTaskParamsSchema = z
   .object({
-    sessionId: ExperimentIdSchema,
     rootUri: UriSchema,
     preparedTaskId: PreparedTaskIdSchema,
     expectedExists: z.boolean(),
     expectedSha256: NullableHashSchema,
-    reason: ReasonSchema,
+    reason: ReasonSchema.optional(),
   })
   .strict()
   .superRefine(assertExistsHashPair);
@@ -264,28 +253,25 @@ export const PersistTaskInputSchema = PersistTaskParamsSchema.safeExtend({ insta
 export const PersistTaskResultSchema = z
   .object({
     instanceId: InstanceIdSchema,
-    sessionId: ExperimentIdSchema,
     preparedTaskId: PreparedTaskIdSchema,
     task: TaskSummarySchema,
     uri: UriSchema,
     created: z.boolean(),
     contentSha256: ContentSha256Schema,
-    checkpointId: z.uuid(),
     persistedAt: z.string().min(1),
   })
   .strict();
 export const RunTaskParamsSchema = z
   .object({
-    sessionId: ExperimentIdSchema,
     rootUri: UriSchema,
     taskId: TaskIdSchema,
     expectedFingerprint: ContentSha256Schema,
-    reason: ReasonSchema,
+    reason: ReasonSchema.optional(),
   })
   .strict();
 export const RunTaskInputSchema = RunTaskParamsSchema.extend({ instanceId: InstanceIdSchema }).strict();
 export const RunTaskResultSchema = z
-  .object({ instanceId: InstanceIdSchema, sessionId: ExperimentIdSchema, execution: TaskExecutionSchema })
+  .object({ instanceId: InstanceIdSchema, execution: TaskExecutionSchema })
   .strict();
 export const ListTaskExecutionsParamsSchema = z
   .object({
@@ -308,12 +294,12 @@ export const ListTaskExecutionsResultSchema = z
   })
   .strict();
 export const TerminateTaskParamsSchema = z
-  .object({ sessionId: ExperimentIdSchema, executionId: TaskExecutionIdSchema, reason: ReasonSchema })
+  .object({ executionId: TaskExecutionIdSchema, reason: ReasonSchema.optional() })
   .strict();
 export const TerminateTaskInputSchema =
   TerminateTaskParamsSchema.extend({ instanceId: InstanceIdSchema }).strict();
 export const TerminateTaskResultSchema = z
-  .object({ instanceId: InstanceIdSchema, sessionId: ExperimentIdSchema, execution: TaskExecutionSchema })
+  .object({ instanceId: InstanceIdSchema, execution: TaskExecutionSchema })
   .strict();
 
 export const DebugSessionIdSchema = z.string().min(1).max(500);
@@ -331,7 +317,7 @@ export const DebugConfigurationSummarySchema = z
   })
   .strict();
 export const ListDebugConfigurationsParamsSchema = z
-  .object({ rootUri: UriSchema, sessionId: ExperimentIdSchema.optional() })
+  .object({ rootUri: UriSchema })
   .strict();
 export const ListDebugConfigurationsInputSchema =
   ListDebugConfigurationsParamsSchema.extend({ instanceId: InstanceIdSchema }).strict();
@@ -359,7 +345,6 @@ export const DebugSessionSummarySchema = z
     origin: WorkflowOriginSchema,
     definitionFingerprint: ContentSha256Schema,
     activityOperationId: z.uuid(),
-    checkpointId: z.uuid().nullable(),
   })
   .strict();
 export const DebugTaskBindingSchema = z
@@ -367,12 +352,11 @@ export const DebugTaskBindingSchema = z
   .strict();
 export const PrepareDebugConfigurationParamsSchema = z
   .object({
-    sessionId: ExperimentIdSchema,
     rootUri: UriSchema,
     configuration: z.record(z.string(), z.unknown()),
     preLaunchTask: DebugTaskBindingSchema.optional(),
     postDebugTask: DebugTaskBindingSchema.optional(),
-    reason: ReasonSchema,
+    reason: ReasonSchema.optional(),
   })
   .strict()
   .superRefine((value, context) => {
@@ -413,22 +397,19 @@ export const DebugExecutionPreviewSchema = z
 export const PrepareDebugConfigurationResultSchema = z
   .object({
     instanceId: InstanceIdSchema,
-    sessionId: ExperimentIdSchema,
     preparedConfigurationId: PreparedDebugConfigurationIdSchema,
     configuration: DebugConfigurationSummarySchema,
     execution: DebugExecutionPreviewSchema,
-    activityOperationId: z.uuid(),
     expiresAt: z.string().min(1),
   })
   .strict();
 export const PersistDebugConfigurationParamsSchema = z
   .object({
-    sessionId: ExperimentIdSchema,
     rootUri: UriSchema,
     preparedConfigurationId: PreparedDebugConfigurationIdSchema,
     expectedExists: z.boolean(),
     expectedSha256: NullableHashSchema,
-    reason: ReasonSchema,
+    reason: ReasonSchema.optional(),
   })
   .strict()
   .superRefine(assertExistsHashPair);
@@ -437,23 +418,20 @@ export const PersistDebugConfigurationInputSchema =
 export const PersistDebugConfigurationResultSchema = z
   .object({
     instanceId: InstanceIdSchema,
-    sessionId: ExperimentIdSchema,
     preparedConfigurationId: PreparedDebugConfigurationIdSchema,
     configuration: DebugConfigurationSummarySchema,
     uri: UriSchema,
     created: z.boolean(),
     contentSha256: ContentSha256Schema,
-    checkpointId: z.uuid(),
     persistedAt: z.string().min(1),
   })
   .strict();
 export const StartDebugSessionParamsSchema = z
   .object({
-    sessionId: ExperimentIdSchema,
     rootUri: UriSchema,
     configurationId: DebugConfigurationIdSchema,
     expectedFingerprint: ContentSha256Schema,
-    reason: ReasonSchema,
+    reason: ReasonSchema.optional(),
   })
   .strict();
 export const StartDebugSessionInputSchema =
@@ -461,7 +439,6 @@ export const StartDebugSessionInputSchema =
 export const StartDebugSessionResultSchema = z
   .object({
     instanceId: InstanceIdSchema,
-    sessionId: ExperimentIdSchema,
     started: z.literal(true),
     debugSession: DebugSessionSummarySchema.nullable(),
   })
@@ -539,12 +516,11 @@ export const GetDebugStateResultSchema = z
 export const DebugControlActionSchema = z.enum(["pause", "continue", "next", "stepIn", "stepOut", "restart", "terminate"]);
 export const ControlDebugSessionParamsSchema = z
   .object({
-    sessionId: ExperimentIdSchema,
     debugSessionId: DebugSessionIdSchema,
     action: DebugControlActionSchema,
     threadId: z.number().int().nonnegative().optional(),
     singleThread: z.boolean().optional(),
-    reason: ReasonSchema,
+    reason: ReasonSchema.optional(),
   })
   .strict()
   .superRefine((value, context) => {
@@ -555,7 +531,7 @@ export const ControlDebugSessionParamsSchema = z
 export const ControlDebugSessionInputSchema =
   ControlDebugSessionParamsSchema.safeExtend({ instanceId: InstanceIdSchema });
 export const ControlDebugSessionResultSchema = z
-  .object({ instanceId: InstanceIdSchema, sessionId: ExperimentIdSchema, debugSessionId: DebugSessionIdSchema, action: DebugControlActionSchema, accepted: z.literal(true) })
+  .object({ instanceId: InstanceIdSchema, debugSessionId: DebugSessionIdSchema, action: DebugControlActionSchema, accepted: z.literal(true) })
   .strict();
 
 export const SourceBreakpointSpecSchema = z
@@ -591,26 +567,24 @@ export const ListBreakpointsResultSchema = z
   .strict();
 export const UpdateBreakpointsParamsSchema = z
   .object({
-    sessionId: ExperimentIdSchema,
     rootUri: UriSchema,
     expectedRevision: ContentSha256Schema,
     breakpoints: z.array(BreakpointSpecSchema).max(500),
-    reason: ReasonSchema,
+    reason: ReasonSchema.optional(),
   })
   .strict();
 export const UpdateBreakpointsInputSchema = UpdateBreakpointsParamsSchema.extend({ instanceId: InstanceIdSchema }).strict();
 export const UpdateBreakpointsResultSchema = z
-  .object({ instanceId: InstanceIdSchema, sessionId: ExperimentIdSchema, rootUri: UriSchema, revision: ContentSha256Schema, breakpoints: z.array(BreakpointSummarySchema).max(500) })
+  .object({ instanceId: InstanceIdSchema, rootUri: UriSchema, revision: ContentSha256Schema, breakpoints: z.array(BreakpointSummarySchema).max(500) })
   .strict();
 
 export const EvaluateDebugExpressionParamsSchema = z
   .object({
-    sessionId: ExperimentIdSchema,
     debugSessionId: DebugSessionIdSchema,
     frameId: z.number().int().nonnegative().optional(),
     context: z.enum(["repl", "watch", "hover"]),
     expression: z.string().min(1).max(100_000),
-    reason: ReasonSchema,
+    reason: ReasonSchema.optional(),
   })
   .strict();
 export const EvaluateDebugExpressionInputSchema =
@@ -618,7 +592,6 @@ export const EvaluateDebugExpressionInputSchema =
 export const EvaluateDebugExpressionResultSchema = z
   .object({
     instanceId: InstanceIdSchema,
-    sessionId: ExperimentIdSchema,
     debugSessionId: DebugSessionIdSchema,
     result: z.string(),
     type: z.string().nullable(),
@@ -629,12 +602,11 @@ export const EvaluateDebugExpressionResultSchema = z
   .strict();
 export const SetDebugVariableParamsSchema = z
   .object({
-    sessionId: ExperimentIdSchema,
     debugSessionId: DebugSessionIdSchema,
     variablesReference: z.number().int().nonnegative(),
     name: z.string().min(1).max(10_000),
     value: z.string().max(100_000),
-    reason: ReasonSchema,
+    reason: ReasonSchema.optional(),
   })
   .strict();
 export const SetDebugVariableInputSchema =
@@ -642,7 +614,6 @@ export const SetDebugVariableInputSchema =
 export const SetDebugVariableResultSchema = z
   .object({
     instanceId: InstanceIdSchema,
-    sessionId: ExperimentIdSchema,
     debugSessionId: DebugSessionIdSchema,
     value: z.string(),
     type: z.string().nullable(),
@@ -650,7 +621,6 @@ export const SetDebugVariableResultSchema = z
   })
   .strict();
 
-export type BridgeExecutionMode = z.infer<typeof BridgeExecutionModeSchema>;
 export type WorkspaceConfigurationTarget = z.infer<typeof WorkspaceConfigurationTargetSchema>;
 export type ConfigurationOperation = z.infer<typeof ConfigurationOperationSchema>;
 export type GetWorkspaceConfigurationParams = z.infer<typeof GetWorkspaceConfigurationParamsSchema>;

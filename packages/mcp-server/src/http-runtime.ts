@@ -116,9 +116,18 @@ export class HttpMcpRuntime {
     let session = sessionId ? this.#sessions.get(sessionId) : undefined;
     if (sessionId && (!session || session.closed)) return failure(404, "Session not found.");
     if (!session) {
-      if (!message || !InitializeRequestSchema.safeParse(message).success) return failure(400, "Initialize a session first.");
-      if (this.#sessions.size >= this.#limits.sessions || this.#active >= this.#limits.requestsGlobal) {
-        return failure(429, "Service capacity reached.");
+      const initialize = message ? InitializeRequestSchema.safeParse(message) : undefined;
+      if (
+        !initialize?.success ||
+        !message ||
+        !("id" in message) ||
+        (typeof message.id !== "string" && typeof message.id !== "number")
+      ) return failure(400, "Initialize a session first.");
+      if (this.#sessions.size >= this.#limits.sessions) {
+        return capacityFailure(message.id, "sessions", this.#limits.sessions);
+      }
+      if (this.#active >= this.#limits.requestsGlobal) {
+        return capacityFailure(message.id, "global", this.#limits.requestsGlobal);
       }
       session = await this.#createSession();
     }
@@ -129,8 +138,11 @@ export class HttpMcpRuntime {
     let work: RequestWork | undefined;
     if (message && "method" in message && "id" in message) {
       if (session.requests.has(message.id)) return failure(409, "Request ID is already active.");
-      if (session.active >= this.#limits.requestsPerSession || this.#active >= this.#limits.requestsGlobal) {
-        return failure(429, "Request capacity reached.");
+      if (session.active >= this.#limits.requestsPerSession) {
+        return capacityFailure(message.id, "session", this.#limits.requestsPerSession);
+      }
+      if (this.#active >= this.#limits.requestsGlobal) {
+        return capacityFailure(message.id, "global", this.#limits.requestsGlobal);
       }
       const owner = session;
       const id = message.id;
@@ -277,4 +289,25 @@ function failure(status: number, message: string): Response {
   return Response.json({ jsonrpc: "2.0", id: null, error: { code: -32000, message } }, {
     status, headers: { "Cache-Control": "no-store" },
   });
+}
+
+function capacityFailure(
+  id: RequestId,
+  scope: "sessions" | "session" | "global",
+  limit: number,
+): Response {
+  return Response.json({
+    jsonrpc: "2.0",
+    id,
+    error: {
+      code: -32002,
+      message: "Server capacity reached.",
+      data: {
+        bridgeCode: "SERVER_CAPACITY_REACHED",
+        scope,
+        limit,
+        retryable: true,
+      },
+    },
+  }, { status: 200, headers: { "Cache-Control": "no-store" } });
 }

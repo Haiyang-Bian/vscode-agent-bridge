@@ -24,8 +24,6 @@ import {
   toBridgeRange,
   validateRange,
 } from "./change-set-manager.js";
-import { ExperimentManager } from "./experiment-manager.js";
-import { AgentEditorVisibility } from "./agent-editor-visibility.js";
 import { toDiagnosticItem } from "./language-services.js";
 import { assertAgentWriteAllowed } from "./policies.js";
 import { validateConfigurationContentForUri } from "./workspace-configuration-manager.js";
@@ -38,7 +36,7 @@ interface CodeActionGuard {
 
 interface CodeActionHandle {
   readonly actionId: string;
-  readonly sessionId: string;
+  readonly rootUri: string;
   readonly title: string;
   readonly changeSetId: string | null;
   readonly unsupportedReason: string | null;
@@ -49,27 +47,17 @@ interface CodeActionHandle {
 
 export class IdeAutonomyManager {
   readonly #instanceId: string;
-  readonly #experiments: ExperimentManager;
   readonly #changeSets: ChangeSetManager;
-  readonly #visibility: AgentEditorVisibility;
   readonly #actions = new Map<string, CodeActionHandle>();
 
-  constructor(
-    instanceId: string,
-    experiments: ExperimentManager,
-    changeSets: ChangeSetManager,
-    visibility: AgentEditorVisibility,
-  ) {
+  constructor(instanceId: string, changeSets: ChangeSetManager) {
     this.#instanceId = instanceId;
-    this.#experiments = experiments;
     this.#changeSets = changeSets;
-    this.#visibility = visibility;
   }
 
   async saveDocument(params: SaveDocumentParams): Promise<SaveDocumentResult> {
     assertAgentWriteAllowed();
-    const experiment = await this.#assertSession(params.sessionId);
-    const uri = parseSupportedUri(params.uri, experiment.rootUri);
+    const uri = parseSupportedUri(params.uri, params.rootUri);
     if (uri.scheme !== "file") {
       throw new BridgeError(
         "UNSUPPORTED_DOCUMENT_SCHEME",
@@ -92,26 +80,19 @@ export class IdeAutonomyManager {
     }
     assertExpectedDocument(document, params.expectedSha256, params.expectedVersion);
     validateConfigurationContentForUri(uri, document.getText(), document.getText());
-    await this.#visibility.reveal(experiment.rootUri, [document.uri]);
     const beforeSha256 = sha256(document.getText());
-    const saved = await this.#experiments.saveGuardedDocument(
-      params.sessionId,
-      document,
-      params.reason,
-    );
-    if (!saved.saved || !saved.checkpointId) {
+    const saved = await document.save();
+    if (!saved) {
       throw new BridgeError("SAVE_FAILED", "VS Code could not save the guarded document.");
     }
     const contentSha256 = sha256(document.getText());
     return {
       instanceId: this.#instanceId,
-      sessionId: params.sessionId,
       uri: document.uri.toString(true),
       saved: true,
       documentVersion: document.version,
       contentSha256,
       isDirty: document.isDirty,
-      checkpointId: saved.checkpointId,
       savedAt: new Date().toISOString(),
       saveEffectsChangedContent: beforeSha256 !== contentSha256,
     };
@@ -119,8 +100,7 @@ export class IdeAutonomyManager {
 
   async formatDocument(params: FormatDocumentParams): Promise<FormatDocumentResult> {
     assertAgentWriteAllowed();
-    const experiment = await this.#assertSession(params.sessionId);
-    const uri = parseSupportedUri(params.uri, experiment.rootUri);
+    const uri = parseSupportedUri(params.uri, params.rootUri);
     const document = await resolveExistingDocument(uri);
     assertExpectedDocument(document, params.expectedSha256, params.expectedVersion);
     const editor = vscode.window.visibleTextEditors.find(
@@ -141,20 +121,16 @@ export class IdeAutonomyManager {
     if (edits.length === 0) {
       return {
         instanceId: this.#instanceId,
-        sessionId: params.sessionId,
         uri: document.uri.toString(true),
         applied: false,
         documentVersion: document.version,
         contentSha256: sha256(document.getText()),
         isDirty: document.isDirty,
         editCount: 0,
-        checkpointId: null,
       };
     }
     const prepared = await this.#changeSets.prepareGeneratedTextEdits(
-      params.sessionId,
-      "Format document",
-      params.reason,
+      params.rootUri,
       [
         {
           uri: document.uri.toString(true),
@@ -164,28 +140,22 @@ export class IdeAutonomyManager {
         },
       ],
     );
-    const applied = await this.#changeSets.applyPrepared(
-      { sessionId: params.sessionId, changeSetId: prepared.changeSetId },
-      params.reason,
-    );
+    const applied = await this.#changeSets.applyPrepared({ changeSetId: prepared.changeSetId });
     const result = applied.documents[0]!;
     return {
       instanceId: this.#instanceId,
-      sessionId: params.sessionId,
       uri: result.uri,
       applied: true,
       documentVersion: result.documentVersion,
       contentSha256: result.contentSha256,
       isDirty: result.isDirty,
       editCount: prepared.editCount,
-      checkpointId: applied.checkpointId,
     };
   }
 
   async listCodeActions(params: ListCodeActionsParams): Promise<ListCodeActionsResult> {
     this.#purgeOldActions();
-    const experiment = await this.#assertSession(params.sessionId);
-    const uri = parseSupportedUri(params.uri, experiment.rootUri);
+    const uri = parseSupportedUri(params.uri, params.rootUri);
     const document = await resolveExistingDocument(uri);
     assertExpectedDocument(document, params.expectedSha256, params.expectedVersion);
     const range = validateRange(document, params.range);
@@ -206,7 +176,7 @@ export class IdeAutonomyManager {
     const visible = rawActions.slice(0, params.limit);
     const summaries = await Promise.all(
       visible.map((candidate) =>
-        this.#prepareCodeAction(candidate, params, experiment.rootUri, {
+        this.#prepareCodeAction(candidate, params, params.rootUri, {
           uri,
           expectedVersion: params.expectedVersion,
           expectedSha256: params.expectedSha256,
@@ -215,7 +185,6 @@ export class IdeAutonomyManager {
     );
     return {
       instanceId: this.#instanceId,
-      sessionId: params.sessionId,
       uri: document.uri.toString(true),
       actions: summaries,
       returnedCount: summaries.length,
@@ -227,9 +196,8 @@ export class IdeAutonomyManager {
 
   async applyCodeAction(params: ApplyCodeActionParams): Promise<ApplyCodeActionResult> {
     assertAgentWriteAllowed();
-    await this.#assertSession(params.sessionId);
     const handle = this.#actions.get(params.actionId);
-    if (!handle || handle.sessionId !== params.sessionId) {
+    if (!handle) {
       throw new BridgeError("CODE_ACTION_NOT_FOUND", "The requested Code Action was not found.");
     }
     if (handle.state === "applied") {
@@ -260,10 +228,7 @@ export class IdeAutonomyManager {
     }
     let applied;
     try {
-      applied = await this.#changeSets.applyPrepared(
-        { sessionId: params.sessionId, changeSetId: handle.changeSetId },
-        `${handle.title}: ${params.reason}`.slice(0, 2_000),
-      );
+      applied = await this.#changeSets.applyPrepared({ changeSetId: handle.changeSetId });
     } catch (error) {
       if (error instanceof BridgeError && error.code === "CHANGE_SET_EXPIRED") {
         throw new BridgeError("CODE_ACTION_EXPIRED", "The requested Code Action has expired.");
@@ -278,9 +243,7 @@ export class IdeAutonomyManager {
     }
     return {
       instanceId: this.#instanceId,
-      sessionId: params.sessionId,
       actionId: params.actionId,
-      checkpointId: applied.checkpointId,
       appliedAt: applied.appliedAt,
       documents: applied.documents,
     };
@@ -325,9 +288,7 @@ export class IdeAutonomyManager {
             }),
           );
           const prepared = await this.#changeSets.prepareGeneratedTextEdits(
-            params.sessionId,
-            action.title.slice(0, 1_000),
-            "Prepared from a VS Code Code Action provider.",
+            rootUri,
             documents,
           );
           changeSetId = prepared.changeSetId;
@@ -342,7 +303,7 @@ export class IdeAutonomyManager {
     const title = candidate.title.slice(0, 1_000);
     this.#actions.set(actionId, {
       actionId,
-      sessionId: params.sessionId,
+      rootUri,
       title,
       changeSetId,
       unsupportedReason,
@@ -361,17 +322,6 @@ export class IdeAutonomyManager {
       unsupportedReason,
       expiresAt: new Date(expiresAt).toISOString(),
     };
-  }
-
-  async #assertSession(sessionId: string) {
-    const experiment = await this.#experiments.getActiveExperiment();
-    if (experiment.sessionId !== sessionId) {
-      throw new BridgeError(
-        "EXPERIMENT_NOT_FOUND",
-        "The requested experiment is not active in this VS Code window.",
-      );
-    }
-    return experiment;
   }
 
   #purgeOldActions(): void {

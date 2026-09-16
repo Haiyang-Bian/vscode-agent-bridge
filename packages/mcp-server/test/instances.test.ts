@@ -14,6 +14,7 @@ import {
 import {
   discoverInstances,
   discoverLiveInstances,
+  compareReleaseVersions,
   selectInstance,
   toPublicInstance,
   type RegisteredInstance,
@@ -55,6 +56,17 @@ describe("VS Code instance discovery", () => {
     expect(publicInstance.transportKind).toBe("named-pipe");
     expect(publicInstance.lifecycle).toBe("ready");
     expect(publicInstance.compatibility).toBe("current");
+    expect(publicInstance.releaseAlignment).toBe("current");
+  });
+
+  test("reports protocol compatibility separately from release alignment", () => {
+    expect(compareReleaseVersions("0.13.0", BRIDGE_RELEASE_VERSION)).toBe("older");
+    expect(compareReleaseVersions(BRIDGE_RELEASE_VERSION, BRIDGE_RELEASE_VERSION)).toBe("current");
+    expect(compareReleaseVersions("0.15.0", BRIDGE_RELEASE_VERSION)).toBe("newer");
+    expect(compareReleaseVersions("development", BRIDGE_RELEASE_VERSION)).toBe("unknown");
+    const older = toPublicInstance(registered({ ...makeDescriptor(FIRST_ID), extensionVersion: "0.13.0" }));
+    expect(older.compatibility).toBe("current");
+    expect(older.releaseAlignment).toBe("older");
   });
 
   test("requires an explicit ID when multiple windows are registered", () => {
@@ -81,6 +93,7 @@ describe("VS Code instance discovery", () => {
     expect(instances[0]?.compatibility).toBe("incompatible");
     const publicInstance = toPublicInstance(instances[0]!);
     expect(publicInstance.protocolVersion).toBe(BRIDGE_PROTOCOL_VERSION - 1);
+    expect(publicInstance.releaseAlignment).toBe("current");
     expect(publicInstance).not.toHaveProperty("authToken");
     expect(publicInstance).not.toHaveProperty("transport");
     await access(descriptorPath);

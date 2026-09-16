@@ -42,14 +42,13 @@ import {
 import { AgentActivityTracker } from "./agent-activity.js";
 import { CanonicalPathBoundary } from "./canonical-path-boundary.js";
 import { DebugOutputCaptureStore } from "./debug-output-capture.js";
-import { ExperimentManager } from "./experiment-manager.js";
+import { assertAgentWriteAllowed } from "./policies.js";
 import { TaskManager } from "./task-manager.js";
 import { WorkflowProvenanceStore, type WorkflowTaskBindings } from "./workflow-provenance.js";
 import { WorkspaceConfigurationManager } from "./workspace-configuration-manager.js";
 
 interface PreparedDebugConfiguration {
   readonly preparedConfigurationId: string;
-  readonly sessionId: string;
   readonly rootUri: string;
   readonly createdAt: number;
   readonly expiresAt: string;
@@ -57,7 +56,6 @@ interface PreparedDebugConfiguration {
   readonly configuration: Record<string, unknown>;
   readonly summary: DebugConfigurationSummary;
   readonly preview: ReturnType<typeof debugExecutionPreview>;
-  readonly activityOperationId: string;
 }
 
 interface PendingDebugStart {
@@ -81,7 +79,6 @@ interface TrackedDebugSession {
 
 export class DebugManager implements vscode.Disposable {
   readonly #instanceId: string;
-  readonly #experiments: ExperimentManager;
   readonly #activity: AgentActivityTracker;
   readonly #configurations: WorkspaceConfigurationManager;
   readonly #tasks: TaskManager;
@@ -94,14 +91,12 @@ export class DebugManager implements vscode.Disposable {
 
   constructor(
     instanceId: string,
-    experiments: ExperimentManager,
     activity: AgentActivityTracker,
     configurations: WorkspaceConfigurationManager,
     tasks: TaskManager,
     provenance: WorkflowProvenanceStore,
   ) {
     this.#instanceId = instanceId;
-    this.#experiments = experiments;
     this.#activity = activity;
     this.#configurations = configurations;
     this.#tasks = tasks;
@@ -140,11 +135,9 @@ export class DebugManager implements vscode.Disposable {
       summaries.push(summarizeDebugConfiguration(candidate, params.rootUri, true, "workspace"));
     }
     this.#prunePrepared();
-    if (params.sessionId) {
-      summaries.push(...[...this.#prepared.values()]
-        .filter((record) => record.sessionId === params.sessionId && record.rootUri === params.rootUri)
-        .map((record) => record.summary));
-    }
+    summaries.push(...[...this.#prepared.values()]
+      .filter((record) => record.rootUri === params.rootUri)
+      .map((record) => record.summary));
     const inspected = await Promise.all([
       this.#configurations.getConfiguration({ rootUri: params.rootUri, target: "launch" }),
       this.#configurations.getConfiguration({ rootUri: params.rootUri, target: "workspace" }),
@@ -158,10 +151,7 @@ export class DebugManager implements vscode.Disposable {
   }
 
   async prepareConfiguration(params: PrepareDebugConfigurationParams): Promise<PrepareDebugConfigurationResult> {
-    const experiment = await this.#experiments.assertResourceChangesAllowed(params.sessionId);
-    if (experiment.rootUri !== params.rootUri) {
-      throw new BridgeError("EXPERIMENT_NOT_OWNED", "The prepared Debug configuration is outside the active experiment root.");
-    }
+    assertAgentWriteAllowed();
     resolveRoot(params.rootUri);
     await this.#validateTaskBindings(params);
     const preparedConfigurationId = randomUUID();
@@ -175,18 +165,8 @@ export class DebugManager implements vscode.Disposable {
     );
     const preview = debugExecutionPreview(configuration);
     const expiresAt = new Date(Date.now() + PREPARED_WORKFLOW_TTL_MS).toISOString();
-    const activityOperationId = this.#activity.record(
-      {
-        toolName: "vscode_prepare_debug_configuration",
-        title: `Prepared Debug: ${summary.name}`,
-        reason: params.reason,
-        workflow: debugWorkflow(summary, preview, null),
-      },
-      "succeeded",
-    );
     this.#prepared.set(preparedConfigurationId, {
       preparedConfigurationId,
-      sessionId: params.sessionId,
       rootUri: params.rootUri,
       createdAt: Date.now(),
       expiresAt,
@@ -194,22 +174,20 @@ export class DebugManager implements vscode.Disposable {
       configuration,
       summary,
       preview,
-      activityOperationId,
     });
     this.#prunePrepared();
     return {
       instanceId: this.#instanceId,
-      sessionId: params.sessionId,
       preparedConfigurationId,
       configuration: summary,
       execution: preview,
-      activityOperationId,
       expiresAt,
     };
   }
 
   async persistConfiguration(params: PersistDebugConfigurationParams): Promise<PersistDebugConfigurationResult> {
-    const record = await this.#requirePrepared(params.preparedConfigurationId, params.sessionId, params.rootUri);
+    assertAgentWriteAllowed();
+    const record = await this.#requirePrepared(params.preparedConfigurationId, params.rootUri);
     const taskLabels = await this.#validateTaskBindings(record.params);
     const value: Record<string, unknown> = { ...record.configuration };
     if (taskLabels.preLaunchTask) value.preLaunchTask = taskLabels.preLaunchTask;
@@ -217,7 +195,6 @@ export class DebugManager implements vscode.Disposable {
     const name = String(value.name);
     const existingProvenance = this.#provenance.find("debug", params.rootUri, name);
     const persisted = await this.#configurations.persistWorkflowConfiguration({
-      sessionId: params.sessionId,
       rootUri: params.rootUri,
       target: "launch",
       name,
@@ -226,7 +203,6 @@ export class DebugManager implements vscode.Disposable {
       expectedSha256: params.expectedSha256,
       replaceExisting: existingProvenance?.configurationSha256 === params.expectedSha256,
       conflictCode: "DEBUG_CONFIGURATION_ALREADY_EXISTS",
-      reason: params.reason,
     });
     const summary = summarizeDebugConfiguration(value, params.rootUri, false, "agentPersisted");
     await this.#provenance.recordConfigurationWrite({
@@ -247,30 +223,24 @@ export class DebugManager implements vscode.Disposable {
         toolName: "vscode_persist_debug_configuration",
         title: `Persisted Debug: ${name}`,
         reason: params.reason,
-        parentOperationId: record.activityOperationId,
         workflow: debugWorkflow(summary, debugExecutionPreview(value), null),
       },
       "succeeded",
-      { checkpointId: persisted.checkpointId, targets: [persisted.uri.toString(true)] },
+      { targets: [persisted.uri.toString(true)] },
     );
     return {
       instanceId: this.#instanceId,
-      sessionId: params.sessionId,
       preparedConfigurationId: params.preparedConfigurationId,
       configuration: summary,
       uri: persisted.uri.toString(true),
       created: persisted.created,
       contentSha256: persisted.contentSha256,
-      checkpointId: persisted.checkpointId,
       persistedAt: new Date().toISOString(),
     };
   }
 
   async startSession(params: StartDebugSessionParams): Promise<StartDebugSessionResult> {
-    const experiment = await this.#experiments.assertResourceChangesAllowed(params.sessionId);
-    if (experiment.rootUri !== params.rootUri) {
-      throw new BridgeError("EXPERIMENT_NOT_OWNED", "The Debug configuration is outside the active experiment root.");
-    }
+    assertAgentWriteAllowed();
     const root = resolveRoot(params.rootUri);
     this.#prunePrepared();
     const prepared = [...this.#prepared.values()].find((record) => record.summary.configurationId === params.configurationId);
@@ -279,21 +249,21 @@ export class DebugManager implements vscode.Disposable {
     let preview: ReturnType<typeof debugExecutionPreview>;
     let parentOperationId: string | null = null;
     if (prepared) {
-      if (prepared.sessionId !== params.sessionId || prepared.rootUri !== params.rootUri) {
-        throw new BridgeError("DEBUG_CONFIGURATION_PREPARATION_NOT_FOUND", "The prepared Debug configuration belongs to another instance, session, or root.");
+      if (prepared.rootUri !== params.rootUri) {
+        throw new BridgeError("DEBUG_CONFIGURATION_PREPARATION_NOT_FOUND", "The prepared Debug configuration belongs to another instance or root.");
       }
       await this.#validateTaskBindings(prepared.params);
       summary = prepared.summary;
       preview = prepared.preview;
       configuration = await this.#configurationWithTaskLabels(prepared);
-      parentOperationId = prepared.activityOperationId;
+      parentOperationId = null;
     } else {
       const candidate = this.#findWorkspaceConfiguration(params.rootUri, params.configurationId);
       if (!candidate) throw new BridgeError("DEBUG_CONFIGURATION_NOT_FOUND", "The listed Debug configuration no longer exists.");
       summary = candidate.summary;
       const persisted = this.#provenance.find("debug", params.rootUri, summary.name, summary.fingerprint);
       if (persisted) {
-        await this.#validateStoredTaskBindings(params.sessionId, params.rootUri, persisted.taskBindings);
+        await this.#validateStoredTaskBindings(params.rootUri, persisted.taskBindings);
         summary = { ...summary, origin: "agentPersisted" };
       }
       preview = debugExecutionPreview(candidate.configuration);
@@ -341,7 +311,6 @@ export class DebugManager implements vscode.Disposable {
       .sort((left, right) => right.summary.startedAt.localeCompare(left.summary.startedAt))[0];
     return {
       instanceId: this.#instanceId,
-      sessionId: params.sessionId,
       started: true,
       debugSession: tracked?.summary ?? null,
     };
@@ -359,10 +328,6 @@ export class DebugManager implements vscode.Disposable {
 
   async getState(params: GetDebugStateParams): Promise<GetDebugStateResult> {
     const tracked = this.#requireLiveSession(params.debugSessionId);
-    const experiment = await this.#experiments.getActiveExperiment();
-    if (tracked.summary.rootUri !== experiment.rootUri) {
-      throw new BridgeError("EXPERIMENT_NOT_OWNED", "The debug session is outside the active experiment root.");
-    }
     const empty = {
       instanceId: this.#instanceId,
       debugSessionId: params.debugSessionId,
@@ -441,7 +406,7 @@ export class DebugManager implements vscode.Disposable {
   }
 
   async control(params: ControlDebugSessionParams): Promise<ControlDebugSessionResult> {
-    const tracked = await this.#assertSessionWrite(params.sessionId, params.debugSessionId);
+    const tracked = this.#assertDebugWrite(params.debugSessionId);
     if (params.action === "terminate") {
       await vscode.debug.stopDebugging(tracked.session);
     } else if (params.action === "restart") {
@@ -456,7 +421,7 @@ export class DebugManager implements vscode.Disposable {
     if (["continue", "next", "stepIn", "stepOut", "restart"].includes(params.action)) {
       invalidateDebugState(tracked);
     }
-    return { instanceId: this.#instanceId, sessionId: params.sessionId, debugSessionId: params.debugSessionId, action: params.action, accepted: true };
+    return { instanceId: this.#instanceId, debugSessionId: params.debugSessionId, action: params.action, accepted: true };
   }
 
   listBreakpoints(params: ListBreakpointsParams): ListBreakpointsResult {
@@ -469,14 +434,13 @@ export class DebugManager implements vscode.Disposable {
   }
 
   async updateBreakpoints(params: UpdateBreakpointsParams): Promise<UpdateBreakpointsResult> {
-    const experiment = await this.#experiments.assertResourceChangesAllowed(params.sessionId);
-    if (experiment.rootUri !== params.rootUri) throw new BridgeError("EXPERIMENT_NOT_OWNED", "Breakpoint root does not match the active experiment.");
+    assertAgentWriteAllowed();
     const root = resolveRoot(params.rootUri);
     const current = this.listBreakpoints(params);
     if (current.revision !== params.expectedRevision) throw new BridgeError("DEBUG_STATE_STALE", "Breakpoints changed after they were listed.");
     for (const spec of params.breakpoints) {
       if (spec.kind === "source" && !isUriInRoot(spec.uri, root.uri)) {
-        throw new BridgeError("BREAKPOINT_OUT_OF_SCOPE", "Source breakpoints must remain inside the experiment root.");
+        throw new BridgeError("BREAKPOINT_OUT_OF_SCOPE", "Source breakpoints must remain inside the selected workspace root.");
       }
     }
     const removable = vscode.debug.breakpoints.filter((breakpoint) => {
@@ -488,7 +452,6 @@ export class DebugManager implements vscode.Disposable {
     const updated = this.listBreakpoints(params);
     return {
       instanceId: this.#instanceId,
-      sessionId: params.sessionId,
       rootUri: params.rootUri,
       revision: updated.revision,
       breakpoints: updated.breakpoints,
@@ -496,7 +459,7 @@ export class DebugManager implements vscode.Disposable {
   }
 
   async evaluate(params: EvaluateDebugExpressionParams): Promise<EvaluateDebugExpressionResult> {
-    const tracked = await this.#assertSessionWrite(params.sessionId, params.debugSessionId);
+    const tracked = this.#assertDebugWrite(params.debugSessionId);
     if (params.frameId !== undefined) assertIssued(tracked.frameGenerations, params.frameId, tracked.generation);
     const response = await dapRequest(tracked.session, "evaluate", {
       expression: params.expression,
@@ -508,7 +471,6 @@ export class DebugManager implements vscode.Disposable {
     if (variablesReference > 0) tracked.variableGenerations.set(variablesReference, tracked.generation);
     return {
       instanceId: this.#instanceId,
-      sessionId: params.sessionId,
       debugSessionId: params.debugSessionId,
       result: boundedString(body.result, 200_000),
       type: nullableString(body.type, 10_000),
@@ -519,7 +481,7 @@ export class DebugManager implements vscode.Disposable {
   }
 
   async setVariable(params: SetDebugVariableParams): Promise<SetDebugVariableResult> {
-    const tracked = await this.#assertSessionWrite(params.sessionId, params.debugSessionId);
+    const tracked = this.#assertDebugWrite(params.debugSessionId);
     assertIssued(tracked.variableGenerations, params.variablesReference, tracked.generation);
     const response = await dapRequest(tracked.session, "setVariable", {
       variablesReference: params.variablesReference,
@@ -531,7 +493,6 @@ export class DebugManager implements vscode.Disposable {
     if (variablesReference > 0) tracked.variableGenerations.set(variablesReference, tracked.generation);
     return {
       instanceId: this.#instanceId,
-      sessionId: params.sessionId,
       debugSessionId: params.debugSessionId,
       value: boundedString(body.value, 200_000),
       type: nullableString(body.type, 10_000),
@@ -560,29 +521,28 @@ export class DebugManager implements vscode.Disposable {
   }
 
   async #validateTaskBindings(
-    params: Pick<PrepareDebugConfigurationParams, "sessionId" | "rootUri" | "preLaunchTask" | "postDebugTask">,
+    params: Pick<PrepareDebugConfigurationParams, "rootUri" | "preLaunchTask" | "postDebugTask">,
   ): Promise<{ readonly preLaunchTask: string | null; readonly postDebugTask: string | null }> {
     return {
       preLaunchTask: params.preLaunchTask
-        ? await this.#tasks.assertTaskBinding(params.sessionId, params.rootUri, params.preLaunchTask.taskId, params.preLaunchTask.expectedFingerprint)
+        ? await this.#tasks.assertTaskBinding(params.rootUri, params.preLaunchTask.taskId, params.preLaunchTask.expectedFingerprint)
         : null,
       postDebugTask: params.postDebugTask
-        ? await this.#tasks.assertTaskBinding(params.sessionId, params.rootUri, params.postDebugTask.taskId, params.postDebugTask.expectedFingerprint)
+        ? await this.#tasks.assertTaskBinding(params.rootUri, params.postDebugTask.taskId, params.postDebugTask.expectedFingerprint)
         : null,
     };
   }
 
   async #validateStoredTaskBindings(
-    sessionId: string,
     rootUri: string,
     bindings: WorkflowTaskBindings | undefined,
   ): Promise<void> {
     if (!bindings) return;
     if (bindings.preLaunchTask) {
-      await this.#tasks.assertTaskBinding(sessionId, rootUri, bindings.preLaunchTask.taskId, bindings.preLaunchTask.expectedFingerprint);
+      await this.#tasks.assertTaskBinding(rootUri, bindings.preLaunchTask.taskId, bindings.preLaunchTask.expectedFingerprint);
     }
     if (bindings.postDebugTask) {
-      await this.#tasks.assertTaskBinding(sessionId, rootUri, bindings.postDebugTask.taskId, bindings.postDebugTask.expectedFingerprint);
+      await this.#tasks.assertTaskBinding(rootUri, bindings.postDebugTask.taskId, bindings.postDebugTask.expectedFingerprint);
     }
   }
 
@@ -596,15 +556,13 @@ export class DebugManager implements vscode.Disposable {
 
   async #requirePrepared(
     preparedConfigurationId: string,
-    sessionId: string,
     rootUri: string,
   ): Promise<PreparedDebugConfiguration> {
-    await this.#experiments.assertResourceChangesAllowed(sessionId);
     const record = this.#prepared.get(preparedConfigurationId);
-    if (!record || record.sessionId !== sessionId || record.rootUri !== rootUri) {
+    if (!record || record.rootUri !== rootUri) {
       throw new BridgeError(
         "DEBUG_CONFIGURATION_PREPARATION_NOT_FOUND",
-        "The prepared Debug configuration was not found for this instance, session, and root.",
+        "The prepared Debug configuration was not found for this instance and root.",
       );
     }
     if (Date.parse(record.expiresAt) <= Date.now()) {
@@ -641,12 +599,9 @@ export class DebugManager implements vscode.Disposable {
     for (const record of records.slice(MAX_PREPARED_WORKFLOWS)) this.#prepared.delete(record.preparedConfigurationId);
   }
 
-  async #assertSessionWrite(sessionId: string, debugSessionId: string): Promise<TrackedDebugSession> {
-    const experiment = await this.#experiments.assertResourceChangesAllowed(sessionId);
+  #assertDebugWrite(debugSessionId: string): TrackedDebugSession {
+    assertAgentWriteAllowed();
     const tracked = this.#requireLiveSession(debugSessionId);
-    if (tracked.summary.rootUri !== experiment.rootUri) {
-      throw new BridgeError("EXPERIMENT_NOT_OWNED", "The debug session belongs to another workspace root.");
-    }
     return tracked;
   }
 
@@ -691,7 +646,6 @@ export class DebugManager implements vscode.Disposable {
         origin: pending?.origin ?? "workspace",
         definitionFingerprint: pending?.definitionFingerprint ?? fallbackSummary.fingerprint,
         activityOperationId,
-        checkpointId: null,
       },
       generation: 0,
       threadGenerations: new Map(),
@@ -702,6 +656,7 @@ export class DebugManager implements vscode.Disposable {
       this.#activity.update(activityOperationId, {
         status: "running",
         workflow: { ...pending.workflow, executionId: session.id },
+        locations: [{ kind: "debug", debugSessionId: session.id }],
       });
     }
   }
@@ -712,21 +667,9 @@ export class DebugManager implements vscode.Disposable {
     if (!tracked) return;
     tracked.summary = { ...tracked.summary, status: "terminated", endedAt: new Date().toISOString() };
     invalidateDebugState(tracked);
-    void this.#finishSession(tracked);
-  }
-
-  async #finishSession(tracked: TrackedDebugSession): Promise<void> {
-    let checkpointId: string | null = null;
-    try {
-      checkpointId = await this.#experiments.createExplicitCheckpoint(`Debug ended: ${tracked.session.name}`);
-    } catch {
-      // External Debug side effects remain unrecoverable even if checkpoint capture fails.
-    }
-    tracked.summary = { ...tracked.summary, checkpointId };
     this.#activity.update(tracked.summary.activityOperationId, {
       status: "succeeded",
       completedAt: tracked.summary.endedAt,
-      checkpointId,
     });
   }
 
@@ -749,7 +692,6 @@ export class DebugManager implements vscode.Disposable {
       invalidateDebugState(tracked);
       const body = isRecord(message.body) ? message.body : {};
       tracked.summary = { ...tracked.summary, status: "stopped", stoppedReason: nullableString(body.reason, 500) };
-      this.#activity.record({ toolName: "vscode_get_debug_state", title: `Debug stopped: ${session.name}` }, "succeeded");
     } else if (message.event === "continued") {
       invalidateDebugState(tracked);
       tracked.summary = { ...tracked.summary, status: "running", stoppedReason: null };

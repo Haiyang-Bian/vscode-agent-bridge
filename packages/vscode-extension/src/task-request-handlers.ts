@@ -15,18 +15,12 @@ import {
 } from "@vscode-agent-bridge/protocol";
 
 import { AgentActivityTracker } from "./agent-activity.js";
-import { ExperimentManager } from "./experiment-manager.js";
-import {
-  ensureSessionWorkspaceEnabled,
-  type BridgeRequestHandler,
-} from "./request-handlers.js";
+import { type BridgeRequestHandler } from "./request-handlers.js";
 import { TaskManager } from "./task-manager.js";
-import { WorkspaceOnboardingService, assertRequestActive } from "./workspace-onboarding.js";
+import { assertRequestActive } from "./workspace-setup.js";
 
 export function createTaskRequestHandlers(
   tasks: TaskManager,
-  experiments: ExperimentManager,
-  onboarding: WorkspaceOnboardingService,
   activity: AgentActivityTracker,
 ): ReadonlyMap<string, BridgeRequestHandler> {
   return new Map<string, BridgeRequestHandler>([
@@ -34,7 +28,6 @@ export function createTaskRequestHandlers(
       BRIDGE_METHODS.prepareTask,
       async (params, context) => {
         const parsed = PrepareTaskParamsSchema.parse(params);
-        await ensureSessionWorkspaceEnabled(experiments, onboarding, parsed.sessionId, context.signal);
         assertRequestActive(context.signal);
         return PrepareTaskResultSchema.parse(await tasks.prepareTask(parsed));
       },
@@ -43,7 +36,6 @@ export function createTaskRequestHandlers(
       BRIDGE_METHODS.persistTask,
       async (params, context) => {
         const parsed = PersistTaskParamsSchema.parse(params);
-        await ensureSessionWorkspaceEnabled(experiments, onboarding, parsed.sessionId, context.signal);
         assertRequestActive(context.signal);
         return PersistTaskResultSchema.parse(await tasks.persistTask(parsed));
       },
@@ -56,7 +48,6 @@ export function createTaskRequestHandlers(
       BRIDGE_METHODS.runTask,
       async (params, context) => {
         const parsed = RunTaskParamsSchema.parse(params);
-        await ensureSessionWorkspaceEnabled(experiments, onboarding, parsed.sessionId, context.signal);
         assertRequestActive(context.signal);
         return RunTaskResultSchema.parse(await tasks.runTask(parsed));
       },
@@ -74,7 +65,6 @@ export function createTaskRequestHandlers(
         return activity.track(
           { toolName: "vscode_terminate_task", title: "Terminate workspace task", reason: parsed.reason },
           async () => {
-            await ensureSessionWorkspaceEnabled(experiments, onboarding, parsed.sessionId, context.signal);
             assertRequestActive(context.signal);
             return TerminateTaskResultSchema.parse(await tasks.terminateTask(parsed));
           },

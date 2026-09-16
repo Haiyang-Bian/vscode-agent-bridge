@@ -12,7 +12,6 @@ export interface E2EEnvironment {
   stagedExtension: string;
   userData: string;
   extensions: string;
-  managedWorktrees: string;
 }
 
 export interface PrimaryCompletionMarker {
@@ -33,12 +32,10 @@ export async function createE2EEnvironment(prefix: string, temporaryDirectory = 
     stagedExtension: path.join(root, "extension"),
     userData: path.join(root, "user-data"),
     extensions: path.join(root, "extensions"),
-    managedWorktrees: path.join(root, "managed-worktrees"),
   };
   await Promise.all([
     mkdir(environment.userData, { recursive: true }),
     mkdir(environment.extensions, { recursive: true }),
-    mkdir(environment.managedWorktrees, { recursive: true }),
   ]);
   return environment;
 }
@@ -123,11 +120,9 @@ export function createE2EEnvironmentVariables(
     VSCODE_AGENT_BRIDGE_E2E: "1",
     VSCODE_AGENT_BRIDGE_E2E_SCENARIOS: scenarios.join(","),
     VSCODE_AGENT_BRIDGE_E2E_INITIALIZATION_DELAY_MS: lifecycle ? "10000" : "0",
-    VSCODE_AGENT_BRIDGE_E2E_ONBOARDING_DELAY_MS: lifecycle ? "11000" : "1",
     VSCODE_AGENT_BRIDGE_E2E_WORKSPACE: environment.workspace,
     VSCODE_AGENT_BRIDGE_E2E_EXTENSION: environment.stagedExtension,
     VSCODE_AGENT_BRIDGE_E2E_DEBUG_SOURCE: path.join(environment.workspace, "bridge.ts"),
-    VSCODE_AGENT_BRIDGE_MANAGED_ROOT: environment.managedWorktrees,
     VSCODE_AGENT_BRIDGE_E2E_USER_DATA_DIR: environment.userData,
     VSCODE_AGENT_BRIDGE_E2E_EXTENSIONS_DIR: environment.extensions,
   };
@@ -149,24 +144,9 @@ export async function assertE2ECompletion(
   if (!sameMembers(primary.requestedScenarios, requestedScenarios)) {
     throw new Error("Primary IDE workflow E2E marker does not match the requested scenarios.");
   }
-  for (const scenario of requestedScenarios.filter((candidate) => candidate !== "managed-worktree")) {
+  for (const scenario of requestedScenarios) {
     if (!primary.actualScenarios.includes(scenario)) {
       throw new Error(`Primary IDE workflow E2E did not execute ${scenario}.`);
-    }
-  }
-
-  if (requestedScenarios.includes("managed-worktree")) {
-    const managed = JSON.parse(
-      await readFile(path.join(environment.root, "managed-e2e-passed.json"), "utf8"),
-    ) as Record<string, unknown>;
-    if (
-      managed.privateCommitCount !== 10 ||
-      managed.promotedCommitCount !== 1 ||
-      managed.treeMatches !== true ||
-      managed.scenario !== "managed-worktree" ||
-      managed.cleanupStatus !== "client-closed"
-    ) {
-      throw new Error("Managed Worktree E2E completion marker is invalid.");
     }
   }
 }

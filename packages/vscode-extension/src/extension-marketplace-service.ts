@@ -127,7 +127,6 @@ export class ExtensionMarketplaceService {
   }
 
   async prepare(
-    sessionId: string,
     rootUri: string,
     candidateId: string,
   ): Promise<PreparedExtensionInstall> {
@@ -158,7 +157,6 @@ export class ExtensionMarketplaceService {
     const expiresAt = Date.now() + PLAN_TTL_MS;
     const plan: PreparedExtensionInstall = {
       instanceId: this.#instanceId,
-      sessionId,
       planId,
       extension: toPrepared(primary),
       dependencies: graph.slice(1).map(toPrepared),
@@ -171,15 +169,12 @@ export class ExtensionMarketplaceService {
     return plan;
   }
 
-  async apply(sessionId: string, rootUri: string, planId: string): Promise<ApplyExtensionInstallResult> {
+  async apply(planId: string): Promise<ApplyExtensionInstallResult> {
     this.#prune();
     const record = this.#plans.get(planId);
     if (!record) throw new BridgeError("EXTENSION_CANDIDATE_NOT_FOUND", "The extension install plan was not found.");
     if (record.used || record.expiresAt <= Date.now()) {
       throw new BridgeError("EXTENSION_CANDIDATE_EXPIRED", "The extension install plan expired or was already used.");
-    }
-    if (record.plan.sessionId !== sessionId || record.rootUri !== rootUri) {
-      throw new BridgeError("EXPERIMENT_NOT_OWNED", "The extension install plan belongs to another experiment.");
     }
     record.used = true;
     for (const planned of record.extensionGraph) {
@@ -304,7 +299,6 @@ export class ExtensionMarketplaceService {
   ): ApplyExtensionInstallResult {
     return {
       instanceId: this.#instanceId,
-      sessionId: plan.sessionId,
       planId: plan.planId,
       extensionId: plan.extension.extensionId,
       plannedVersion: plan.extension.version,

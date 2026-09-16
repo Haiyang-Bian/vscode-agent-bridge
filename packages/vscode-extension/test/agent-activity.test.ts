@@ -3,7 +3,6 @@ import { describe, expect, test } from "bun:test";
 import { BridgeError } from "@vscode-agent-bridge/protocol";
 
 import { AgentActivityTracker } from "../src/agent-activity.js";
-import { planEditorReveal } from "../src/editor-visibility-plan.js";
 
 describe("Agent activity tracker", () => {
   test("records bounded success and no-op summaries without absolute targets", async () => {
@@ -87,23 +86,5 @@ describe("Agent activity tracker", () => {
       workflow: { command: "bun", args: ["test"], envKeys: ["TOKEN"], exitCode: 0 },
     });
     expect(JSON.stringify(tracker.entries)).not.toContain("secret-value");
-  });
-});
-
-describe("Agent editor visibility plan", () => {
-  test("covers every configured presentation without changing target order semantics", () => {
-    const targets = ["first", "second", "third"];
-    expect(planEditorReveal("focusFirst", targets)).toEqual([
-      { target: "second", preserveFocus: true },
-      { target: "third", preserveFocus: true },
-      { target: "first", preserveFocus: false },
-    ]);
-    expect(planEditorReveal("focusEach", targets)).toEqual(
-      targets.map((target) => ({ target, preserveFocus: false })),
-    );
-    expect(planEditorReveal("firstOnly", targets)).toEqual([
-      { target: "first", preserveFocus: false },
-    ]);
-    expect(planEditorReveal("off", targets)).toEqual([]);
   });
 });

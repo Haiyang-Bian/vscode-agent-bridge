@@ -8,7 +8,6 @@ import {
 import { MarketplaceClient, type MarketplaceHttpTransport } from "../src/marketplace-client.js";
 
 const INSTANCE_ID = "018f6bb0-4a27-7b9a-8e4d-11c028c8051d";
-const SESSION_ID = "028f6bb0-4a27-7b9a-8e4d-11c028c8051d";
 
 describe("bounded Marketplace orchestration", () => {
   test("ranks installed, official and verified candidates without conflating verified with official", async () => {
@@ -36,14 +35,14 @@ describe("bounded Marketplace orchestration", () => {
     const service = createService([primary, dependency], [], installer);
     const candidates = await service.search("python", 0, 20, new Set());
     const candidate = candidates.candidates.find((item) => item.extensionId === "ms-python.python")!;
-    const plan = await service.prepare(SESSION_ID, "file:///workspace", candidate.candidateId);
+    const plan = await service.prepare("file:///workspace", candidate.candidateId);
 
     expect(plan.extension.version).toBe("2026.10.0");
     expect(plan.dependencies.map((item) => item.extensionId)).toEqual(["ms-toolsai.jupyter"]);
-    const result = await service.apply(SESSION_ID, "file:///workspace", plan.planId);
+    const result = await service.apply(plan.planId);
     expect(result.status).toBe("installed");
     expect(installer.calls).toEqual([{ extensionId: "ms-python.python", version: "2026.10.0" }]);
-    await expect(service.apply(SESSION_ID, "file:///workspace", plan.planId)).rejects.toMatchObject({
+    await expect(service.apply(plan.planId)).rejects.toMatchObject({
       code: "EXTENSION_CANDIDATE_NOT_FOUND",
     });
   });
@@ -60,7 +59,7 @@ describe("bounded Marketplace orchestration", () => {
     );
     const result = await service.search("python", 0, 20, new Set());
     await expect(
-      service.prepare(SESSION_ID, "file:///workspace", result.candidates[0]!.candidateId),
+      service.prepare("file:///workspace", result.candidates[0]!.candidateId),
     ).rejects.toMatchObject({ code: "EXTENSION_INSTALL_UNSUPPORTED" });
   });
 
@@ -71,7 +70,7 @@ describe("bounded Marketplace orchestration", () => {
     );
     const candidates = await missing.search("root", 0, 20, new Set());
     await expect(
-      missing.prepare(SESSION_ID, "file:///workspace", candidates.candidates[0]!.candidateId),
+      missing.prepare("file:///workspace", candidates.candidates[0]!.candidateId),
     ).rejects.toMatchObject({ code: "EXTENSION_INSTALL_UNSUPPORTED" });
   });
 });

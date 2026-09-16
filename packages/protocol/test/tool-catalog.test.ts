@@ -11,14 +11,15 @@ import {
 
 describe("authoritative MCP tool catalog", () => {
   test("derives all names from one complete classified catalog", () => {
-    expect(MCP_TOOL_CATALOG).toHaveLength(64);
+    expect(MCP_TOOL_CATALOG).toHaveLength(57);
     expect(MCP_TOOL_NAMES).toEqual(MCP_TOOL_CATALOG.map((tool) => tool.name));
-    expect(new Set(MCP_TOOL_NAMES).size).toBe(64);
+    expect(new Set(MCP_TOOL_NAMES).size).toBe(57);
     const catalogDomains: string[] = [...new Set(MCP_TOOL_CATALOG.map((tool) => tool.domain))].sort();
     expect(catalogDomains).toEqual(Object.keys(MCP_TOOL_DOMAINS).sort());
     for (const tool of publicToolCatalog()) {
       expect(tool.domainLabel).toBe(MCP_TOOL_DOMAINS[tool.domain]);
       expect(tool.openWorld).toBe(tool.annotations.openWorldHint);
+      expect(tool).not.toHaveProperty("requiresExperiment");
       if (tool.annotations.destructiveHint) expect(tool.intent).not.toBe("observe");
     }
   });

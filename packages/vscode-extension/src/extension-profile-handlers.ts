@@ -7,15 +7,12 @@ import {
 } from "@vscode-agent-bridge/protocol";
 
 import { AgentActivityTracker } from "./agent-activity.js";
-import { ExperimentManager } from "./experiment-manager.js";
 import { ExtensionProfileManager } from "./extension-profile-manager.js";
-import { ensureSessionWorkspaceEnabled, type BridgeRequestHandler } from "./request-handlers.js";
-import { WorkspaceOnboardingService, assertRequestActive } from "./workspace-onboarding.js";
+import { type BridgeRequestHandler } from "./request-handlers.js";
+import { assertRequestActive } from "./workspace-setup.js";
 
 export function createExtensionProfileRequestHandlers(
   profiles: ExtensionProfileManager,
-  experiments: ExperimentManager,
-  onboarding: WorkspaceOnboardingService,
   activity: AgentActivityTracker,
 ): ReadonlyMap<string, BridgeRequestHandler> {
   return new Map<string, BridgeRequestHandler>([
@@ -36,7 +33,6 @@ export function createExtensionProfileRequestHandlers(
             reason: parsed.reason,
           },
           async () => {
-            await ensureSessionWorkspaceEnabled(experiments, onboarding, parsed.sessionId, context.signal);
             assertRequestActive(context.signal);
             return UpdateExtensionConfigurationResultSchema.parse(
               await profiles.updateConfiguration(parsed),
@@ -44,7 +40,6 @@ export function createExtensionProfileRequestHandlers(
           },
           (result) => ({
             status: result.changed ? "succeeded" : "no-op",
-            checkpointId: result.checkpointId,
             targets: [result.extensionId],
           }),
         );

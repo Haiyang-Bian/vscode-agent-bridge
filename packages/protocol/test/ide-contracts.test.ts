@@ -15,19 +15,18 @@ import {
 } from "../src/index.js";
 
 const INSTANCE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-const SESSION_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const ACTION_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const HASH = "a".repeat(64);
 
-describe("protocol v11 autonomous IDE workflow contracts", () => {
-  test("registers exactly 64 bounded MCP tools", () => {
-    expect(BRIDGE_PROTOCOL_VERSION).toBe(11);
-    expect(MCP_TOOL_NAMES).toHaveLength(64);
-    expect(new Set(MCP_TOOL_NAMES).size).toBe(64);
+describe("protocol v12 direct IDE workflow contracts", () => {
+  test("registers exactly 57 bounded MCP tools", () => {
+    expect(BRIDGE_PROTOCOL_VERSION).toBe(12);
+    expect(MCP_TOOL_NAMES).toHaveLength(57);
+    expect(new Set(MCP_TOOL_NAMES).size).toBe(57);
     expect(MCP_TOOL_NAMES).toContain("vscode_save_document");
     expect(MCP_TOOL_NAMES).toContain("vscode_read_terminal_output");
     expect(MCP_TOOL_NAMES).toContain("vscode_get_workspace_setup");
-    expect(MCP_TOOL_NAMES).toContain("vscode_start_experiment");
+    expect(MCP_TOOL_NAMES).not.toContain("vscode_start_experiment");
     expect(MCP_TOOL_NAMES).toContain("vscode_update_workspace_configuration");
     expect(MCP_TOOL_NAMES).toContain("vscode_run_task");
     expect(MCP_TOOL_NAMES).toContain("vscode_evaluate_debug_expression");
@@ -45,10 +44,10 @@ describe("protocol v11 autonomous IDE workflow contracts", () => {
     expect(Object.values(BRIDGE_METHODS)).not.toContain("terminals/sendInput");
   });
 
-  test("requires explicit experiment and document preconditions for writes", () => {
+  test("requires explicit routing and document preconditions for writes", () => {
     const valid = {
       instanceId: INSTANCE_ID,
-      sessionId: SESSION_ID,
+      rootUri: "file:///workspace",
       uri: "file:///workspace/main.ts",
       expectedVersion: 3,
       expectedSha256: HASH,
@@ -59,11 +58,11 @@ describe("protocol v11 autonomous IDE workflow contracts", () => {
     expect(() => SaveDocumentInputSchema.parse({ ...valid, expectedSha256: undefined })).toThrow();
   });
 
-  test("binds code action handles to explicit experiments", () => {
+  test("binds code action handles to exact document state", () => {
     expect(
       ListCodeActionsInputSchema.parse({
         instanceId: INSTANCE_ID,
-        sessionId: SESSION_ID,
+        rootUri: "file:///workspace",
         uri: "file:///workspace/main.ts",
         range: {
           start: { line: 0, character: 0 },
@@ -72,11 +71,10 @@ describe("protocol v11 autonomous IDE workflow contracts", () => {
         expectedVersion: 3,
         expectedSha256: HASH,
       }),
-    ).toMatchObject({ instanceId: INSTANCE_ID, sessionId: SESSION_ID });
+    ).toMatchObject({ instanceId: INSTANCE_ID });
     expect(
       ApplyCodeActionInputSchema.parse({
         instanceId: INSTANCE_ID,
-        sessionId: SESSION_ID,
         actionId: ACTION_ID,
         reason: "Apply a pure text quick fix.",
       }),
@@ -99,13 +97,11 @@ describe("protocol v11 autonomous IDE workflow contracts", () => {
     expect(TerminalReadPolicySchema.options).toEqual(["allow", "metadataOnly", "deny"]);
     for (const code of [
       "POLICY_DENIED",
+      "SERVER_CAPACITY_REACHED",
       "SAVE_FAILED",
       "CODE_ACTION_UNSUPPORTED",
       "TERMINAL_OUTPUT_UNAVAILABLE",
-      "WORKSPACE_ONBOARDING_REQUIRED",
       "WORKSPACE_CONFIGURATION_INVALID",
-      "EXPERIMENT_STATE_CHANGED",
-      "EDITOR_REVEAL_FAILED",
       "BRIDGE_INITIALIZING",
       "BRIDGE_DEGRADED",
       "REQUEST_CANCELLED",
