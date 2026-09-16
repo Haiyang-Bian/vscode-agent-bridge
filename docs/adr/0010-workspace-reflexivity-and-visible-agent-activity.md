@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-10
 - Release: 0.6.0
+- Partially superseded by ADR 0023: bounded activity remains, while experiment onboarding and automatic editor reveal are removed.
 
 ## Context
 

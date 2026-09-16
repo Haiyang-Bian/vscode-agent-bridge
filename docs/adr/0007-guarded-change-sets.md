@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-09
+- Partially superseded by ADR 0023: change-set stale-state guards remain, while experiment ownership is removed.
 
 ## Decision
 

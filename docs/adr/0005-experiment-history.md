@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-09
+- Superseded by ADR 0023 for release 0.14.0 and later.
 
 ## Context
 
