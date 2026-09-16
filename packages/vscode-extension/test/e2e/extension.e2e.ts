@@ -145,7 +145,9 @@ async function exerciseHttpBridge(descriptor: InstanceDescriptor): Promise<void>
     assert.equal(left.pid, Number(process.env.VSCODE_AGENT_BRIDGE_E2E_HTTP_PID));
     const instances = await first.call<{ instances: Array<{ instanceId: string; compatibility: string; releaseAlignment: string }> }>("vscode_list_instances");
     const current = instances.instances.find((instance) => instance.instanceId === descriptor.instanceId);
-    assert.deepEqual(current, { instanceId: descriptor.instanceId, compatibility: "current", releaseAlignment: "current" });
+    assert.ok(current);
+    assert.equal(current.compatibility, "current");
+    assert.equal(current.releaseAlignment, "current");
     const document = await second.call<{ text: string; isDirty: boolean }>("vscode_read_document", {
       instanceId: descriptor.instanceId,
     });
