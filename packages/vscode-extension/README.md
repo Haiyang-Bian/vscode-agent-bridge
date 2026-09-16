@@ -2,16 +2,16 @@
 
 Connect Codex to guarded IDE workflow autonomy, recoverable Agent experiments, VS Code Tasks, bounded debugging and read-only terminal observation in local VS Code windows.
 
-`0.12.0` is an unpublished Windows x64 desktop candidate using Bridge protocol v11 and exactly 64 tools. It is distributed by side-loaded VSIX and upgrades directly over `0.11.0`. The package contains a standalone MCP server, so testers do not need Bun, Node.js or the source repository.
+`0.13.0` is an unpublished Windows x64 desktop candidate using Bridge protocol v11 and exactly 64 tools. It is distributed by side-loaded VSIX and migrates managed Codex configurations to a per-user shared HTTP daemon. The package contains a standalone MCP server, so testers do not need Bun, Node.js or the source repository.
 
 ## Setup
 
 1. Use **Extensions > ... > Install from VSIX...** and select the checksum-verified candidate package.
 2. Run **VS Code Agent Bridge: Configure Bridge**. The defaults are enabled with `explicit` execution.
-3. Run **VS Code Agent Bridge: Configure Codex** and confirm. The extension installs its versioned MCP executable and updates only its marked block in `~/.codex/config.toml`.
-4. Restart Codex, then ask it to call `vscode_list_instances`.
+3. Run **VS Code Agent Bridge: Configure Codex** and confirm. The extension installs its versioned HTTP daemon and current-user login task, verifies it, then updates only its marked block in `~/.codex/config.toml`.
+4. Start a new Codex client, then ask it to call `vscode_list_instances`.
 
-Configuration creates a timestamped backup when the file exists, refuses malformed TOML, and refuses to overwrite an unmanaged `[mcp_servers.vscode_agent_bridge]` table. **Remove Codex Configuration** removes only the marked block. **Run Doctor** checks versions, bridge state, executable copies, configuration and experiment storage health without printing tokens, IPC endpoints, source or private paths.
+Configuration creates a timestamped backup when the file exists, refuses malformed TOML, and refuses to overwrite an unmanaged `[mcp_servers.vscode_agent_bridge]` table. **Remove Codex Configuration** stops the shared daemon, removes its login task and marked block, and preserves version files. **Run Doctor** checks versions, authenticated HTTP health, singleton PID, login task, configuration and experiment storage health without printing tokens, IPC endpoints, source or private paths.
 
 ## Bridge and experiment workflow
 
@@ -61,7 +61,7 @@ Source, issues, checksums and release artifacts are available at [GitHub](https:
 
 # 中文说明
 
-VS Code Agent Bridge 将 Codex 连接到本机 VS Code 的 IDE 原生状态，提供受实验保护的配置/资源修改、VS Code Tasks、受限调试和终端只读观测。`0.12.0` 使用 Bridge protocol v11 和 64 个工具，是暂未发布 Marketplace 的 Windows x64 候选版本，可直接覆盖升级 `0.11.0`；旁加载测试不需要 Bun、Node.js 或源码。
+VS Code Agent Bridge 将 Codex 连接到本机 VS Code 的 IDE 原生状态，提供受实验保护的配置/资源修改、VS Code Tasks、受限调试和终端只读观测。`0.13.0` 使用 Bridge protocol v11 和 64 个工具，是暂未发布 Marketplace 的 Windows x64 候选版本，将受管 Codex 配置迁移至当前用户共享的常驻 HTTP 服务；旁加载测试不需要 Bun、Node.js 或源码。
 
 侧栏以插件全名 **VS Code Agent Bridge** 展示 Overview、Experiments、Agent Activity、Capabilities 和 Usage Insights。64 个工具的名称、分类、注解、恢复边界和敏感级别来自同一权威目录。v0.12 增加实验内临时 Task/Debug 定义及独立持久化；v0.11 的静态审核扩展适配器和官方 Python 活动环境边界保持不变。
 

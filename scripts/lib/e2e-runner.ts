@@ -113,11 +113,13 @@ export function createE2EEnvironmentVariables(
   scenarios: readonly E2EScenario[],
   extra: NodeJS.ProcessEnv = {},
 ): NodeJS.ProcessEnv {
-  const lifecycle = scenarios.includes("lifecycle");
+  const lifecycle = scenarios.includes("lifecycle") || scenarios.includes("http-bridge");
   return {
     ...process.env,
     ...extra,
     VSCODE_AGENT_BRIDGE_REGISTRY_DIR: environment.root,
+    VSCODE_AGENT_BRIDGE_SERVICE_DIR: path.join(environment.root, "http-service"),
+    CODEX_HOME: path.join(environment.root, "codex-home"),
     VSCODE_AGENT_BRIDGE_E2E: "1",
     VSCODE_AGENT_BRIDGE_E2E_SCENARIOS: scenarios.join(","),
     VSCODE_AGENT_BRIDGE_E2E_INITIALIZATION_DELAY_MS: lifecycle ? "10000" : "0",

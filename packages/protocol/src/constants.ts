@@ -1,5 +1,5 @@
 export const BRIDGE_NAME = "vscode-agent-bridge" as const;
-export const BRIDGE_RELEASE_VERSION = "0.12.0" as const;
+export const BRIDGE_RELEASE_VERSION = "0.13.0" as const;
 export const BRIDGE_PROTOCOL_VERSION = 11 as const;
 export const DEFAULT_BRIDGE_TIMEOUT_MS = 5_000;
 export const INTERACTIVE_BRIDGE_TIMEOUT_MS = 90_000;

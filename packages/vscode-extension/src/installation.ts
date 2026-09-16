@@ -1,30 +1,16 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { createReadStream } from "node:fs";
-import { access, copyFile, mkdir, readFile, rename, rm } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-
 import type * as vscode from "vscode";
-
-import { BRIDGE_PROTOCOL_VERSION, BRIDGE_RELEASE_VERSION } from "@vscode-agent-bridge/protocol";
-
-import {
-  inspectCodexConfigFile,
-  removeCodexConfigBlock,
-  updateCodexConfigFile,
-  type CodexConfigChangeResult,
-  type CodexConfigStatus,
-} from "./codex-config.js";
+import { BRIDGE_PROTOCOL_VERSION, BRIDGE_RELEASE_VERSION, SERVICE_ERROR_CODES, ServiceStatusSchema, type CodexConfigChangeResult, type CodexConfigStatus } from "@vscode-agent-bridge/protocol";
+import { CodexConfigConflictError } from "./codex-config.js";
 
 const EXECUTABLE_NAME = "vscode-agent-bridge-mcp.exe";
 const execFileAsync = promisify(execFile);
-
-export interface InstallationResult extends CodexConfigChangeResult {
-  readonly executableInstalled: boolean;
-}
-
+export interface InstallationResult extends CodexConfigChangeResult { readonly executableInstalled: boolean; }
 export interface InstallationDoctorResult {
   readonly releaseVersion: string;
   readonly extensionVersion: string;
@@ -34,182 +20,71 @@ export interface InstallationDoctorResult {
   readonly bundledExecutable: "present" | "missing" | "invalid";
   readonly installedExecutable: "present" | "missing" | "invalid";
   readonly codexConfig: CodexConfigStatus;
+  readonly httpService: "ready" | "starting" | "stopping" | "unavailable" | "authentication-error";
+  readonly loginTask: "present" | "missing" | "invalid";
+  readonly serviceVersion: string | null;
+  readonly servicePid: number | null;
 }
 
-export async function configureCodexIntegration(
-  context: vscode.ExtensionContext,
-): Promise<InstallationResult> {
-  const installation = await installBundledExecutable(context);
-  const configResult = await updateCodexConfigFile(
-    resolveCodexConfigPath(),
-    installation.executablePath,
-  );
-  return {
-    ...configResult,
-    executableInstalled: installation.changed,
+export async function configureCodexIntegration(context: vscode.ExtensionContext): Promise<InstallationResult> {
+  const result = await runServiceCommand(context, ["service", "install", "--config", resolveCodexConfigPath()]);
+  ServiceStatusSchema.parse(result.status);
+  return { changed: result.changed === true, executableInstalled: result.executableInstalled === true,
+    ...(typeof result.backupPath === "string" ? { backupPath: result.backupPath } : {}) };
+}
+
+export async function removeCodexIntegration(context: vscode.ExtensionContext): Promise<CodexConfigChangeResult> {
+  const result = await runServiceCommand(context, ["service", "uninstall"]);
+  return { changed: result.changed === true, ...(typeof result.backupPath === "string" ? { backupPath: result.backupPath } : {}) };
+}
+
+export async function inspectInstallation(context: vscode.ExtensionContext): Promise<InstallationDoctorResult> {
+  const bundledExecutable = await validateExecutableWithSidecar(resolveBundledExecutablePath(context));
+  const report: InstallationDoctorResult = {
+    releaseVersion: BRIDGE_RELEASE_VERSION, extensionVersion: String(context.extension.packageJSON.version ?? "unknown"),
+    protocolVersion: BRIDGE_PROTOCOL_VERSION, versionAligned: context.extension.packageJSON.version === BRIDGE_RELEASE_VERSION,
+    platformSupported: process.platform === "win32" && process.arch === "x64", bundledExecutable,
+    installedExecutable: "missing", codexConfig: "missing", httpService: "unavailable", loginTask: "missing", serviceVersion: null, servicePid: null,
   };
-}
-
-export async function removeCodexIntegration(): Promise<CodexConfigChangeResult> {
-  return removeCodexConfigBlock(resolveCodexConfigPath());
-}
-
-export async function inspectInstallation(
-  context: vscode.ExtensionContext,
-): Promise<InstallationDoctorResult> {
-  const bundledExecutable = await validateExecutableWithSidecar(
-    resolveBundledExecutablePath(context),
-  );
-  const installedExecutablePath = resolveInstalledExecutablePath();
-  const installedExecutable = await validateInstalledExecutable(installedExecutablePath);
-  const codexConfig = await inspectCodexConfigFile(
-    resolveCodexConfigPath(),
-    installedExecutablePath,
-  );
-
-  return {
-    releaseVersion: BRIDGE_RELEASE_VERSION,
-    extensionVersion: String(context.extension.packageJSON.version ?? "unknown"),
-    protocolVersion: BRIDGE_PROTOCOL_VERSION,
-    versionAligned: context.extension.packageJSON.version === BRIDGE_RELEASE_VERSION,
-    platformSupported: process.platform === "win32" && process.arch === "x64",
-    bundledExecutable,
-    installedExecutable,
-    codexConfig,
-  };
+  if (bundledExecutable !== "present" || !report.platformSupported) return report;
+  try {
+    const status = await runServiceCommand(context, ["service", "status", "--config", resolveCodexConfigPath()]);
+    const service = ServiceStatusSchema.safeParse(status.service);
+    const codexConfig = ["missing", "current", "outdated", "conflict", "invalid"].includes(String(status.codexConfig)) ? status.codexConfig as CodexConfigStatus : "invalid";
+    return { ...report, installedExecutable: status.installed ? (status.installedVersion === BRIDGE_RELEASE_VERSION && status.installedExecutable === "present" ? "present" : "invalid") : "missing",
+      codexConfig, loginTask: status.loginTask === "present" ? "present" : status.loginTask === "missing" ? "missing" : "invalid",
+      httpService: status.serviceError === "SERVICE_AUTHENTICATION_FAILED" ? "authentication-error" : service.success ? service.data.state : "unavailable",
+      serviceVersion: service.success ? service.data.version : null, servicePid: service.success ? service.data.pid : null };
+  } catch { return { ...report, installedExecutable: "invalid", codexConfig: "invalid" }; }
 }
 
 export function resolveCodexConfigPath(): string {
-  return path.join(os.homedir(), ".codex", "config.toml");
+  return path.join(process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex"), "config.toml");
 }
-
-export function resolveInstalledExecutablePath(
-  env: NodeJS.ProcessEnv = process.env,
-  homeDirectory = os.homedir(),
-): string {
-  const localAppData = env.LOCALAPPDATA ?? path.join(homeDirectory, "AppData", "Local");
-  return path.join(
-    localAppData,
-    "VSCodeAgentBridge",
-    "versions",
-    BRIDGE_RELEASE_VERSION,
-    EXECUTABLE_NAME,
-  );
-}
-
 function resolveBundledExecutablePath(context: vscode.ExtensionContext): string {
   return context.asAbsolutePath(path.join("resources", "bin", EXECUTABLE_NAME));
 }
-
-async function installBundledExecutable(
-  context: vscode.ExtensionContext,
-): Promise<{ executablePath: string; changed: boolean }> {
-  if (process.platform !== "win32" || process.arch !== "x64") {
-    throw new Error("This release only includes a Windows x64 MCP executable.");
-  }
-
-  const sourcePath = resolveBundledExecutablePath(context);
-  const sourceStatus = await validateExecutableWithSidecar(sourcePath);
-  if (sourceStatus !== "present") {
-    throw new Error(
-      sourceStatus === "missing"
-        ? "The packaged MCP executable is missing. Reinstall the extension from Marketplace."
-        : "The packaged MCP executable failed its SHA-256 validation.",
-    );
-  }
-
-  const expectedHash = (await readFile(`${sourcePath}.sha256`, "utf8")).trim().toLowerCase();
-  const targetPath = resolveInstalledExecutablePath();
-  if ((await validateHash(targetPath, expectedHash)) === "present") {
-    return { executablePath: targetPath, changed: false };
-  }
-
-  await mkdir(path.dirname(targetPath), { recursive: true });
-  const temporaryPath = `${targetPath}.${process.pid}.tmp`;
+async function runServiceCommand(context: vscode.ExtensionContext, args: string[]): Promise<Record<string, unknown>> {
+  const executable = resolveBundledExecutablePath(context);
+  if (await validateExecutableWithSidecar(executable) !== "present") throw new Error("The packaged MCP executable is missing or failed its SHA-256 validation. Reinstall the extension.");
   try {
-    await copyFile(sourcePath, temporaryPath);
-    await assertExpectedHash(temporaryPath, expectedHash);
-    await rename(temporaryPath, targetPath);
+    const { stdout } = await execFileAsync(executable, args, { encoding: "utf8", timeout: 120_000, windowsHide: true, maxBuffer: 128 * 1024 });
+    return JSON.parse(stdout.trim()) as Record<string, unknown>;
   } catch (error) {
-    throw new Error(
-      "Could not install the MCP executable. Restart Codex to release the previous executable and retry.",
-      { cause: error },
-    );
-  } finally {
-    await rm(temporaryPath, { force: true }).catch(() => undefined);
-  }
-
-  return { executablePath: targetPath, changed: true };
-}
-
-async function assertExpectedHash(filePath: string, expectedHash: string): Promise<void> {
-  if ((await validateHash(filePath, expectedHash)) !== "present") {
-    throw new Error("The copied MCP executable failed its SHA-256 validation.");
+    // Do not forward child_process errors: they contain arguments and raw output.
+    let code: string | undefined;
+    try {
+      const stderr = (error as { stderr?: string }).stderr;
+      const candidate: unknown = JSON.parse(stderr ?? "{}").error?.code;
+      if (typeof candidate === "string" && (SERVICE_ERROR_CODES as readonly string[]).includes(candidate)) code = candidate;
+    } catch { /* Redacted generic error below. */ }
+    if (code === "SERVICE_INSTALL_CONFLICT") throw new CodexConfigConflictError("Review the existing Codex configuration or wait for the current installation to finish.");
+    throw new Error(`The HTTP service operation failed${code ? ` (${code})` : ""}. Run Bridge Doctor or the local service status command.`);
   }
 }
-
-async function validateExecutableWithSidecar(
-  executablePath: string,
-): Promise<"present" | "missing" | "invalid"> {
+async function validateExecutableWithSidecar(executablePath: string): Promise<"present" | "missing" | "invalid"> {
   try {
-    const expectedHash = (await readFile(`${executablePath}.sha256`, "utf8"))
-      .trim()
-      .toLowerCase();
-    return validateHash(executablePath, expectedHash);
-  } catch (error) {
-    return isMissingFileError(error) ? "missing" : "invalid";
-  }
-}
-
-async function validateInstalledExecutable(
-  executablePath: string,
-): Promise<"present" | "missing" | "invalid"> {
-  try {
-    await access(executablePath);
-    const { stdout } = await execFileAsync(executablePath, ["--self-test"], {
-      encoding: "utf8",
-      timeout: 3_000,
-      windowsHide: true,
-    });
-    const result = JSON.parse(stdout.trim()) as Record<string, unknown>;
-    return result.version === BRIDGE_RELEASE_VERSION &&
-      result.protocolVersion === BRIDGE_PROTOCOL_VERSION &&
-      result.platform === "win32" &&
-      result.architecture === "x64"
-      ? "present"
-      : "invalid";
-  } catch (error) {
-    return isMissingFileError(error) ? "missing" : "invalid";
-  }
-}
-
-async function validateHash(
-  filePath: string,
-  expectedHash: string,
-): Promise<"present" | "missing" | "invalid"> {
-  try {
-    return (await sha256File(filePath)) === expectedHash ? "present" : "invalid";
-  } catch (error) {
-    return isMissingFileError(error) ? "missing" : "invalid";
-  }
-}
-
-async function sha256File(filePath: string): Promise<string> {
-  const hash = createHash("sha256");
-  await new Promise<void>((resolve, reject) => {
-    const stream = createReadStream(filePath);
-    stream.on("data", (chunk) => hash.update(chunk));
-    stream.once("error", reject);
-    stream.once("end", resolve);
-  });
-  return hash.digest("hex");
-}
-
-function isMissingFileError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as NodeJS.ErrnoException).code === "ENOENT"
-  );
+    const expected = (await readFile(`${executablePath}.sha256`, "utf8")).trim().toLowerCase();
+    return createHash("sha256").update(await readFile(executablePath)).digest("hex") === expected ? "present" : "invalid";
+  } catch (error) { return (error as NodeJS.ErrnoException).code === "ENOENT" ? "missing" : "invalid"; }
 }

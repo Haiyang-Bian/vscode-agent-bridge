@@ -14,6 +14,7 @@ export const TEST_DOMAINS = [
 ] as const;
 
 export const E2E_SCENARIOS = [
+  "http-bridge",
   "core-language",
   "lifecycle",
   "experiment-resource",
@@ -65,7 +66,7 @@ const WORKSPACE_DIRECTORIES: Record<WorkspaceName, string> = {
 const DOMAIN_TEST_FILES: Record<TestDomain, readonly string[]> = {
   protocol: [
     "packages/protocol/test",
-    "packages/mcp-server/test/stdio.test.ts",
+    "packages/mcp-server/test/service-process.test.ts",
     "packages/mcp-server/test/rpc-client.test.ts",
   ],
   "mcp-runtime": ["packages/mcp-server/test"],
@@ -124,7 +125,7 @@ const DOMAIN_TEST_FILES: Record<TestDomain, readonly string[]> = {
     "packages/vscode-extension/test/local-usage-insights.test.ts",
     "packages/vscode-extension/test/output-source-order.test.ts",
   ],
-  "release-tooling": ["scripts/lib/release-environment.test.ts"],
+  "release-tooling": ["scripts/lib/release-environment.test.ts", "scripts/lib/windows-executable.test.ts"],
 };
 
 const DOMAIN_WORKSPACES: Record<TestDomain, readonly WorkspaceName[]> = {
@@ -226,7 +227,8 @@ export function classifyTestImpact(
       workspaces.add("vscode-extension");
       repeatE2E = true;
       if (
-        changedPath === "scripts/run-vsix-e2e.ts" ||
+        isArtifactScript(changedPath) || changedPath === "scripts/lib/http-e2e-service.ts" ||
+        changedPath.startsWith("packages/vscode-extension/test/http-lifecycle-harness/") ||
         changedPath === "packages/vscode-extension/.vscode-test-artifact.mjs"
       ) {
         artifact = true;
@@ -265,6 +267,11 @@ export function classifyTestImpact(
       if (changedPath.endsWith("index.ts")) {
         markFull("The MCP server composition root changed.", true);
       }
+      if (/(?:http-runtime|mcp-session|request-context|service-[^/]+|windows-service-native)\.ts$/u.test(changedPath)) {
+        addDomain("lifecycle");
+        markFull(`HTTP session, service lifecycle or installation boundary changed: ${changedPath}`, true);
+        artifact = true;
+      }
       continue;
     }
 
@@ -284,7 +291,7 @@ export function classifyTestImpact(
 
     if (isManifestOrCompilerPath(changedPath)) {
       addDomain("release-tooling");
-      artifact = isPackagingManifestPath(changedPath);
+      artifact ||= isPackagingManifestPath(changedPath);
       markFull(`Manifest, dependency lock or compiler configuration changed: ${changedPath}`);
       continue;
     }
@@ -564,10 +571,13 @@ function isE2EInfrastructurePath(changedPath: string): boolean {
     changedPath === "scripts/run-vsix-e2e.ts" ||
     changedPath === "scripts/test-e2e-affected.ts" ||
     changedPath === "scripts/lib/e2e-runner.ts" ||
+    changedPath === "scripts/lib/http-e2e-service.ts" ||
+    changedPath === "scripts/test-http-window-lifecycle.ts" ||
     changedPath === "packages/vscode-extension/.vscode-test.mjs" ||
     changedPath === "packages/vscode-extension/.vscode-test-artifact.mjs" ||
     changedPath.startsWith("packages/vscode-extension/test/e2e/") ||
-    changedPath.startsWith("packages/vscode-extension/test/harness/")
+    changedPath.startsWith("packages/vscode-extension/test/harness/") ||
+    changedPath.startsWith("packages/vscode-extension/test/http-lifecycle-harness/")
   );
 }
 
@@ -590,7 +600,8 @@ function isPackagingManifestPath(changedPath: string): boolean {
 }
 
 function isArtifactScript(changedPath: string): boolean {
-  return /scripts\/(build-mcp-executable|package-vsix|create-test-bundle|create-checksums|test-artifacts|run-vsix-e2e|verify-release)\.ts$/.test(changedPath);
+  return /scripts\/(build-mcp-executable|package-vsix|create-test-bundle|create-checksums|test-artifacts|test-http-service|test-http-window-lifecycle|run-vsix-e2e|verify-release)\.ts$/.test(changedPath) ||
+    changedPath === "scripts/lib/windows-acl-test.ts" || changedPath === "scripts/lib/windows-executable.ts";
 }
 
 function normalizeRepositoryPath(value: string): string {

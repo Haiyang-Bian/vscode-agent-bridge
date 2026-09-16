@@ -5,7 +5,7 @@
 ```mermaid
 flowchart LR
     Agent["MCP client / coding Agent"]
-    MCP["STDIO MCP server\npackages/mcp-server"]
+    MCP["Shared HTTP MCP daemon\npackages/mcp-server"]
     Registry[("Per-user instance descriptors")]
     IPC["Authenticated local JSON-RPC\nnamed pipe or Unix socket"]
     Host["BridgeHost in VS Code Extension Host"]
@@ -15,7 +15,7 @@ flowchart LR
     Storage[("Extension and local state")]
     Protocol["packages/protocol\nshared contracts only"]
 
-    Agent -->|MCP over stdio| MCP
+    Agent -->|Authenticated loopback HTTP| MCP
     MCP -->|discover and select| Registry
     MCP -->|initialize with descriptor token| IPC
     IPC --> Host
@@ -28,6 +28,8 @@ flowchart LR
 ```
 
 There are two runtime layers. `packages/protocol` is linked into both but has no independent process, lifecycle or state.
+
+The current-user login task owns daemon startup. A stable OS-exclusive pipe prevents competing versions from running simultaneously. Each authenticated HTTP MCP session has independent protocol state and cancellation; discovery and privacy-preserving usage are process-shared. Service identity and management contract v1 are separate from extension RPC v11. See [ADR 0022](../adr/0022-per-user-http-daemon.md).
 
 ## Request lifecycle
 
@@ -45,8 +47,8 @@ When debugging, locate the failing step before editing code. See the [debugging 
 | Boundary | Owns | Must not own |
 | --- | --- | --- |
 | Protocol package | Schemas, constants, stable errors, RPC framing, registry types, authoritative tool catalog | Runtime state, VS Code APIs, workspace mutation |
-| MCP server | STDIO lifecycle, instance discovery, routing, RPC client, MCP result shaping, local aggregate usage records | Direct VS Code behavior or arbitrary workspace access |
-| VS Code extension | Descriptor publication, VS Code APIs, trust/policy, experiments, handlers, managers, native UI | MCP STDIO framing or client approval policy |
+| MCP server | HTTP session and per-user daemon lifecycle, instance discovery, routing, RPC client, MCP result shaping, local aggregate usage records | Direct VS Code behavior or arbitrary workspace access |
+| VS Code extension | Descriptor publication, VS Code APIs, trust/policy, experiments, handlers, managers, native UI | MCP HTTP framing or client approval policy |
 | Repository scripts | Build/test/package/release orchestration and impact selection | Product behavior or alternate runtime contracts |
 
 ## State ownership

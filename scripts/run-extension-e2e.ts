@@ -1,4 +1,5 @@
 import path from "node:path";
+import { startHttpE2EService } from "./lib/http-e2e-service.ts";
 
 import {
   assertE2ECompletion,
@@ -22,6 +23,7 @@ try {
 
   for (let iteration = 1; iteration <= repeat; iteration += 1) {
     const environment = await createE2EEnvironment("vscode-agent-bridge-e2e-");
+    const httpService = scenarios.includes("http-bridge") ? await startHttpE2EService(environment) : undefined;
     try {
       await prepareFixtureWorkspace(
         path.join(extensionRoot, "test", "fixtures", "typescript-workspace"),
@@ -31,7 +33,7 @@ try {
       await runCommand(
         ["node", path.join(repositoryRoot, "node_modules", "@vscode", "test-cli", "out", "bin.mjs")],
         extensionRoot,
-        createE2EEnvironmentVariables(environment, scenarios),
+        createE2EEnvironmentVariables(environment, scenarios, httpService?.env),
       );
       await assertE2ECompletion(environment, scenarios);
       await writeRunnerEvidence(path.join(environment.root, "runner-e2e-passed.json"), {
@@ -41,7 +43,7 @@ try {
         cleanupPending: true,
       });
     } finally {
-      await cleanupE2EEnvironment(environment);
+      try { await httpService?.close(); } finally { await cleanupE2EEnvironment(environment); }
     }
   }
 } catch (error) {

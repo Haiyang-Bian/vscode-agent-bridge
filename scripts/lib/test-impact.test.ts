@@ -12,6 +12,7 @@ import {
 import {
   cleanupE2EEnvironment,
   createE2EEnvironment,
+  createE2EEnvironmentVariables,
   parseE2EScenarios,
 } from "./e2e-runner.ts";
 
@@ -22,6 +23,12 @@ afterEach(async () => {
 });
 
 describe("test impact classification", () => {
+  test("classifies Windows executable header changes as a packaging boundary", () => {
+    const plan = classifyTestImpact(["scripts/lib/windows-executable.ts"]);
+    expect(plan.risk).toBe("full");
+    expect(plan.artifact).toBeTrue();
+    expect(plan.testFiles).toContain("scripts/lib/windows-executable.test.ts");
+  });
   test("keeps documentation changes out of code gates", () => {
     const plan = classifyTestImpact(["docs/testing-strategy.md", "README.md"]);
     expect(plan.risk).toBe("docs");
@@ -114,6 +121,10 @@ describe("test impact classification", () => {
     const packaged = classifyTestImpact(["scripts/run-vsix-e2e.ts"]);
     expect(packaged.artifact).toBeTrue();
     expect(packaged.repeatE2E).toBeTrue();
+    const httpLifecycle = classifyTestImpact(["scripts/test-http-window-lifecycle.ts", "packages/vscode-extension/test/http-lifecycle-harness/extension.js"]);
+    expect(httpLifecycle.repeatE2E).toBeTrue();
+    expect(httpLifecycle.artifact).toBeTrue();
+    expect(classifyTestImpact(["packages/mcp-server/src/service-installer.ts", "packages/vscode-extension/tsconfig.json"]).artifact).toBeTrue();
   });
 
   test("validates explicit domain names", () => {
@@ -210,7 +221,8 @@ describe("Git change collection", () => {
 
 describe("E2E runner selection and cleanup", () => {
   test("expands full and validates individual scenarios", () => {
-    expect(parseE2EScenarios([])).toHaveLength(8);
+    expect(parseE2EScenarios([])).toHaveLength(9);
+    expect(parseE2EScenarios(["http-bridge"])).toEqual(["http-bridge"]);
     expect(parseE2EScenarios(["debug,task-terminal", "debug"])).toEqual([
       "debug",
       "task-terminal",
@@ -221,6 +233,9 @@ describe("E2E runner selection and cleanup", () => {
 
   test("removes the complete per-run profile root", async () => {
     const environment = await createE2EEnvironment("bridge-e2e-runner-test-");
+    const variables = createE2EEnvironmentVariables(environment, ["http-bridge"]);
+    expect(variables.VSCODE_AGENT_BRIDGE_SERVICE_DIR).toBe(path.join(environment.root, "http-service"));
+    expect(variables.CODEX_HOME).toBe(path.join(environment.root, "codex-home"));
     await cleanupE2EEnvironment(environment);
     expect(await Bun.file(environment.root).exists()).toBeFalse();
   });

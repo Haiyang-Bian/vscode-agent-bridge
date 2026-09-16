@@ -1,10 +1,12 @@
 # VS Code Agent Bridge
 
-VS Code Agent Bridge connects local MCP clients such as Codex to IDE-native VS Code state. It has two runtime layers: a standalone STDIO MCP server and a VS Code desktop extension. `packages/protocol` contains their shared RPC contracts and is not a third service.
+VS Code Agent Bridge connects local MCP clients such as Codex to IDE-native VS Code state. It has two runtime layers: a per-user shared HTTP MCP daemon and a VS Code desktop extension. `packages/protocol` contains their shared RPC contracts and is not a third service.
 
-The unpublished `0.12.0` candidate targets Windows x64, uses Bridge protocol v11 and exposes exactly 64 catalog-derived tools. It is distributed as a side-loaded VSIX and upgrades directly over `0.11.0`; testers do not need Bun, Node.js or this repository because the package contains a Bun-compiled MCP executable and installs a versioned copy only after explicit confirmation.
+The unpublished `0.13.0` candidate targets Windows x64, uses Bridge protocol v11 and exposes exactly 64 catalog-derived tools. It is distributed as a side-loaded VSIX and migrates existing managed client configuration to HTTP; the internal v11 RPC remains compatible with the `0.12.0` extension; testers do not need Bun, Node.js or this repository because the package contains a Bun-compiled MCP executable and installs a versioned copy only after explicit confirmation.
 
 ## MCP tools
+
+For setup, migration, login startup, Doctor and rollback, see [shared HTTP service installation](docs/installation.md). The service stays available without VS Code; IDE tools report the window state instead of restarting the daemon.
 
 | Tool | Purpose |
 | --- | --- |
@@ -134,7 +136,7 @@ Run **Start Managed Worktree Experiment** from a clean, named local Git branch t
 ```text
 packages/
   protocol/          RPC schemas, error codes and discovery contracts
-  mcp-server/        standalone STDIO MCP server launched by Codex
+  mcp-server/        shared HTTP daemon started by the current-user login task
   vscode-extension/  VS Code desktop UI extension and installer
 scripts/             Bun build, test, package and release verification
 docs/agent-handbook/ progressive project, architecture and workflow guidance for coding agents
@@ -192,6 +194,8 @@ bun run test:artifact
 Pull requests and `master` run [CI](.github/workflows/ci.yml). A version tag runs [the release workflow](.github/workflows/release.yml), creates checksums, a version-specific cross-machine test bundle and provenance, and publishes a GitHub Release. Marketplace publishing remains disabled and runs through `vsce --oidc` only if `MARKETPLACE_TRUSTED_PUBLISHING_ENABLED` is explicitly set to `true`.
 
 No PAT is stored in this repository. See the [v0.12.0 release checklist](docs/releases/v0.12.0.md) and [v0.12.0 cross-machine acceptance procedure](docs/acceptance/v0.12.0-windows-x64.md). Earlier self-bootstrap findings remain available under [docs/audits](docs/audits/README.md).
+
+The current unpublished HTTP candidate uses the [v0.13.0 validation checklist](docs/releases/v0.13.0.md) and [Windows acceptance procedure](docs/acceptance/v0.13.0-windows-x64.md).
 
 ## Security and license
 

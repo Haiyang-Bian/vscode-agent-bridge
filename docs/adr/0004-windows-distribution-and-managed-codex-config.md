@@ -3,6 +3,8 @@
 - Status: Accepted
 - Date: 2026-08-09
 
+[ADR 0022](0022-per-user-http-daemon.md), accepted 2026-09-07, supersedes command-based Codex startup with a logon daemon and HTTP configuration. Versioned installation directories and managed-block conflict/backup semantics are retained.
+
 ## Context
 
 The prototype required Bun and a repository path in Codex configuration. Public installation must survive extension upgrades, avoid silently modifying user configuration, and keep the MCP process independent from VS Code's Extension Host.

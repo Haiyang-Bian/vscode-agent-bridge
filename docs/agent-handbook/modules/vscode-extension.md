@@ -6,6 +6,8 @@
 
 `src/extension.ts` is the composition root. `BridgeHost` owns the authenticated RPC server. Request handlers validate and route typed calls; managers/services own behavior and state.
 
+`src/installation.ts` verifies the bundled EXE and delegates install/uninstall/status to its bounded service CLI. The daemon owns login tasks and transactional HTTP configuration. Doctor reports HTTP health, service version/PID and task state; the extension never generates STDIO configuration or copies credentials to the clipboard.
+
 ## Capability map
 
 | Capability | Primary implementation |

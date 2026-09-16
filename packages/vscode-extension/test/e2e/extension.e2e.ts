@@ -40,6 +40,7 @@ import {
 } from "../../../../scripts/lib/test-impact.js";
 
 import { isPathWithin, samePath } from "../../src/git-path.js";
+import { HttpE2EClient } from "./http-client.js";
 
 const UNSAVED_MARKER = "UNSAVED_VSCODE_AGENT_BRIDGE_E2E";
 const AGENT_MARKER = "AGENT_CHANGE_SET_E2E";
@@ -107,6 +108,35 @@ suite("VS Code Agent Bridge Extension Host", function () {
 
     const descriptor = await waitForDescriptor("ready");
     await assertAuthenticationBoundary(descriptor);
+    if (isScenarioRequested("http-bridge")) {
+      const a = new HttpE2EClient(), b = new HttpE2EClient();
+      await a.connect(); await b.connect();
+      try {
+        assert.equal((await a.health()).pid, Number(process.env.VSCODE_AGENT_BRIDGE_E2E_HTTP_PID));
+        assert.equal((await b.health()).pid, (await a.health()).pid);
+        const instances = await a.call<{ instances: Array<{ instanceId: string }> }>("vscode_list_instances");
+        assert.ok(instances.instances.some(instance => instance.instanceId === descriptor.instanceId));
+        const httpSnapshot = await b.call<{ isDirty: boolean; text: string }>("vscode_read_document", { instanceId: descriptor.instanceId });
+        assert.equal(httpSnapshot.isDirty, true); assert.ok(httpSnapshot.text.includes(UNSAVED_MARKER));
+        const pending = a.request("tools/call", { name: "vscode_start_experiment", arguments: {
+          instanceId: descriptor.instanceId, rootUri: workspaceFolder.uri.toString(true), title: "Cancelled HTTP onboarding",
+          reason: "Verify cancellation before delayed user confirmation can mutate workspace settings",
+        } }, 1000);
+        const cancelled = assert.rejects(pending, /MCP error -32800/u);
+        await new Promise(resolve => setTimeout(resolve, 250));
+        await a.notify("notifications/cancelled", { requestId: 1000 });
+        await cancelled;
+        await a.close();
+        // Allow the acceptance fixture's original user-response deadline to
+        // pass; a cancelled operation must never persist settings afterwards.
+        await new Promise(resolve => setTimeout(resolve, 11_100));
+        const setup = await b.call<WorkspaceSetupResult>("vscode_get_workspace_setup", { instanceId: descriptor.instanceId, rootUri: workspaceFolder.uri.toString(true) });
+        assert.equal(setup.onboarding, "unconfigured"); assert.equal(setup.vscodeDirectory, "missing");
+        assert.equal((await b.health()).pid, Number(process.env.VSCODE_AGENT_BRIDGE_E2E_HTTP_PID));
+        actualScenarios.add("http-bridge");
+      } finally { await a.close(); await b.close(); }
+    }
+
     const client = await BridgeRpcClient.connect(descriptor.transport.endpoint);
     try {
       await client.request(BRIDGE_METHODS.initialize, {
