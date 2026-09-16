@@ -29,6 +29,7 @@ Each report should include:
 
 | Date | Scope | Status | Report |
 | --- | --- | --- | --- |
+| 2026-09-16 | protocol v12 direct IDE Bridge, plugin convergence and formal local migration | `completed_with_findings` | [Phase 2 direct IDE Bridge acceptance](2026-09-16-direct-ide-bridge-phase2-acceptance.md) |
 | 2026-09-07 | shared HTTP daemon, login service and formal Codex migration | `completed_with_findings` | [Phase 1 HTTP daemon acceptance](2026-09-07-http-daemon-phase1-acceptance.md) |
 | 2026-09-07 | v0.12 remote branch integration and master CI | `completed_with_findings` | [v0.12 master integration verification](2026-09-07-v012-master-integration.md) |
 | 2026-09-07 | top-level MCP server lifecycle and process multiplicity | `completed_with_findings` | [top-level server lifecycle investigation](2026-09-07-top-level-server-lifecycle-investigation.md) |
