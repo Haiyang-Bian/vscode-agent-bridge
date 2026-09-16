@@ -4,7 +4,7 @@ import path from "node:path";
 import { z } from "zod";
 import {
   BRIDGE_PROTOCOL_VERSION, BRIDGE_RELEASE_VERSION, ServiceStatusSchema, updateManagedConfigText,
-  type ServiceIdentity, type ServiceInstallation, type ServiceStatus, type CodexConfigChangeResult,
+  type ServiceExecutableReference, type ServiceIdentity, type ServiceInstallation, type ServiceStatus, type CodexConfigChangeResult,
 } from "@vscode-agent-bridge/protocol";
 import { controlRequest, stopVerifiedService, waitForReady } from "./service-control.js";
 import { httpConnection, writeConfigChange, removeCodexConfigBlock } from "./service-config.js";
@@ -12,6 +12,7 @@ import { ServiceError } from "./service-errors.js";
 import { createLoginTaskXml, isCurrentLoginTask, WindowsServiceScheduler, type ServiceScheduler } from "./service-scheduler.js";
 import { ensurePrivateDirectory, newServiceIdentity, readIdentity, readInstallation, readOptional, writePrivateAtomic, writePrivateJson, type ServicePaths } from "./service-state.js";
 import { WindowsControlPipe, hardenPrivatePath } from "./windows-service-native.js";
+import { pruneServiceVersions } from "./service-version-pruner.js";
 
 const EXECUTABLE_NAME = "vscode-agent-bridge-mcp.exe";
 const TransactionSchema = z.object({
@@ -29,6 +30,7 @@ export interface InstallerDependencies {
   readonly stop?: typeof stopVerifiedService;
   readonly current?: typeof controlRequest;
   readonly prepare?: typeof prepareExecutable;
+  readonly prune?: typeof pruneServiceVersions;
 }
 
 export class ServiceInstaller {
@@ -37,12 +39,14 @@ export class ServiceInstaller {
   readonly #stop: typeof stopVerifiedService;
   readonly #current: typeof controlRequest;
   readonly #prepare: typeof prepareExecutable;
+  readonly #prune: typeof pruneServiceVersions;
   constructor(readonly paths: ServicePaths, dependencies: InstallerDependencies = {}) {
     this.scheduler = dependencies.scheduler ?? new WindowsServiceScheduler(paths);
     this.#ready = dependencies.ready ?? waitForReady;
     this.#stop = dependencies.stop ?? stopVerifiedService;
     this.#current = dependencies.current ?? controlRequest;
     this.#prepare = dependencies.prepare ?? prepareExecutable;
+    this.#prune = dependencies.prune ?? pruneServiceVersions;
   }
 
   async exclusive<T>(operation: () => Promise<T>): Promise<T> {
@@ -72,6 +76,7 @@ export class ServiceInstaller {
         previousTask && isCurrentLoginTask(previousTask, paths, prepared.executablePath, options.registryDirectory)) {
         await this.#ready(paths, identity);
         const change = options.configPath && publishedConfig !== null ? await writeConfigChange(options.configPath, previousConfig, publishedConfig, paths.userSid) : { changed: false };
+        await this.#pruneAfterCommit(previousRecord, previousTask);
         return { ...change, executableInstalled: prepared.changed, status: previousStatus };
       }
       const transaction: Transaction = { contractVersion: 1, serviceId: paths.serviceId, operation: "install", previousIdentity,
@@ -83,7 +88,8 @@ export class ServiceInstaller {
         // Even an existing identity is re-protected before the service uses it.
         hardenPrivatePath(paths.identity, paths.userSid, false);
         if (previousStatus) await this.#stop(paths, identity, previousStatus);
-        await this.scheduler.register(createLoginTaskXml(paths, prepared.executablePath, options.registryDirectory));
+        const nextTask = createLoginTaskXml(paths, prepared.executablePath, options.registryDirectory);
+        await this.scheduler.register(nextTask);
         await this.scheduler.run();
         const status = await this.#ready(paths, identity);
         if (status.version !== BRIDGE_RELEASE_VERSION || status.protocolVersion !== BRIDGE_PROTOCOL_VERSION) throw new ServiceError("SERVICE_START_FAILED", "The new service version did not pass verification.");
@@ -91,11 +97,13 @@ export class ServiceInstaller {
         await writePrivateJson(paths.transaction, transaction, paths.userSid);
         const configChange = options.configPath && publishedConfig !== null
           ? await writeConfigChange(options.configPath, previousConfig, publishedConfig, paths.userSid) : { changed: false };
+        const rollback = await this.#selectRollback(previousRecord, prepared.executablePath);
         const installation: ServiceInstallation = { contractVersion: 1, version: BRIDGE_RELEASE_VERSION,
           executablePath: prepared.executablePath, executableSha256: prepared.sha256, taskName: paths.taskName,
-          codexConfigPath: options.configPath, registryDirectory: options.registryDirectory ?? null, installedAt: new Date().toISOString() };
+          rollback, codexConfigPath: options.configPath, registryDirectory: options.registryDirectory ?? null, installedAt: new Date().toISOString() };
         await writePrivateJson(paths.installation, installation, paths.userSid);
         await rm(paths.transaction);
+        await this.#pruneAfterCommit(installation, nextTask);
         return { ...configChange, executableInstalled: prepared.changed, status };
       } catch (error) {
         await this.#rollback(transaction);
@@ -165,6 +173,26 @@ export class ServiceInstaller {
 
   async current(identity: ServiceIdentity): Promise<ServiceStatus | null> { return this.#tryCurrent(identity); }
 
+  async #selectRollback(previous: ServiceInstallation | null, currentExecutable: string): Promise<ServiceExecutableReference | null> {
+    if (!previous) return null;
+    const candidates: ServiceExecutableReference[] = [];
+    if (path.resolve(previous.executablePath).toLowerCase() !== path.resolve(currentExecutable).toLowerCase()) {
+      candidates.push({ version: previous.version, executablePath: previous.executablePath, executableSha256: previous.executableSha256 });
+    }
+    if (previous.rollback && path.resolve(previous.rollback.executablePath).toLowerCase() !== path.resolve(currentExecutable).toLowerCase()) {
+      candidates.push(previous.rollback);
+    }
+    for (const candidate of candidates) {
+      if (isManagedVersionExecutable(this.paths, candidate.executablePath) && await inspectInstalledExecutable(candidate) === "present") return candidate;
+    }
+    return null;
+  }
+
+  async #pruneAfterCommit(installation: ServiceInstallation, loginTaskXml: string | null): Promise<void> {
+    try { await this.#prune(this.paths, installation, loginTaskXml); }
+    catch { /* Cleanup cannot invalidate a healthy running service. */ }
+  }
+
   async #tryCurrent(identity: ServiceIdentity): Promise<ServiceStatus | null> {
     try { return await this.#current(this.paths, identity, "status"); }
     catch {
@@ -224,9 +252,15 @@ export class ServiceInstaller {
   }
 }
 
-export async function inspectInstalledExecutable(installation: ServiceInstallation): Promise<"present" | "missing" | "invalid"> {
+export async function inspectInstalledExecutable(installation: Pick<ServiceInstallation, "executablePath" | "executableSha256">): Promise<"present" | "missing" | "invalid"> {
   try { return createHash("sha256").update(await readFile(installation.executablePath)).digest("hex") === installation.executableSha256 ? "present" : "invalid"; }
   catch (error) { return (error as NodeJS.ErrnoException).code === "ENOENT" ? "missing" : "invalid"; }
+}
+
+function isManagedVersionExecutable(paths: ServicePaths, executablePath: string): boolean {
+  const versions = path.resolve(paths.directory, "versions");
+  const relative = path.relative(versions, path.resolve(executablePath));
+  return Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative) && path.basename(executablePath).toLowerCase() === EXECUTABLE_NAME;
 }
 
 async function restore(paths: ServicePaths, target: string, value: string | null): Promise<void> {
