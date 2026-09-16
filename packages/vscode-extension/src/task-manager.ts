@@ -26,7 +26,7 @@ import {
 
 import { AgentActivityTracker, type AgentActivityWorkflow } from "./agent-activity.js";
 import { CanonicalPathBoundary } from "./canonical-path-boundary.js";
-import { ExperimentManager } from "./experiment-manager.js";
+import { assertAgentWriteAllowed } from "./policies.js";
 import { TerminalObserver } from "./terminal-observer.js";
 import { WorkflowProvenanceStore } from "./workflow-provenance.js";
 import { WorkspaceConfigurationManager } from "./workspace-configuration-manager.js";
@@ -37,14 +37,12 @@ const AGENT_TASK_SOURCE = "Agent Bridge";
 
 interface MutableTaskExecution extends TaskExecution {
   readonly rootUri: string;
-  readonly sessionId: string;
   readonly vscodeExecution: vscode.TaskExecution;
   readonly workflow: AgentActivityWorkflow;
 }
 
 interface PreparedTaskRecord {
   readonly preparedTaskId: string;
-  readonly sessionId: string;
   readonly rootUri: string;
   readonly createdAt: number;
   readonly expiresAt: string;
@@ -52,7 +50,6 @@ interface PreparedTaskRecord {
   readonly task: vscode.Task;
   readonly summary: TaskSummary;
   readonly preview: TaskExecutionPreview;
-  readonly activityOperationId: string;
 }
 
 interface SummarizedTask {
@@ -63,7 +60,6 @@ interface SummarizedTask {
 
 export class TaskManager implements vscode.Disposable {
   readonly #instanceId: string;
-  readonly #experiments: ExperimentManager;
   readonly #terminals: TerminalObserver;
   readonly #activity: AgentActivityTracker;
   readonly #configurations: WorkspaceConfigurationManager;
@@ -75,14 +71,12 @@ export class TaskManager implements vscode.Disposable {
 
   constructor(
     instanceId: string,
-    experiments: ExperimentManager,
     terminals: TerminalObserver,
     activity: AgentActivityTracker,
     configurations: WorkspaceConfigurationManager,
     provenance: WorkflowProvenanceStore,
   ) {
     this.#instanceId = instanceId;
-    this.#experiments = experiments;
     this.#terminals = terminals;
     this.#activity = activity;
     this.#configurations = configurations;
@@ -95,10 +89,7 @@ export class TaskManager implements vscode.Disposable {
   }
 
   async prepareTask(params: PrepareTaskParams): Promise<PrepareTaskResult> {
-    const experiment = await this.#experiments.assertResourceChangesAllowed(params.sessionId);
-    if (experiment.rootUri !== params.rootUri) {
-      throw new BridgeError("EXPERIMENT_NOT_OWNED", "The prepared Task is outside the active experiment root.");
-    }
+    assertAgentWriteAllowed();
     const root = resolveRoot(params.rootUri);
     const preparedTaskId = randomUUID();
     const execution = await createTaskExecution(params.execution, root);
@@ -123,19 +114,8 @@ export class TaskManager implements vscode.Disposable {
     };
     const summarized = summarizeTask(task, params.rootUri, "agentPrepared");
     const expiresAt = new Date(Date.now() + PREPARED_WORKFLOW_TTL_MS).toISOString();
-    const workflow = taskWorkflow(summarized.summary, summarized.preview, null, null);
-    const activityOperationId = this.#activity.record(
-      {
-        toolName: "vscode_prepare_task",
-        title: `Prepared Task: ${params.label}`,
-        reason: params.reason,
-        workflow,
-      },
-      "succeeded",
-    );
     this.#prepared.set(preparedTaskId, {
       preparedTaskId,
-      sessionId: params.sessionId,
       rootUri: params.rootUri,
       createdAt: Date.now(),
       expiresAt,
@@ -143,27 +123,24 @@ export class TaskManager implements vscode.Disposable {
       task,
       summary: summarized.summary,
       preview: summarized.preview,
-      activityOperationId,
     });
     this.#prune();
     return {
       instanceId: this.#instanceId,
-      sessionId: params.sessionId,
       preparedTaskId,
       task: summarized.summary,
       execution: summarized.preview,
       definitionFingerprint: summarized.summary.fingerprint,
-      activityOperationId,
       expiresAt,
     };
   }
 
   async persistTask(params: PersistTaskParams): Promise<PersistTaskResult> {
-    const record = await this.#requirePrepared(params.preparedTaskId, params.sessionId, params.rootUri);
+    assertAgentWriteAllowed();
+    const record = await this.#requirePrepared(params.preparedTaskId, params.rootUri);
     const existingProvenance = this.#provenance.find("task", params.rootUri, record.params.label);
     const value = persistedTaskValue(record.params, record.preparedTaskId);
     const persisted = await this.#configurations.persistWorkflowConfiguration({
-      sessionId: params.sessionId,
       rootUri: params.rootUri,
       target: "tasks",
       name: record.params.label,
@@ -172,7 +149,6 @@ export class TaskManager implements vscode.Disposable {
       expectedSha256: params.expectedSha256,
       replaceExisting: existingProvenance?.configurationSha256 === params.expectedSha256,
       conflictCode: "TASK_ALREADY_EXISTS",
-      reason: params.reason,
     });
     const synthetic = await createPersistedTask(record.params, resolveRoot(params.rootUri));
     const summarized = summarizeTask(synthetic, params.rootUri, "agentPersisted");
@@ -190,21 +166,18 @@ export class TaskManager implements vscode.Disposable {
         toolName: "vscode_persist_task",
         title: `Persisted Task: ${record.params.label}`,
         reason: params.reason,
-        parentOperationId: record.activityOperationId,
         workflow: taskWorkflow(summarized.summary, summarized.preview, null, null),
       },
       "succeeded",
-      { checkpointId: persisted.checkpointId, targets: [persisted.uri.toString(true)] },
+      { targets: [persisted.uri.toString(true)] },
     );
     return {
       instanceId: this.#instanceId,
-      sessionId: params.sessionId,
       preparedTaskId: params.preparedTaskId,
       task: summarized.summary,
       uri: persisted.uri.toString(true),
       created: persisted.created,
       contentSha256: persisted.contentSha256,
-      checkpointId: persisted.checkpointId,
       persistedAt: new Date().toISOString(),
     };
   }
@@ -226,11 +199,9 @@ export class TaskManager implements vscode.Disposable {
           : candidate;
       });
     this.#prune();
-    if (params.sessionId) {
-      tasks.push(...[...this.#prepared.values()]
-        .filter((record) => record.sessionId === params.sessionId && record.rootUri === params.rootUri)
-        .map((record) => ({ task: record.task, summary: record.summary, preview: record.preview })));
-    }
+    tasks.push(...[...this.#prepared.values()]
+      .filter((record) => record.rootUri === params.rootUri)
+      .map((record) => ({ task: record.task, summary: record.summary, preview: record.preview })));
     const filtered = tasks
       .filter((task) => !params.type || task.summary.type === params.type)
       .filter((task) => !params.group || task.summary.group === params.group)
@@ -247,10 +218,7 @@ export class TaskManager implements vscode.Disposable {
   }
 
   async runTask(params: RunTaskParams): Promise<RunTaskResult> {
-    const experiment = await this.#experiments.assertResourceChangesAllowed(params.sessionId);
-    if (experiment.rootUri !== params.rootUri) {
-      throw new BridgeError("EXPERIMENT_NOT_OWNED", "The Task is outside the active experiment root.");
-    }
+    assertAgentWriteAllowed();
     const root = resolveRoot(params.rootUri);
     this.#prune();
     const prepared = [...this.#prepared.values()].find(
@@ -259,11 +227,11 @@ export class TaskManager implements vscode.Disposable {
     let task: SummarizedTask;
     let parentOperationId: string | null = null;
     if (prepared) {
-      if (prepared.sessionId !== params.sessionId || prepared.rootUri !== params.rootUri) {
-        throw new BridgeError("TASK_PREPARATION_NOT_FOUND", "The prepared Task belongs to another instance, session, or root.");
+      if (prepared.rootUri !== params.rootUri) {
+        throw new BridgeError("TASK_PREPARATION_NOT_FOUND", "The prepared Task belongs to another instance or root.");
       }
       task = { task: prepared.task, summary: prepared.summary, preview: prepared.preview };
-      parentOperationId = prepared.activityOperationId;
+      parentOperationId = null;
     } else {
       const [fetched, taskConfiguration] = await Promise.all([
         vscode.tasks.fetchTasks(),
@@ -297,6 +265,7 @@ export class TaskManager implements vscode.Disposable {
         reason: params.reason,
         parentOperationId,
         workflow,
+        locations: [{ kind: "task", executionId }],
       },
       "running",
     );
@@ -315,25 +284,22 @@ export class TaskManager implements vscode.Disposable {
       origin: task.summary.origin,
       definitionFingerprint: task.summary.fingerprint,
       activityOperationId,
-      checkpointId: null,
       rootUri: params.rootUri,
-      sessionId: params.sessionId,
       vscodeExecution,
       workflow,
     };
     this.#executions.set(executionId, execution);
     this.#executionIds.set(vscodeExecution, executionId);
     this.#prune();
-    return { instanceId: this.#instanceId, sessionId: params.sessionId, execution: publicExecution(execution) };
+    return { instanceId: this.#instanceId, execution: publicExecution(execution) };
   }
 
   async assertTaskBinding(
-    sessionId: string,
     rootUri: string,
     taskId: string,
     expectedFingerprint: string,
   ): Promise<string> {
-    const listed = await this.listTasks({ rootUri, sessionId, offset: 0, limit: 500 });
+    const listed = await this.listTasks({ rootUri, offset: 0, limit: 500 });
     const task = listed.tasks.find((candidate) => candidate.taskId === taskId);
     if (!task) throw new BridgeError("TASK_NOT_FOUND", "A bound Debug Task no longer exists.");
     if (task.fingerprint !== expectedFingerprint) {
@@ -360,13 +326,10 @@ export class TaskManager implements vscode.Disposable {
   }
 
   async terminateTask(params: TerminateTaskParams): Promise<TerminateTaskResult> {
-    const experiment = await this.#experiments.assertResourceChangesAllowed(params.sessionId);
+    assertAgentWriteAllowed();
     const execution = this.#executions.get(params.executionId);
-    if (!execution || execution.sessionId !== params.sessionId) {
+    if (!execution) {
       throw new BridgeError("TASK_EXECUTION_NOT_FOUND", "The Task execution was not found.");
-    }
-    if (execution.rootUri !== experiment.rootUri) {
-      throw new BridgeError("EXPERIMENT_NOT_OWNED", "The Task execution belongs to another experiment root.");
     }
     if (execution.endedAt) throw new BridgeError("TASK_TERMINATION_FAILED", "The Task execution has already ended.");
     try {
@@ -375,7 +338,7 @@ export class TaskManager implements vscode.Disposable {
     } catch {
       throw new BridgeError("TASK_TERMINATION_FAILED", "VS Code could not terminate the selected Task.");
     }
-    return { instanceId: this.#instanceId, sessionId: params.sessionId, execution: publicExecution(execution) };
+    return { instanceId: this.#instanceId, execution: publicExecution(execution) };
   }
 
   get activeCount(): number {
@@ -418,15 +381,9 @@ export class TaskManager implements vscode.Disposable {
         execution.terminalCoverage = terminal.executionId ? "partial" : "unavailable";
       }
     }
-    try {
-      execution.checkpointId = await this.#experiments.createExplicitCheckpoint(`Task ended: ${execution.taskLabel}`);
-    } catch {
-      execution.checkpointId = null;
-    }
     this.#activity.update(execution.activityOperationId, {
       status: "succeeded",
       completedAt: execution.endedAt,
-      checkpointId: execution.checkpointId,
       workflow: { ...execution.workflow, exitCode: execution.exitCode },
     });
   }
@@ -436,11 +393,10 @@ export class TaskManager implements vscode.Disposable {
     return executionId ? this.#executions.get(executionId) : undefined;
   }
 
-  async #requirePrepared(preparedTaskId: string, sessionId: string, rootUri: string): Promise<PreparedTaskRecord> {
-    await this.#experiments.assertResourceChangesAllowed(sessionId);
+  async #requirePrepared(preparedTaskId: string, rootUri: string): Promise<PreparedTaskRecord> {
     const record = this.#prepared.get(preparedTaskId);
-    if (!record || record.sessionId !== sessionId || record.rootUri !== rootUri) {
-      throw new BridgeError("TASK_PREPARATION_NOT_FOUND", "The prepared Task was not found for this instance, session, and root.");
+    if (!record || record.rootUri !== rootUri) {
+      throw new BridgeError("TASK_PREPARATION_NOT_FOUND", "The prepared Task was not found for this instance and root.");
     }
     if (Date.parse(record.expiresAt) <= Date.now()) {
       this.#prepared.delete(preparedTaskId);
@@ -647,7 +603,6 @@ function toVsCodeTaskGroup(group: TaskSummary["group"]): vscode.TaskGroup | unde
 function publicExecution(execution: MutableTaskExecution): TaskExecution {
   const {
     rootUri: _rootUri,
-    sessionId: _sessionId,
     vscodeExecution: _vscodeExecution,
     workflow: _workflow,
     ...result

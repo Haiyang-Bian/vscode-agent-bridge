@@ -126,6 +126,7 @@ export const PublicInstanceSchema = z
     workspaceFolders: z.array(WorkspaceFolderSchema),
     transportKind: z.enum(["named-pipe", "unix-socket"]),
     compatibility: z.enum(["current", "incompatible"]),
+    releaseAlignment: z.enum(["current", "older", "newer", "unknown"]),
   })
   .strict();
 

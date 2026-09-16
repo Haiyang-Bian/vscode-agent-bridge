@@ -7,7 +7,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { BRIDGE_PROTOCOL_VERSION, NdjsonDecoder, REGISTRY_DIRECTORY_ENV, encodeRpcMessage, resolveRegistryDirectories, resolveTransportDescriptor, type InstanceDescriptor } from "@vscode-agent-bridge/protocol";
+import { BRIDGE_PROTOCOL_VERSION, BRIDGE_RELEASE_VERSION, NdjsonDecoder, REGISTRY_DIRECTORY_ENV, encodeRpcMessage, resolveRegistryDirectories, resolveTransportDescriptor, type InstanceDescriptor } from "@vscode-agent-bridge/protocol";
 import { HttpMcpRuntime } from "../src/http-runtime.js";
 import { UsageInsightStore } from "../src/usage-insights.js";
 
@@ -59,7 +59,7 @@ test("one HTTP session observes later IDE publication, degradation, incompatibil
 
 async function bridgeFixture(initial: InstanceDescriptor["lifecycle"]) {
   const instanceId = randomUUID(); let lifecycle = initial;
-  const descriptor: InstanceDescriptor = { instanceId, lifecycle, protocolVersion: BRIDGE_PROTOCOL_VERSION, extensionVersion: "0.12.0",
+  const descriptor: InstanceDescriptor = { instanceId, lifecycle, protocolVersion: BRIDGE_PROTOCOL_VERSION, extensionVersion: BRIDGE_RELEASE_VERSION,
     pid: process.pid, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), appName: "Contract fixture", appHost: "desktop",
     remoteName: null, workspaceTrusted: true, workspaceFolders: [], authToken: "c".repeat(43), transport: resolveTransportDescriptor(instanceId, resolveRegistryDirectories()) };
   const server = net.createServer(socket => {

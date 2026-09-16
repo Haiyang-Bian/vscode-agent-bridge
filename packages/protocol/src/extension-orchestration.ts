@@ -1,9 +1,8 @@
 import { z } from "zod";
 
-import { ContentSha256Schema } from "./experiments.js";
+import { ContentSha256Schema } from "./changes.js";
 
 const InstanceIdSchema = z.string().uuid();
-const SessionIdSchema = z.string().uuid();
 const ExtensionIdSchema = z.string().min(3).max(300).regex(/^[a-z0-9][a-z0-9-]*\.[a-z0-9][a-z0-9-]*$/iu);
 const UriSchema = z.string().min(1).max(20_000);
 const JsonValueSchema: z.ZodType<unknown> = z.unknown().superRefine((value, context) => {
@@ -68,10 +67,9 @@ export const SearchExtensionsResultSchema = z
 
 export const PrepareExtensionInstallParamsSchema = z
   .object({
-    sessionId: SessionIdSchema,
     rootUri: UriSchema,
     candidateId: z.string().uuid(),
-    reason: z.string().trim().min(1).max(1_000),
+    reason: z.string().trim().min(1).max(1_000).optional(),
   })
   .strict();
 export const PrepareExtensionInstallInputSchema = PrepareExtensionInstallParamsSchema.extend({
@@ -89,7 +87,6 @@ export const PreparedExtensionSchema = z
 export const PreparedExtensionInstallSchema = z
   .object({
     instanceId: InstanceIdSchema,
-    sessionId: SessionIdSchema,
     planId: z.string().uuid(),
     extension: PreparedExtensionSchema,
     dependencies: z.array(PreparedExtensionSchema).max(20),
@@ -101,7 +98,7 @@ export const PreparedExtensionInstallSchema = z
   .strict();
 
 export const ApplyExtensionInstallParamsSchema = z
-  .object({ sessionId: SessionIdSchema, planId: z.string().uuid() })
+  .object({ planId: z.string().uuid() })
   .strict();
 export const ApplyExtensionInstallInputSchema = ApplyExtensionInstallParamsSchema.extend({
   instanceId: InstanceIdSchema,
@@ -109,7 +106,6 @@ export const ApplyExtensionInstallInputSchema = ApplyExtensionInstallParamsSchem
 export const ApplyExtensionInstallResultSchema = z
   .object({
     instanceId: InstanceIdSchema,
-    sessionId: SessionIdSchema,
     planId: z.string().uuid(),
     extensionId: ExtensionIdSchema,
     plannedVersion: z.string().min(1).max(200),
@@ -157,14 +153,13 @@ export const ExtensionConfigurationResultSchema = z
 
 export const UpdateExtensionConfigurationParamsSchema = z
   .object({
-    sessionId: SessionIdSchema,
     rootUri: UriSchema,
     extensionId: ExtensionIdSchema,
     key: z.string().min(1).max(500),
     target: ExtensionConfigurationTargetSchema,
     expectedValueSha256: ContentSha256Schema,
     newValue: JsonValueSchema,
-    reason: z.string().trim().min(1).max(1_000),
+    reason: z.string().trim().min(1).max(1_000).optional(),
   })
   .strict();
 export const UpdateExtensionConfigurationInputSchema = UpdateExtensionConfigurationParamsSchema.extend({
@@ -173,15 +168,13 @@ export const UpdateExtensionConfigurationInputSchema = UpdateExtensionConfigurat
 export const UpdateExtensionConfigurationResultSchema = z
   .object({
     instanceId: InstanceIdSchema,
-    sessionId: SessionIdSchema,
     extensionId: ExtensionIdSchema,
     key: z.string().min(1).max(500),
     target: ExtensionConfigurationTargetSchema,
     changed: z.boolean(),
     valueSha256: ContentSha256Schema,
-    checkpointId: z.string().uuid().nullable(),
     globalChangeId: z.string().uuid().nullable(),
-    recoverability: z.enum(["experiment", "globalJournal"]),
+    recoverability: z.enum(["none", "globalJournal"]),
     updatedAt: z.string().datetime(),
   })
   .strict();

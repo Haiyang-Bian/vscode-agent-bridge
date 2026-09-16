@@ -23,7 +23,7 @@ Root scripts make validation and distribution reproducible without adding anothe
 - Local planning reads staged, unstaged and untracked changes. CI always supplies explicit base/head revisions with enough Git history.
 - Unknown production paths and classification failures widen gates. A manual domain cannot subtract required work.
 - Full `check`, full E2E and release commands keep stable meanings; optimized commands are separate entry points.
-- E2E runs create unique workspace, registry, user-data, extensions and managed-worktree roots. Lifecycle and HTTP cancellation scenarios retain the explicit lifecycle delay.
+- E2E runs create unique workspace, registry, user-data and extensions roots. Lifecycle and HTTP scenarios retain an explicit initialization delay.
 - Helpers throw errors. The outer runner owns exit status, marker verification and `finally` cleanup.
 - Development-extension and packaged-VSIX runners share isolation behavior; packaged installation targets the temporary extensions directory, not a user default.
 - The pinned Bun's hide-console defect is corrected on fresh unsigned PE output before hashing; artifact verification checks the GUI subsystem and the checksum with Windows ImageHlp. See ADR 0022 before changing that workaround.

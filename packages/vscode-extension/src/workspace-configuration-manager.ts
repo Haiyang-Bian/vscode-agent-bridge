@@ -20,18 +20,16 @@ import {
   type WorkspaceConfigurationTarget,
 } from "@vscode-agent-bridge/protocol";
 
-import { ExperimentManager } from "./experiment-manager.js";
 import { CanonicalPathBoundary } from "./canonical-path-boundary.js";
+import { assertAgentWriteAllowed } from "./policies.js";
 
 const MAX_CONFIGURATION_CONTENT_CHARACTERS = 900_000;
 
 export class WorkspaceConfigurationManager {
   readonly #instanceId: string;
-  readonly #experiments: ExperimentManager;
 
-  constructor(instanceId: string, experiments: ExperimentManager) {
+  constructor(instanceId: string) {
     this.#instanceId = instanceId;
-    this.#experiments = experiments;
   }
 
   async getConfiguration(
@@ -59,10 +57,7 @@ export class WorkspaceConfigurationManager {
   async updateConfiguration(
     params: UpdateWorkspaceConfigurationParams,
   ): Promise<UpdateWorkspaceConfigurationResult> {
-    const experiment = await this.#experiments.assertResourceChangesAllowed(params.sessionId);
-    if (experiment.rootUri !== params.rootUri) {
-      throw new BridgeError("EXPERIMENT_NOT_OWNED", "The configuration target is outside the active experiment root.");
-    }
+    assertAgentWriteAllowed();
     const target = resolveConfigurationTarget(params.rootUri, params.target);
     if (!target.uri) {
       throw new BridgeError(
@@ -121,32 +116,23 @@ export class WorkspaceConfigurationManager {
       );
     }
     const policy = validateConfigurationContent(target.uri, content, params.target);
-    await this.#experiments.captureBeforeResourceApply(params.sessionId, [target.uri]);
     try {
       if (boundary) await boundary.assertPath(target.uri.fsPath, true);
       await writeConfigurationAtomic(target.uri, content);
     } catch {
-      await this.#experiments.markResourceRecoveryRequired(params.sessionId);
       throw new BridgeError(
         "RESOURCE_RECOVERY_REQUIRED",
-        "The configuration could not be atomically replaced; use the safety checkpoint for recovery.",
+        "The configuration could not be atomically replaced; the previous file remains authoritative.",
       );
     }
-    const checkpointId = await this.#experiments.captureAfterAgentApply(
-      params.sessionId,
-      params.reason,
-      [target.uri],
-    );
     return {
       instanceId: this.#instanceId,
-      sessionId: params.sessionId,
       rootUri: params.rootUri,
       target: params.target,
       uri: target.uri.toString(true),
       created: !loaded.exists,
       saved: true,
       contentSha256: sha256(content),
-      checkpointId,
       deferredEffects: policy.deferredEffects,
       updatedAt: new Date().toISOString(),
     };
@@ -155,10 +141,7 @@ export class WorkspaceConfigurationManager {
   async persistWorkflowConfiguration(
     input: PersistWorkflowConfigurationInput,
   ): Promise<PersistWorkflowConfigurationResult> {
-    const experiment = await this.#experiments.assertResourceChangesAllowed(input.sessionId);
-    if (experiment.rootUri !== input.rootUri) {
-      throw new BridgeError("EXPERIMENT_NOT_OWNED", "The workflow configuration is outside the active experiment root.");
-    }
+    assertAgentWriteAllowed();
     const target = resolveConfigurationTarget(input.rootUri, input.target);
     if (!target.uri) {
       throw new BridgeError("WORKSPACE_CONFIGURATION_TARGET_DENIED", "The workflow configuration target is unavailable.");
@@ -198,33 +181,24 @@ export class WorkspaceConfigurationManager {
       ),
     );
     validateConfigurationContent(target.uri, content, input.target);
-    await this.#experiments.captureBeforeResourceApply(input.sessionId, [target.uri]);
     try {
       await boundary.assertPath(target.uri.fsPath, true);
       await writeConfigurationAtomic(target.uri, content);
     } catch {
-      await this.#experiments.markResourceRecoveryRequired(input.sessionId);
       throw new BridgeError(
         "RESOURCE_RECOVERY_REQUIRED",
-        "The workflow configuration could not be atomically replaced; use the safety checkpoint for recovery.",
+        "The workflow configuration could not be atomically replaced; the previous file remains authoritative.",
       );
     }
-    const checkpointId = await this.#experiments.captureAfterAgentApply(
-      input.sessionId,
-      input.reason,
-      [target.uri],
-    );
     return {
       uri: target.uri,
       created: !loaded.exists,
       contentSha256: sha256(content),
-      checkpointId,
     };
   }
 }
 
 export interface PersistWorkflowConfigurationInput {
-  readonly sessionId: string;
   readonly rootUri: string;
   readonly target: "tasks" | "launch";
   readonly name: string;
@@ -233,14 +207,12 @@ export interface PersistWorkflowConfigurationInput {
   readonly expectedSha256: string | null;
   readonly replaceExisting: boolean;
   readonly conflictCode: "TASK_ALREADY_EXISTS" | "DEBUG_CONFIGURATION_ALREADY_EXISTS";
-  readonly reason: string;
 }
 
 export interface PersistWorkflowConfigurationResult {
   readonly uri: vscode.Uri;
   readonly created: boolean;
   readonly contentSha256: string;
-  readonly checkpointId: string;
 }
 
 export function validateConfigurationContentForUri(

@@ -17,9 +17,9 @@ The repository selects validation from change impact, failure consequence and ex
 
 ## Domains and escalation
 
-The source of truth is `scripts/lib/test-impact.ts`. It maps production paths to protocol, MCP runtime, lifecycle, experiment/resource, Task/terminal, Debug, extension ecosystem, managed Git, UI/insights and release-tooling domains.
+The source of truth is `scripts/lib/test-impact.ts`. It maps production paths to protocol, MCP runtime, lifecycle, direct IDE editing/resources, Task/terminal, Debug, extension ecosystem, UI/insights and release-tooling domains.
 
-The following changes require the full fast gate: shared protocol production code; lifecycle and policy boundaries; recoverable persistence and mutation executors; Task and Debug executors; Git and Managed Worktree code; root manifests, lockfiles and compiler/build configuration; changes spanning runtime layers; and unknown production paths.
+The following changes require the full fast gate: shared protocol production code; lifecycle and policy boundaries; guarded mutation executors; Task and Debug executors; root manifests, lockfiles and compiler/build configuration; changes spanning runtime layers; and unknown production paths.
 
 Unknown package production paths also require full E2E. E2E runner, harness, fixture or VS Code test-config changes require complete E2E twice. Packaging manifests, dependencies, installation assets and artifact scripts require the artifact gate. Documentation-only changes do not run code tests locally.
 
@@ -31,15 +31,15 @@ Manual domains are additive. There is no supported flag for subtracting automati
 
 ## E2E scenarios
 
-The selectable scenarios are `http-bridge`, `core-language`, `lifecycle`, `experiment-resource`, `task-terminal`, `debug`, `extension-ecosystem`, `master-switch` and `managed-worktree`.
+The selectable scenarios are `http-bridge`, `core-language`, `lifecycle`, `direct-ide`, `task-terminal`, `debug`, `extension-ecosystem` and `master-switch`.
 
-Every invocation creates a unique temporary workspace, registry, user-data directory and extensions directory. Ordinary scenarios use a 1 ms deterministic onboarding acceptance and no initialization delay. `lifecycle` and `http-bridge` retain the 10-second initialization and 11-second onboarding delays. Completion markers record requested and actual scenarios plus in-test cleanup state; the outer runner verifies the marker and deletes its complete temporary root before returning.
+Every invocation creates a unique temporary workspace, registry, user-data directory and extensions directory. `lifecycle` and `http-bridge` retain a delayed initialization boundary; other scenarios publish immediately. Completion markers record requested and actual scenarios plus in-test cleanup state; the outer runner verifies the marker and deletes its complete temporary root before returning.
 
-The runner may execute prerequisites for a requested scenario, but it must not execute unrelated target workflows. For example, Debug may prepare onboarding and an active experiment, but it does not run Task or resource-recovery assertions.
+The runner may execute prerequisites for a requested scenario, but it must not execute unrelated target workflows. For example, Debug may prepare a temporary definition, but it does not run Task or direct-edit assertions.
 
 ## Developer and agent workflow
 
-`http-bridge` starts an isolated daemon before VS Code, verifies two HTTP clients and unsaved-buffer reads, cancels onboarding, waits beyond the delayed response boundary and confirms no workspace settings were written. The artifact gate repeats process tests with the EXE and exercises actual isolated Task Scheduler installation/rollback via `scripts/test-http-service.ts`. Source process tests run in the full fast gate; they never install formal login tasks.
+`http-bridge` starts an isolated daemon before VS Code, verifies two HTTP clients share one PID, distinguishes protocol compatibility from release alignment, and reads an unsaved buffer. `direct-ide` verifies direct edits, save/format/Code Action/configuration/resource paths, root forgery rejection and focus preservation without experiments. The artifact gate repeats process tests with the EXE and exercises actual isolated Task Scheduler installation/rollback and bounded version cleanup via `scripts/test-http-service.ts`. Source process tests run in the full fast gate; they never install formal login tasks.
 
 `scripts/test-http-window-lifecycle.ts` uses a normal isolated VS Code window and the test-only `http-lifecycle-harness` extension. It observes initialization, reloads the actual window, opens a second window, checks explicit routing, closes both and verifies the same daemon remains ready. It runs outside the Mocha host because VS Code intentionally terminates that host during a reload. The artifact gate repeats this check with the compiled EXE.
 

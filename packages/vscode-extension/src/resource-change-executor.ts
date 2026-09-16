@@ -308,7 +308,7 @@ async function parseResourceUri(
   }
   const relative = path.relative(path.resolve(root.fsPath), path.resolve(uri.fsPath));
   if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new BridgeError("RESOURCE_OUT_OF_SCOPE", "The resource must be below the active experiment root.");
+    throw new BridgeError("RESOURCE_OUT_OF_SCOPE", "The resource must be below the selected workspace root.");
   }
   if (relative.split(path.sep).some((segment) => segment.toLowerCase() === ".git")) {
     throw new BridgeError("RESOURCE_OUT_OF_SCOPE", "Git metadata is outside the resource change surface.");

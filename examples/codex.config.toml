@@ -1,26 +1,69 @@
-# Replace the path below with this repository's absolute path.
-# Project-scoped MCP configuration is loaded only for trusted projects.
+# Illustrative only. Run "VS Code Agent Bridge: Configure Codex" so the
+# extension writes the actual protected loopback port and 256-bit token.
 
+# vscode-agent-bridge:begin
 [mcp_servers.vscode_agent_bridge]
-command = "bun"
-args = ["run", "packages/mcp-server/dist/index.js"]
-cwd = "C:/absolute/path/to/vscode-agent-bridge"
+url = "http://127.0.0.1:54321/mcp"
+http_headers = { Authorization = "Bearer <64-hex-token>" }
 startup_timeout_sec = 10
-tool_timeout_sec = 15
-default_tools_approval_mode = "writes"
+tool_timeout_sec = 120
 enabled_tools = [
   "vscode_list_instances",
   "vscode_get_editor_context",
-  "vscode_read_document",
+  "vscode_get_workspace_setup",
+  "vscode_get_workspace_configuration",
+  "vscode_get_bridge_capabilities",
+  "vscode_get_usage_insights",
+  "vscode_list_extensions",
+  "vscode_get_extension_details",
+  "vscode_get_extension_configuration_schema",
+  "vscode_get_profile_context",
+  "vscode_list_output_sources",
+  "vscode_read_visible_output",
+  "vscode_search_extensions",
+  "vscode_prepare_extension_install",
+  "vscode_apply_extension_install",
+  "vscode_get_extension_configuration",
+  "vscode_list_extension_integrations",
+  "vscode_get_extension_integration_state",
   "vscode_get_diagnostics",
   "vscode_get_document_symbols",
   "vscode_get_definitions",
   "vscode_get_references",
   "vscode_get_hover",
-  "vscode_get_experiment",
-  "vscode_list_experiment_checkpoints",
+  "vscode_list_diagnostic_events",
+  "vscode_update_workspace_configuration",
+  "vscode_read_document",
   "vscode_prepare_text_edits",
   "vscode_prepare_rename",
+  "vscode_prepare_resource_changes",
   "vscode_apply_change_set",
-  "vscode_record_experiment_evidence",
+  "vscode_save_document",
+  "vscode_format_document",
+  "vscode_list_code_actions",
+  "vscode_apply_code_action",
+  "vscode_update_extension_configuration",
+  "vscode_list_terminals",
+  "vscode_list_terminal_executions",
+  "vscode_read_terminal_output",
+  "vscode_list_tasks",
+  "vscode_prepare_task",
+  "vscode_persist_task",
+  "vscode_run_task",
+  "vscode_list_task_executions",
+  "vscode_terminate_task",
+  "vscode_list_debug_configurations",
+  "vscode_prepare_debug_configuration",
+  "vscode_persist_debug_configuration",
+  "vscode_start_debug_session",
+  "vscode_list_debug_sessions",
+  "vscode_get_debug_state",
+  "vscode_control_debug_session",
+  "vscode_list_breakpoints",
+  "vscode_update_breakpoints",
+  "vscode_evaluate_debug_expression",
+  "vscode_set_debug_variable",
+  "vscode_list_debug_output",
+  "vscode_read_debug_output",
 ]
+# vscode-agent-bridge:end

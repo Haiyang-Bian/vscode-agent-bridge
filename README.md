@@ -1,204 +1,83 @@
 # VS Code Agent Bridge
 
-VS Code Agent Bridge connects local MCP clients such as Codex to IDE-native VS Code state. It has two runtime layers: a per-user shared HTTP MCP daemon and a VS Code desktop extension. `packages/protocol` contains their shared RPC contracts and is not a third service.
+VS Code Agent Bridge connects local MCP clients such as Codex to IDE-native VS Code state. It has two runtime layers: one per-user Streamable HTTP MCP daemon and one extension runtime in each VS Code window. `packages/protocol` is their shared contract library, not a third service.
 
-The unpublished `0.13.0` candidate targets Windows x64, uses Bridge protocol v11 and exposes exactly 64 catalog-derived tools. It is distributed as a side-loaded VSIX and migrates existing managed client configuration to HTTP; the internal v11 RPC remains compatible with the `0.12.0` extension; testers do not need Bun, Node.js or this repository because the package contains a Bun-compiled MCP executable and installs a versioned copy only after explicit confirmation.
+The unpublished `0.14.0` Windows x64 candidate uses extension RPC protocol v12 and exposes exactly 57 catalog-derived tools. Protocol v12 deliberately removes experiments and Managed Worktree orchestration. A client selects a live `instanceId` and local `rootUri`, then calls bounded IDE capabilities directly. Existing v11 windows remain discoverable as incompatible and are never selected for v12 calls.
 
-## MCP tools
+The product is most useful where VS Code has authoritative state: unsaved buffers, diagnostics and language providers, current terminal/Task/Debug state, extension metadata, native configuration, and user-visible activity. It is not a general filesystem, shell, Git or arbitrary VS Code command interface.
 
-For setup, migration, login startup, Doctor and rollback, see [shared HTTP service installation](docs/installation.md). The service stays available without VS Code; IDE tools report the window state instead of restarting the daemon.
+## Tool surface
 
-| Tool | Purpose |
-| --- | --- |
-| `vscode_list_instances` | Discover live local VS Code windows without exposing credentials or IPC endpoints. |
-| `vscode_get_editor_context` | Read editor, selection, dirty state, document version, trust and workspace context. |
-| `vscode_read_document` | Read a VS Code buffer, including unsaved content, with bounds and truncation metadata. |
-| `vscode_get_diagnostics` | Read normalized active-document, document or workspace diagnostics. |
-| `vscode_get_document_symbols` | Read a flattened symbol tree with stable hierarchy fields. |
-| `vscode_get_definitions` | Resolve definitions for an explicit URI and zero-based position. |
-| `vscode_get_references` | Resolve sorted, deduplicated references. |
-| `vscode_get_hover` | Read bounded hover text with command links redacted. |
-| `vscode_get_workspace_setup` | Inventory trust, onboarding and standard VS Code configuration-file presence without returning contents. |
-| `vscode_get_bridge_capabilities` | Read the authoritative classified tool catalog, side effects, recovery and sensitivity metadata. |
-| `vscode_get_usage_insights` | Read privacy-preserving local counts, friction evidence and deterministic workflow suggestions. |
-| `vscode_list_extensions` | List installed extension metadata and activation state without activating extensions. |
-| `vscode_get_extension_details` | Read bounded manifest contributions without calling exports or commands. |
-| `vscode_get_extension_configuration_schema` | Page through manifest-declared configuration properties. |
-| `vscode_get_profile_context` | Report only current-Profile capabilities exposed by stable VS Code APIs. |
-| `vscode_search_extensions` | Query the fixed Visual Studio Marketplace client and rank installed, recommended, official, verified and third-party candidates. |
-| `vscode_prepare_extension_install` | Lock one stable extension version and a bounded dependency graph into a short-lived install plan. |
-| `vscode_apply_extension_install` | Apply one prepared plan through VS Code's fixed native install command while preserving Publisher Trust. |
-| `vscode_get_extension_configuration` | Read hashes, types, scope and risk for one non-sensitive manifest-declared setting without returning the raw value. |
-| `vscode_update_extension_configuration` | Update one declared setting after a hash precondition, with experiment or local-journal recovery. |
-| `vscode_list_extension_integrations` | List the static reviewed adapter catalog and version compatibility without activating extensions. |
-| `vscode_get_extension_integration_state` | Read one reviewed adapter state; the first adapter exposes only the official Python active environment. |
-| `vscode_list_output_sources` | Discover coverage-aware visible, captured and metadata-only IDE signal sources. |
-| `vscode_read_visible_output` | Read a bounded page from an already opened Output document without switching channels. |
-| `vscode_list_diagnostic_events` | Read the bounded since-activation Problems summary timeline. |
-| `vscode_list_debug_output` | List captured Debug Console sessions and explicit coverage. |
-| `vscode_read_debug_output` | Read sanitized, paged Debug Console output captured since activation. |
-| `vscode_get_experiment` | Read active experiment lifecycle, health and accepted candidate. |
-| `vscode_list_experiments` | Page through ordinary and Managed experiment metadata for one workspace root. |
-| `vscode_start_experiment` | Propose and, after workspace onboarding, start an ordinary task-named experiment. |
-| `vscode_rename_experiment` | Rename an ordinary experiment with an expected-title concurrency guard. |
-| `vscode_create_experiment_checkpoint` | Reconcile the workspace and create an explicit task checkpoint. |
-| `vscode_list_experiment_checkpoints` | Read bounded checkpoint history and verification evidence. |
-| `vscode_prepare_text_edits` | Validate an expiring, one-use multi-document text Change Set without changing buffers. |
-| `vscode_prepare_rename` | Ask the fixed VS Code rename provider for a text-only Change Set. |
-| `vscode_apply_change_set` | Revalidate versions, hashes and resource state, then apply a one-use text/resource Change Set. |
-| `vscode_record_experiment_evidence` | Attach explicitly client-reported test, build or lint evidence. |
-| `vscode_save_document` | Save one guarded existing file document and capture the final format/code-action-on-save text. |
-| `vscode_format_document` | Apply edits from the fixed VS Code formatting provider while leaving the buffer dirty. |
-| `vscode_list_code_actions` | List expiring Code Action handles without exposing command arguments. |
-| `vscode_apply_code_action` | Apply a one-use pure-text Code Action after revalidating every target. |
-| `vscode_list_terminals` | Read terminal lifecycle, PID, activity and explicit capture coverage. |
-| `vscode_list_terminal_executions` | Page through Shell Integration executions observed since extension activation. |
-| `vscode_read_terminal_output` | Page through bounded, sanitized in-memory output with loss metadata. |
-| `vscode_get_workspace_configuration` | Read bounded settings, launch, tasks or workspace JSONC with hashes and parse diagnostics. |
-| `vscode_update_workspace_configuration` | Apply guarded JSON Pointer updates while preserving JSONC comments and unrelated fields. |
-| `vscode_prepare_resource_changes` | Prepare bounded creation, rename or deletion of in-root text files and directories. |
-| `vscode_list_tasks` | List workspace-scoped VS Code Tasks with stable IDs and fingerprints. |
-| `vscode_prepare_task` | Create a 30-minute experiment-scoped Shell or Process Task definition with a complete execution preview and fingerprint. |
-| `vscode_persist_task` | Persist one prepared Task to `tasks.json` under exact existence/hash and provenance preconditions. |
-| `vscode_run_task` | Run a listed or prepared, fingerprint-matched Task through the VS Code Task API inside the active experiment. |
-| `vscode_list_task_executions` | Page through bounded in-memory Task lifecycle and terminal-coverage metadata. |
-| `vscode_terminate_task` | Terminate one active Task execution. |
-| `vscode_list_debug_configurations` | List static launch configurations and compounds without exposing raw command objects. |
-| `vscode_prepare_debug_configuration` | Create a 30-minute experiment-scoped, JSON-compatible adapter configuration with fingerprinted Task bindings. |
-| `vscode_persist_debug_configuration` | Persist one prepared adapter configuration to `launch.json` under exact hash and provenance preconditions. |
-| `vscode_start_debug_session` | Start a listed or prepared configuration by configuration ID and expected fingerprint. |
-| `vscode_list_debug_sessions` | List active and recently ended tracked debug sessions. |
-| `vscode_get_debug_state` | Page through bounded threads, stack frames, scopes and variables. |
-| `vscode_control_debug_session` | Invoke one fixed pause/continue/step/restart/terminate action. |
-| `vscode_list_breakpoints` | List workspace source and function breakpoints. |
-| `vscode_update_breakpoints` | Replace guarded source/function breakpoints with workspace scope checks. |
-| `vscode_evaluate_debug_expression` | Evaluate within an explicit tracked session/frame/context without retaining the expression. |
-| `vscode_set_debug_variable` | Set one variable through a current variables reference without retaining its value. |
+The authoritative list and annotations live in `packages/protocol/src/tool-catalog.ts`. The 57 names are grouped as follows:
 
-The original read tools and experiment-history tools remain read-only. Every mutation or execution requires an active trusted local experiment, explicit instance/session routing, root scope and the relevant version, hash, fingerprint or revision precondition. Starting an experiment is the sole write without a session ID and still requires an explicit instance, root, title, reason and user-confirmed workspace onboarding. Shell and Process commands are allowed only as fingerprinted VS Code Tasks with visible Task/terminal lifecycle; there is no bypass through terminal input, a generic VS Code command, arbitrary DAP request, unrestricted filesystem or Agent-callable Git tool.
+- Context and extension ecosystem (18): `vscode_list_instances`, `vscode_get_editor_context`, `vscode_get_workspace_setup`, `vscode_get_workspace_configuration`, `vscode_get_bridge_capabilities`, `vscode_get_usage_insights`, `vscode_list_extensions`, `vscode_get_extension_details`, `vscode_get_extension_configuration_schema`, `vscode_get_profile_context`, `vscode_list_output_sources`, `vscode_read_visible_output`, `vscode_search_extensions`, `vscode_prepare_extension_install`, `vscode_apply_extension_install`, `vscode_get_extension_configuration`, `vscode_list_extension_integrations`, `vscode_get_extension_integration_state`.
+- Language intelligence (6): `vscode_get_diagnostics`, `vscode_get_document_symbols`, `vscode_get_definitions`, `vscode_get_references`, `vscode_get_hover`, `vscode_list_diagnostic_events`.
+- Editing and configuration (11): `vscode_update_workspace_configuration`, `vscode_read_document`, `vscode_prepare_text_edits`, `vscode_prepare_rename`, `vscode_prepare_resource_changes`, `vscode_apply_change_set`, `vscode_save_document`, `vscode_format_document`, `vscode_list_code_actions`, `vscode_apply_code_action`, `vscode_update_extension_configuration`.
+- Terminals (3): `vscode_list_terminals`, `vscode_list_terminal_executions`, `vscode_read_terminal_output`.
+- Tasks (6): `vscode_list_tasks`, `vscode_prepare_task`, `vscode_persist_task`, `vscode_run_task`, `vscode_list_task_executions`, `vscode_terminate_task`.
+- Debug (13): `vscode_list_debug_configurations`, `vscode_prepare_debug_configuration`, `vscode_persist_debug_configuration`, `vscode_start_debug_session`, `vscode_list_debug_sessions`, `vscode_get_debug_state`, `vscode_control_debug_session`, `vscode_list_breakpoints`, `vscode_update_breakpoints`, `vscode_evaluate_debug_expression`, `vscode_set_debug_variable`, `vscode_list_debug_output`, `vscode_read_debug_output`.
 
-## Bridge controls
+Calls no longer accept `sessionId`, experiment titles, experiment reasons or checkpoint identifiers. Mutations revalidate workspace trust, the selected local root, document versions and SHA-256 hashes, resource existence, configuration hashes, or Task/Debug fingerprints as applicable. Short-lived one-use handles remain for prepared change sets, extension installation plans, Tasks and Debug configurations because they bind reviewed candidates to exact state; they do not create a global session.
 
-Run **Configure Bridge** to choose the machine-level master switch and workflow mode, then rerun **Configure Codex** after upgrading the MCP executable.
+Task and Debug definitions execute only through fixed VS Code APIs and retain their visible IDE lifecycle. The Bridge does not expose terminal input, arbitrary `vscode.commands.executeCommand`, unrestricted Debug Adapter requests, general filesystem operations or Agent-callable Git operations. Recovery claims are precise: Global Profile configuration has its own bounded undo journal; successful workspace writes do not promise durable snapshot restoration.
 
-- `vscodeAgentBridge.enabled` defaults to `true`. Turning it off closes RPC connections and removes the instance descriptor; local Doctor and configuration commands remain available.
-- `explicit` is the only execution mode. It permits workflows explicitly requested through MCP and rejects delayed execution such as `runOn: folderOpen`, dependencies and compounds generated by the Agent.
-- A legacy `aggressive` value safely degrades to `explicit`. Doctor warns and offers to open Settings; it never deletes existing folder-open configuration.
-- Existing v0.6 users who explicitly selected `readOnly`, `review`, `metadataOnly` or `deny` are not silently widened: bridge publication pauses until they explicitly enable or disable v0.7.
+## Shared service
 
-The managed Codex block no longer chooses approval modes. Codex, user configuration or a supervising Agent decides approval from the accurate MCP annotations.
+Codex connects to one authenticated daemon at a persisted `127.0.0.1` port and `/mcp`. The daemon starts with the current user's login task and remains ready when no VS Code window exists. A stable named pipe owns the per-user singleton, while each MCP client has independent protocol and cancellation state.
 
-## Bridge Hub, extension awareness and local insights
+The server limits the current installation to 128 sessions, 8 active requests per session and 64 active requests globally. A parsed JSON-RPC request that exceeds capacity receives HTTP 200 with the same request ID, JSON-RPC error `-32002`, and `data.bridgeCode = "SERVER_CAPACITY_REACHED"`. Authentication, Host and Origin failures remain HTTP transport rejections.
 
-The stable Activity Bar container is presented as **VS Code Agent Bridge** and contains native Overview, Experiments, Agent Activity, Capabilities and Usage Insights views. Overview shows only bounded state such as version/protocol, publication, trust, active experiment, Problems, installed/active extensions, visible signal sources and Task/Debug/Terminal counts. Capabilities is derived from the same catalog that defines MCP names, Codex configuration and annotations.
+See [installation and recovery](docs/installation.md) for the installer, login task, rollback and isolated acceptance flow.
 
-Extension reflection uses `vscode.extensions.all` without activating inspected extensions, reading exports or executing contributed commands. Problems changes are summarized in a 15-minute in-memory ring without retaining diagnostic bodies. Output discovery defaults to readable/active/recent sources and omits metadata-only extension capabilities unless that source type is explicitly requested. Only already opened Output documents or Bridge-captured Terminal/Task/Debug streams are readable. The Bridge never switches Output Channels or reads private log/Profile storage. Debug Console output is sanitized, memory-only, bounded and tagged `sinceActivation`; telemetry and evaluate/variable data are discarded.
+## VS Code UI
 
-File-backed access shares one canonical path boundary with native realpath, Windows case normalization, ancestor `lstat`, reparse-point rejection and apply-time revalidation. Language providers may return external definitions or references with random exact-URI grants bound to this instance and source workspace for ten minutes. Caller-invented external or unknown virtual URIs remain denied.
+The Activity Bar contains two views:
 
-Marketplace orchestration uses a fixed HTTPS Gallery endpoint, strict bounded responses, proxy-aware TLS and 15-minute in-memory candidates. A versioned maintainer directory is the only source of the `official` label; Marketplace verification is reported separately. Installation is a one-use, exact-version plan through VS Code's native UI boundary. The Bridge never accepts URLs or VSIX paths, invokes the CLI, bypasses Publisher Trust, downgrades, uninstalls or silently updates extensions. Current-Profile configuration is limited to installed extensions' declared non-sensitive keys. Reads return only definition state, SHA-256, value type, scope and semantic risk. Global changes use a serialized pending/apply/commit journal with startup recovery and Doctor attention; Workspace and Folder changes remain part of the active experiment.
+- **Status** shows service and Codex configuration health, publication, protocol and release alignment, trust, Problems, Task/Debug/terminal summaries, local insight controls and Doctor actions.
+- **Agent Activity** shows side-effecting operations, running Task/Debug work and failures. Ordinary reads are omitted. Entries retain an internal target while displaying redacted text; VS Code opens or reveals a target only when the user clicks the entry.
 
-Extension-specific state uses a static reviewed adapter catalog rather than arbitrary commands or exports. Listing the catalog never activates an extension. An explicit state request may activate only the fixed extension associated with that adapter and is annotated as non-idempotent/open-world. v0.11's first adapter uses Microsoft's pinned `@vscode/python-extension` facade for `ms-python.python` and returns only the active interpreter path, environment type/name, Python version and bitness. It cannot read environment variables, package inventories, credentials or Python logs, and cannot create environments or install packages.
+Agent operations do not open files, switch editors or steal focus. A failure to render optional UI cannot block the underlying operation. When stable VS Code APIs do not expose the current Profile name or an output source, Status reports that the API does not provide it.
 
-Every MCP process records a separate append-only local insight session with tool/category, outcome, timing and size buckets, truncation and stable error codes. Parameters, results, paths, source, hashes, terminal content, expressions, variables, environment variables and credentials are never recorded. Active files rotate at 1 MiB; retention is pruned after each additional 256 KiB or five minutes and total data is bounded to 20 MiB before append. The shutdown path flushes the write queue. Data can be cleared explicitly and exported only as a privacy-preserving aggregate report.
+Version 0.14.0 never loads old experiment storage. If Bridge-owned legacy metadata is present, Status offers commands to open its location or delete it after a second confirmation. The cleanup is limited to extension metadata and snapshots; Git branches and worktrees remain ordinary user-managed Git state.
 
-## Recoverable experiments
+Local usage insights remain privacy-preserving aggregates. They contain tool/category, outcome, timing and size buckets, truncation and stable errors, never parameters, results, paths, source, hashes, terminal content, debug values, environment data or credentials. Export and clear actions remain in Status and the Command Palette.
 
-The first experiment request in a trusted local workspace inventories `.vscode`, `settings.json`, `launch.json`, `tasks.json` and the workspace file, then asks before enabling experiments. Confirmation writes only `vscodeAgentBridge.experiments.enabled` and the selected `agentEditVisibility` through the VS Code Configuration API; cancellation makes no file change. Generic configuration edits cannot author Task or Debug definitions. Prepared definitions are temporary by default and only the dedicated persist tools may update `tasks.json` or `launch.json` under exact file-hash and provenance guards.
+## Installation
 
-After onboarding, the Agent can name an ordinary experiment for the current task, list sessions, rename ordinary sessions and create explicit checkpoints. Accept, restore, Finalize, abandon, pin, delete and every Managed Worktree action remain user-only. Experiments keep content-addressed, gzip-compressed text snapshots in VS Code extension storage, separate from the repository and Settings Sync.
+Install the side-loaded VSIX, then run **VS Code Agent Bridge: Configure Codex**. The VSIX contains the compiled MCP executable, so testers do not need Bun, Node.js or this repository. **Run Doctor** checks the authenticated daemon, login task, managed Codex block, executable integrity, extension publication, protocol/release status and legacy-data notice without printing secrets or internal endpoints.
 
-- Saving is not acceptance; a checkpoint is not a Git commit.
-- The Agent may save guarded existing documents and prepare bounded text-file/directory creation, rename and deletion inside a schema-v2 experiment. Untitled and binary resource creation remain unsupported.
-- Restore creates a safety checkpoint, reconstructs captured text/resource state on disk, saves affected buffers and enters recovery-required state if a rollback cannot complete. Legacy schema-v1 sessions retain their older text-only boundary.
-- Finalize may use the current saved state when no candidate is accepted. An existing accepted candidate stays authoritative.
-- Task and Debug checkpoints capture recoverable workspace text/resources only. External processes, services, databases, network effects, environment changes and Git history are explicitly outside rollback coverage.
-- Retention defaults to 30 days or 500 MB. Active, pinned and corrupt sessions are not auto-deleted.
-
-The default Git workflow is an ordinary experiment branch plus normal Git squash/rebase performed by the user. Automatic checkpoints never create Git commits.
-
-Agent writes and executions appear in the native **Agent Activity** view and status bar. Depending on `agentEditVisibility`, guarded target documents are opened as fixed tabs before mutation; the default opens all targets and focuses the first. Task records retain the full command, arguments and cwd plus execution/terminal/checkpoint correlation; Debug records retain execution-relevant adapter fields. Environment values, source/replacement text, terminal output, expressions and Debug values are never retained.
-
-## Managed worktrees and one-commit promotion (advanced)
-
-Run **Start Managed Worktree Experiment** from a clean, named local Git branch to isolate saved files and private trial commits. The extension creates and locks a private worktree under `%LOCALAPPDATA%/VSCodeAgentBridge/worktrees`, opens it in a new window and reuses the v0.3 checkpoint timeline.
-
-- Git runs only through fixed `execFile` operations; no Git capability is exposed through MCP.
-- **Create Private Checkpoint Commit** stages and commits only after explicit user action and preserves normal hooks/signing.
-- A promotable candidate must be a user-accepted commit reachable on the private branch.
-- Target drift returns `TARGET_MOVED`. **Sync Managed Experiment** is a separate confirmed rebase with continue/abort commands.
-- Finalize runs from the clean original target window, creates one commit whose only parent is the current target HEAD, and verifies its tree equals the accepted commit tree.
-- Promotion never pushes or deletes the worktree/private branch. Cleanup is a separate, exact-path, confirmed operation with old-SHA ref protection.
-- Worktrees are never removed by snapshot retention or age limits.
+The installer stages and self-tests a version/hash-specific executable before switching the task. After the new daemon is healthy and configuration is committed, it keeps the active executable plus one checksum-verified rollback executable. Active transaction and login-task references are never pruned, and cleanup failure does not stop the running service.
 
 ## Repository layout
 
 ```text
 packages/
-  protocol/          RPC schemas, error codes and discovery contracts
-  mcp-server/        shared HTTP daemon started by the current-user login task
-  vscode-extension/  VS Code desktop UI extension and installer
+  protocol/          shared schemas, stable errors, RPC and tool catalog
+  mcp-server/        shared HTTP daemon, discovery, sessions and installer
+  vscode-extension/  VS Code runtime, handlers, managers and native UI
 scripts/             Bun build, test, package and release verification
-docs/agent-handbook/ progressive project, architecture and workflow guidance for coding agents
+docs/agent-handbook/ progressive development guidance for coding agents
 docs/adr/            architecture and security decisions
 docs/acceptance/     clean-machine Windows acceptance procedures
+docs/audits/         immutable dated validation evidence
 ```
 
-## Development
+## Development and validation
 
-Install Bun 1.3.11 and Node.js 22 or newer. Node is used only by Microsoft's official `vsce`; Bun owns dependency installation, workspace builds and tests.
-
-Coding agents and new contributors should begin with the [agent development handbook](docs/agent-handbook/README.md). It routes work by subsystem and task so the whole repository does not need to be scanned before each change.
-
-Open the curated workspace to use focused Tasks, isolated Extension Host debugging, Bun test/debug integration and project extension recommendations:
-
-```powershell
-code vscode-agent-bridge.code-workspace
-```
-
-The workspace exposes the repository and all three packages as named roots so folder-bound extensions activate, while hiding duplicate package trees from the repository view. See the [VS Code workspace guide](docs/agent-handbook/playbooks/vscode-workspace.md) for the root layout, Task and debug entry points.
-
-For ordinary development, inspect the impact plan and run only the affected gate:
+Use Bun 1.3.11. Node.js 22 or newer is needed only by Microsoft's official `vsce` packaging path. Start non-trivial work with the [Agent development handbook](docs/agent-handbook/README.md) and the impact plan:
 
 ```powershell
 bun run test:plan
 bun run check:affected
-bun run test:domain -- debug
-bun run test:e2e:scenario -- debug
+bun run test:e2e:affected
 ```
 
-`test:plan` classifies staged, unstaged and untracked changes by domain and risk. `check:affected` runs the selected workspace type checks, deterministic tests and builds. Manual domains only add coverage; they cannot downgrade a required full gate. Unknown production paths fail closed.
+Before a pull request, or whenever the plan reports `full`, run `bun run check`. E2E infrastructure changes require `bun run test:e2e:repeat`; packaging and installation changes require `bun run test:artifact`. The [testing strategy](docs/testing-strategy.md) defines the authoritative gates.
 
-Before a pull request, run the complete fast gate. The CI workflow then selects only the necessary Extension Host scenarios; E2E infrastructure changes run the full suite twice in isolated profiles.
+## 中文说明
 
-```powershell
-bun run check
-bun run test:e2e:affected -- --base <base-revision> --head <head-revision>
-```
+0.14.0 将实验和 Managed Worktree 从产品主流程中移除。Agent 选定 VS Code 窗口和本地工作区根目录后，可以直接读取未保存缓冲区、语言服务、Problems、现有终端、Task、Debug 与扩展状态，也可以在信任、路径、版本、哈希和指纹条件满足时执行受限修改。插件不再要求 `sessionId` 或检查点，不会为 Agent 自动打开文件或抢占焦点。
 
-Release and `master` gates retain complete validation:
+插件侧栏只保留 **Status** 与 **Agent Activity**。旧实验数据不会被加载，也不会自动迁移或删除；用户可从 Status 打开目录，或在二次确认后仅删除 Bridge 自己的元数据和快照。Git 分支和 worktree 不受该命令影响。
 
-```powershell
-bun run check
-bun run test:e2e:repeat
-bun run package:vsix
-bun run release:checksums
-bun run package:test-bundle
-bun run test:artifact
-```
-
-`bun run check` still performs full type checking, all Bun unit/contract tests and workspace builds. `test:e2e` remains the complete single-run Extension Host gate, while `test:e2e:smoke`, `test:e2e:scenario`, `test:e2e:affected` and `test:e2e:repeat` provide explicit lower-cost or repeatability gates. `package:vsix` compiles the Windows x64 baseline EXE, packages a platform VSIX and audits its contents. Generated release files are written to `artifacts/`. See [the testing strategy](docs/testing-strategy.md) for the authoritative selection rules.
-
-## Release
-
-Pull requests and `master` run [CI](.github/workflows/ci.yml). A version tag runs [the release workflow](.github/workflows/release.yml), creates checksums, a version-specific cross-machine test bundle and provenance, and publishes a GitHub Release. Marketplace publishing remains disabled and runs through `vsce --oidc` only if `MARKETPLACE_TRUSTED_PUBLISHING_ENABLED` is explicitly set to `true`.
-
-No PAT is stored in this repository. See the [v0.12.0 release checklist](docs/releases/v0.12.0.md) and [v0.12.0 cross-machine acceptance procedure](docs/acceptance/v0.12.0-windows-x64.md). Earlier self-bootstrap findings remain available under [docs/audits](docs/audits/README.md).
-
-The current unpublished HTTP candidate uses the [v0.13.0 validation checklist](docs/releases/v0.13.0.md) and [Windows acceptance procedure](docs/acceptance/v0.13.0-windows-x64.md).
-
-## Security and license
-
-The extension uses a per-window random identifier and token over local IPC. On Windows, registry directories and descriptors remove inheritance and grant only the current SID plus SYSTEM; descriptor publication uses write/fsync/ACL/atomic-rename/recheck and fails closed. Current descriptors are live-probed, while old protocol envelopes remain visible only as sanitized incompatible instances. Experiment content never appears in Doctor output.
-
-Report vulnerabilities according to [SECURITY.md](SECURITY.md). This project is licensed under the [MIT License](LICENSE).
+Codex 通过当前用户唯一的常驻 HTTP 服务访问工具。服务可在没有 VS Code 窗口时保持就绪，窗口启动后由扩展发布实例描述。安装和故障恢复见[安装手册](docs/installation.md)。

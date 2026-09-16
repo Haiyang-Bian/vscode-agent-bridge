@@ -50,6 +50,24 @@ export function registerAgentActivityUi(
     status,
     subscription,
     vscode.window.registerTreeDataProvider(VIEW_ID, provider),
+    vscode.commands.registerCommand("vscodeAgentBridge.revealAgentActivity", async (operationId: string) => {
+      const entry = tracker.find(operationId);
+      const location = entry?.locations[0];
+      if (!location) return;
+      if (location.kind === "uri") {
+        const document = await vscode.workspace.openTextDocument(vscode.Uri.parse(location.uri, true));
+        const editor = await vscode.window.showTextDocument(document, { preview: false });
+        if (location.line !== undefined) {
+          const position = new vscode.Position(location.line, location.character ?? 0);
+          editor.selection = new vscode.Selection(position, position);
+          editor.revealRange(new vscode.Range(position, position));
+        }
+        return;
+      }
+      await vscode.commands.executeCommand(
+        location.kind === "debug" ? "workbench.view.debug" : "workbench.action.terminal.focus",
+      );
+    }),
     new vscode.Disposable(() => {
       if (hideTimer) {
         clearTimeout(hideTimer);
@@ -80,12 +98,18 @@ class AgentActivityTreeProvider
       entry.reason,
       entry.targets.length > 0 ? `Targets: ${entry.targets.join(", ")}` : null,
       entry.editCount === null ? null : `Edits: ${entry.editCount}`,
-      entry.checkpointId ? `Checkpoint: ${entry.checkpointId}` : null,
       entry.errorCode ? `Error: ${entry.errorCode}` : null,
     ]
       .filter((value): value is string => Boolean(value))
       .join("\n");
     item.iconPath = new vscode.ThemeIcon(iconForStatus(entry.status));
+    if (entry.locations.length > 0) {
+      item.command = {
+        command: "vscodeAgentBridge.revealAgentActivity",
+        title: "Reveal activity target",
+        arguments: [entry.operationId],
+      };
+    }
     return item;
   }
 

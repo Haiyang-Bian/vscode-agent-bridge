@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-11
 - Release: 0.12.0
+- Partially superseded by ADR 0023: prepared IDE workflows and provenance remain, while experiment binding and final checkpoints are removed.
 
 ## Context
 

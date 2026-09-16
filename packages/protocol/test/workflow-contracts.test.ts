@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  BridgeExecutionModeSchema,
   ControlDebugSessionInputSchema,
   GetDebugStateInputSchema,
   PersistDebugConfigurationInputSchema,
@@ -15,19 +14,12 @@ import {
 } from "../src/index.js";
 
 const INSTANCE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-const SESSION_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const HASH = "a".repeat(64);
 
-describe("protocol v11 workflow schemas", () => {
-  test("keeps only explicit Agent-initiated execution", () => {
-    expect(BridgeExecutionModeSchema.parse("explicit")).toBe("explicit");
-    expect(() => BridgeExecutionModeSchema.parse("aggressive")).toThrow();
-  });
-
+describe("protocol v12 workflow schemas", () => {
   test("guards structured configuration updates with existence and hash preconditions", () => {
     const valid = {
       instanceId: INSTANCE_ID,
-      sessionId: SESSION_ID,
       rootUri: "file:///workspace",
       target: "settings",
       expectedExists: true,
@@ -44,20 +36,18 @@ describe("protocol v11 workflow schemas", () => {
     expect(
       PrepareResourceChangesInputSchema.parse({
         instanceId: INSTANCE_ID,
-        sessionId: SESSION_ID,
-        title: "Create test fixture",
+        rootUri: "file:///workspace",
         operations: [
           { operation: "create", kind: "file", uri: "file:///workspace/test.ts", content: "export {};\n" },
         ],
       }),
-    ).toMatchObject({ instanceId: INSTANCE_ID, sessionId: SESSION_ID });
+    ).toMatchObject({ instanceId: INSTANCE_ID });
   });
 
-  test("binds task execution to a fingerprinted task and experiment", () => {
+  test("binds task execution to a fingerprinted task and root", () => {
     expect(
       PrepareTaskInputSchema.parse({
         instanceId: INSTANCE_ID,
-        sessionId: SESSION_ID,
         rootUri: "file:///workspace",
         label: "Agent tests",
         execution: {
@@ -73,7 +63,6 @@ describe("protocol v11 workflow schemas", () => {
     expect(
       RunTaskInputSchema.parse({
         instanceId: INSTANCE_ID,
-        sessionId: SESSION_ID,
         rootUri: "file:///workspace",
         taskId: HASH,
         expectedFingerprint: HASH,
@@ -83,7 +72,6 @@ describe("protocol v11 workflow schemas", () => {
     expect(
       PersistTaskInputSchema.parse({
         instanceId: INSTANCE_ID,
-        sessionId: SESSION_ID,
         rootUri: "file:///workspace",
         preparedTaskId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
         expectedExists: false,
@@ -97,7 +85,6 @@ describe("protocol v11 workflow schemas", () => {
     expect(
       PrepareDebugConfigurationInputSchema.parse({
         instanceId: INSTANCE_ID,
-        sessionId: SESSION_ID,
         rootUri: "file:///workspace",
         configuration: { name: "Agent debug", type: "node", request: "launch", program: "src/index.ts" },
         preLaunchTask: { taskId: HASH, expectedFingerprint: HASH },
@@ -107,7 +94,6 @@ describe("protocol v11 workflow schemas", () => {
     expect(() =>
       PrepareDebugConfigurationInputSchema.parse({
         instanceId: INSTANCE_ID,
-        sessionId: SESSION_ID,
         rootUri: "file:///workspace",
         configuration: { name: "Hidden task", type: "node", request: "launch", preLaunchTask: "build" },
         reason: "Do not hide Task execution inside raw Debug configuration.",
@@ -116,7 +102,6 @@ describe("protocol v11 workflow schemas", () => {
     expect(
       PersistDebugConfigurationInputSchema.parse({
         instanceId: INSTANCE_ID,
-        sessionId: SESSION_ID,
         rootUri: "file:///workspace",
         preparedConfigurationId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
         expectedExists: true,
@@ -127,7 +112,6 @@ describe("protocol v11 workflow schemas", () => {
     expect(
       StartDebugSessionInputSchema.parse({
         instanceId: INSTANCE_ID,
-        sessionId: SESSION_ID,
         rootUri: "file:///workspace",
         configurationId: HASH,
         expectedFingerprint: HASH,
@@ -148,7 +132,6 @@ describe("protocol v11 workflow schemas", () => {
     expect(
       ControlDebugSessionInputSchema.parse({
         instanceId: INSTANCE_ID,
-        sessionId: SESSION_ID,
         debugSessionId: "debug-1",
         action: "continue",
         threadId: 1,
@@ -158,7 +141,6 @@ describe("protocol v11 workflow schemas", () => {
     expect(() =>
       ControlDebugSessionInputSchema.parse({
         instanceId: INSTANCE_ID,
-        sessionId: SESSION_ID,
         debugSessionId: "debug-1",
         action: "customRequest",
         reason: "No generic DAP requests.",

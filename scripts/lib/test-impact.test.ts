@@ -221,7 +221,7 @@ describe("Git change collection", () => {
 
 describe("E2E runner selection and cleanup", () => {
   test("expands full and validates individual scenarios", () => {
-    expect(parseE2EScenarios([])).toHaveLength(9);
+    expect(parseE2EScenarios([])).toHaveLength(8);
     expect(parseE2EScenarios(["http-bridge"])).toEqual(["http-bridge"]);
     expect(parseE2EScenarios(["debug,task-terminal", "debug"])).toEqual([
       "debug",
@@ -250,7 +250,6 @@ describe("E2E runner selection and cleanup", () => {
     const environment = await createE2EEnvironment("fixture-", alias);
     try {
       expect(path.dirname(environment.root)).toBe(await realpath(parent));
-      expect(environment.managedWorktrees).toBe(path.join(environment.root, "managed-worktrees"));
       expect(environment.workspace).toBe(path.join(environment.root, "workspace"));
     } finally {
       await cleanupE2EEnvironment(environment);

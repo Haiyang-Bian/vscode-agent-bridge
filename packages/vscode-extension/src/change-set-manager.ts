@@ -19,9 +19,7 @@ import {
   type TextReplacement,
 } from "@vscode-agent-bridge/protocol";
 
-import { ExperimentManager } from "./experiment-manager.js";
 import { CanonicalPathBoundary } from "./canonical-path-boundary.js";
-import { AgentEditorVisibility } from "./agent-editor-visibility.js";
 import { assertAgentWriteAllowed } from "./policies.js";
 import {
   applyResourcePlan,
@@ -30,6 +28,7 @@ import {
   type PreparedResourcePlan,
 } from "./resource-change-executor.js";
 import { validateConfigurationContentForUri } from "./workspace-configuration-manager.js";
+import { resolveWorkspaceRoot } from "./workspace-setup.js";
 
 interface InternalPreparedDocument {
   readonly uri: vscode.Uri;
@@ -47,36 +46,20 @@ interface InternalChangeSet {
 
 export class ChangeSetManager {
   readonly #instanceId: string;
-  readonly #experiments: ExperimentManager;
-  readonly #visibility: AgentEditorVisibility;
   readonly #changeSets = new Map<string, InternalChangeSet>();
 
-  constructor(
-    instanceId: string,
-    experiments: ExperimentManager,
-    visibility: AgentEditorVisibility,
-  ) {
+  constructor(instanceId: string) {
     this.#instanceId = instanceId;
-    this.#experiments = experiments;
-    this.#visibility = visibility;
   }
 
   async prepareTextEdits(params: PrepareTextEditsParams): Promise<PreparedChangeSet> {
     this.#assertMutationAllowed();
-    await this.#assertActiveSession(params.sessionId);
-    return this.#prepare(
-      "text-edits",
-      params.sessionId,
-      params.title,
-      params.rationale ?? null,
-      params.documents,
-    );
+    return this.#prepare("text-edits", params.rootUri, params.documents);
   }
 
   async prepareRename(params: PrepareRenameParams): Promise<PreparedChangeSet> {
     this.#assertMutationAllowed();
-    const experiment = await this.#assertActiveSession(params.sessionId);
-    const uri = parseSupportedUri(params.uri, experiment.rootUri);
+    const uri = parseSupportedUri(params.uri, params.rootUri);
     const document = await resolveExistingDocument(uri);
     assertExpectedDocument(document, params.expectedSha256, params.expectedVersion);
     const position = validatePosition(document, params.position);
@@ -100,7 +83,7 @@ export class ChangeSetManager {
     }
     const documents = await Promise.all(
       entries.map(async ([targetUri, edits]) => {
-        const target = parseSupportedUri(targetUri.toString(true), experiment.rootUri);
+        const target = parseSupportedUri(targetUri.toString(true), params.rootUri);
         const targetDocument = await resolveExistingDocument(target);
         return {
           uri: target.toString(true),
@@ -113,13 +96,7 @@ export class ChangeSetManager {
         };
       }),
     );
-    return this.#prepare(
-      "rename",
-      params.sessionId,
-      params.title,
-      params.rationale ?? null,
-      documents,
-    );
+    return this.#prepare("rename", params.rootUri, documents);
   }
 
   async prepareResourceChanges(
@@ -127,9 +104,7 @@ export class ChangeSetManager {
   ): Promise<PreparedChangeSet> {
     this.#assertMutationAllowed();
     this.#purgeExpired();
-    const experiment = await this.#assertActiveSession(params.sessionId);
-    await this.#experiments.assertResourceChangesAllowed(params.sessionId);
-    const resourcePlan = await prepareResourcePlan(experiment.rootUri, params.operations);
+    const resourcePlan = await prepareResourcePlan(params.rootUri, params.operations);
     for (const prepared of resourcePlan.operations) {
       if (prepared.operation.operation === "create" && prepared.operation.kind === "file") {
         validateConfigurationContentForUri(prepared.uri, prepared.operation.content!);
@@ -152,11 +127,9 @@ export class ChangeSetManager {
     const changeSetId = randomUUID();
     const result: PreparedChangeSet = {
       instanceId: this.#instanceId,
-      sessionId: params.sessionId,
+      rootUri: params.rootUri,
       changeSetId,
       kind: "resource-changes",
-      title: params.title,
-      rationale: params.rationale ?? null,
       createdAt: createdAt.toISOString(),
       expiresAt: new Date(createdAt.getTime() + CHANGE_SET_TTL_MS).toISOString(),
       documents: [],
@@ -183,9 +156,7 @@ export class ChangeSetManager {
   }
 
   async prepareGeneratedTextEdits(
-    sessionId: string,
-    title: string,
-    rationale: string,
+    rootUri: string,
     documents: readonly {
       uri: string;
       expectedSha256: string;
@@ -193,17 +164,13 @@ export class ChangeSetManager {
       edits: readonly TextReplacement[];
     }[],
   ): Promise<PreparedChangeSet> {
-    return this.#prepare("text-edits", sessionId, title, rationale, documents);
+    return this.#prepare("text-edits", rootUri, documents);
   }
 
-  async applyPrepared(
-    params: ApplyChangeSetParams,
-    checkpointSummary?: string,
-  ): Promise<AppliedChangeSet> {
+  async applyPrepared(params: ApplyChangeSetParams): Promise<AppliedChangeSet> {
     this.#assertMutationAllowed();
-    const experiment = await this.#assertActiveSession(params.sessionId);
     const changeSet = this.#changeSets.get(params.changeSetId);
-    if (!changeSet || changeSet.result.sessionId !== params.sessionId) {
+    if (!changeSet) {
       throw new BridgeError("CHANGE_SET_NOT_FOUND", "The prepared change set was not found.");
     }
     if (changeSet.state === "consumed") {
@@ -219,34 +186,10 @@ export class ChangeSetManager {
 
     if (changeSet.resourcePlan) {
       await assertResourcePlanFresh(changeSet.resourcePlan);
-      const visibleUris = changeSet.resourcePlan.operations
-        .filter(({ before }) => before.exists && before.kind === "file")
-        .map(({ uri }) => uri);
-      if (visibleUris.length > 0) {
-        await this.#visibility.reveal(experiment.rootUri, visibleUris);
-      }
-      await this.#experiments.captureBeforeResourceApply(
-        params.sessionId,
-        changeSet.resourcePlan.affectedUris,
-      );
-      try {
-        await applyResourcePlan(changeSet.resourcePlan);
-      } catch (error) {
-        if (error instanceof BridgeError && error.code === "RESOURCE_RECOVERY_REQUIRED") {
-          await this.#experiments.markResourceRecoveryRequired(params.sessionId);
-        }
-        throw error;
-      }
-      const checkpointId = await this.#experiments.captureAfterAgentApply(
-        params.sessionId,
-        checkpointSummary ?? changeSet.result.title,
-        changeSet.resourcePlan.affectedUris,
-      );
+      await applyResourcePlan(changeSet.resourcePlan);
       return {
         instanceId: this.#instanceId,
-        sessionId: params.sessionId,
         changeSetId: params.changeSetId,
-        checkpointId,
         appliedAt: new Date().toISOString(),
         documents: [],
         resources: changeSet.result.resources as ResourceChange[],
@@ -255,7 +198,7 @@ export class ChangeSetManager {
 
     const resolved = await Promise.all(
       changeSet.documents.map(async (prepared) => {
-        const revalidatedUri = parseSupportedUri(prepared.uri.toString(true), experiment.rootUri);
+        const revalidatedUri = parseSupportedUri(prepared.uri.toString(true), changeSet.result.rootUri);
         const document = await resolveExistingDocument(revalidatedUri);
         try {
           assertExpectedDocument(document, prepared.beforeSha256, prepared.expectedVersion);
@@ -279,11 +222,7 @@ export class ChangeSetManager {
         workspaceEdit.replace(target.document.uri, edit.range, edit.newText);
       }
     }
-    await this.#visibility.reveal(
-      experiment.rootUri,
-      resolved.map(({ document }) => document.uri),
-    );
-    if (!(await this.#experiments.applyGuardedWorkspaceEdit(workspaceEdit))) {
+    if (!(await vscode.workspace.applyEdit(workspaceEdit))) {
       throw new BridgeError("INTERNAL_ERROR", "VS Code refused to apply the prepared text edits.");
     }
 
@@ -293,16 +232,9 @@ export class ChangeSetManager {
       contentSha256: sha256(document.getText()),
       isDirty: document.isDirty,
     }));
-    const checkpointId = await this.#experiments.captureAfterAgentApply(
-      params.sessionId,
-      checkpointSummary ?? changeSet.result.title,
-      resolved.map(({ document }) => document.uri),
-    );
     return {
       instanceId: this.#instanceId,
-      sessionId: params.sessionId,
       changeSetId: params.changeSetId,
-      checkpointId,
       appliedAt: new Date().toISOString(),
       documents,
       resources: [],
@@ -311,9 +243,7 @@ export class ChangeSetManager {
 
   async #prepare(
     kind: "text-edits" | "rename",
-    sessionId: string,
-    title: string,
-    rationale: string | null,
+    rootUri: string,
     rawDocuments: readonly {
       uri: string;
       expectedSha256: string;
@@ -322,7 +252,6 @@ export class ChangeSetManager {
     }[],
   ): Promise<PreparedChangeSet> {
     this.#purgeExpired();
-    const experiment = await this.#assertActiveSession(sessionId);
     if (rawDocuments.length > MAX_CHANGE_SET_DOCUMENTS) {
       throw new BridgeError("EDIT_LIMIT_EXCEEDED", "Change set contains too many documents.");
     }
@@ -331,7 +260,7 @@ export class ChangeSetManager {
     const internalDocuments: InternalPreparedDocument[] = [];
     const preparedDocuments: PreparedDocumentChange[] = [];
     for (const raw of rawDocuments) {
-      const uri = parseSupportedUri(raw.uri, experiment.rootUri);
+      const uri = parseSupportedUri(raw.uri, rootUri);
       const document = await resolveExistingDocument(uri);
       assertExpectedDocument(document, raw.expectedSha256, raw.expectedVersion);
       const edits = raw.edits.map((edit) => ({
@@ -370,11 +299,9 @@ export class ChangeSetManager {
     const createdAt = new Date();
     const result: PreparedChangeSet = {
       instanceId: this.#instanceId,
-      sessionId,
+      rootUri,
       changeSetId,
       kind,
-      title,
-      rationale,
       createdAt: createdAt.toISOString(),
       expiresAt: new Date(createdAt.getTime() + CHANGE_SET_TTL_MS).toISOString(),
       documents: preparedDocuments,
@@ -392,17 +319,6 @@ export class ChangeSetManager {
     return result;
   }
 
-  async #assertActiveSession(sessionId: string) {
-    const experiment = await this.#experiments.getActiveExperiment();
-    if (experiment.sessionId !== sessionId) {
-      throw new BridgeError(
-        "EXPERIMENT_NOT_FOUND",
-        "The requested experiment is not active in this VS Code window.",
-      );
-    }
-    return experiment;
-  }
-
   #assertMutationAllowed(): void {
     assertAgentWriteAllowed();
   }
@@ -418,6 +334,7 @@ export class ChangeSetManager {
 }
 
 export function parseSupportedUri(rawUri: string, rootUri: string): vscode.Uri {
+  const root = resolveWorkspaceRoot(rootUri);
   let uri: vscode.Uri;
   try {
     uri = vscode.Uri.parse(rawUri, true);
@@ -431,13 +348,12 @@ export function parseSupportedUri(rawUri: string, rootUri: string): vscode.Uri {
     );
   }
   if (uri.scheme === "file") {
-    const root = vscode.Uri.parse(rootUri, true);
     try {
-      const checked = new CanonicalPathBoundary([root.fsPath]).assertPathSync(uri.fsPath);
+      const checked = new CanonicalPathBoundary([root.uri.fsPath]).assertPathSync(uri.fsPath);
       uri = vscode.Uri.file(checked.canonicalPath);
     } catch (error) {
       if (error instanceof BridgeError) {
-        throw new BridgeError("EDIT_OUT_OF_SCOPE", "Document does not resolve canonically inside the active experiment root.");
+        throw new BridgeError("EDIT_OUT_OF_SCOPE", "Document does not resolve canonically inside the selected workspace root.");
       }
       throw error;
     }

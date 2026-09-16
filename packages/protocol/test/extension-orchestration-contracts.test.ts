@@ -10,7 +10,6 @@ import {
 } from "../src/index.js";
 
 const INSTANCE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-const SESSION_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const CANDIDATE_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const PLAN_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const HASH = "a".repeat(64);
@@ -21,14 +20,12 @@ describe("protocol v9 extension orchestration schemas", () => {
       .toMatchObject({ offset: 0, limit: 20 });
     expect(PrepareExtensionInstallInputSchema.parse({
       instanceId: INSTANCE_ID,
-      sessionId: SESSION_ID,
       rootUri: "file:///workspace",
       candidateId: CANDIDATE_ID,
       reason: "Install official language support.",
-    })).toMatchObject({ candidateId: CANDIDATE_ID, sessionId: SESSION_ID });
+    })).toMatchObject({ candidateId: CANDIDATE_ID });
     expect(ApplyExtensionInstallInputSchema.parse({
       instanceId: INSTANCE_ID,
-      sessionId: SESSION_ID,
       planId: PLAN_ID,
     })).toMatchObject({ planId: PLAN_ID });
   });
@@ -43,18 +40,16 @@ describe("protocol v9 extension orchestration schemas", () => {
     })).toMatchObject({ target: "workspaceFolder" });
     expect(UpdateExtensionConfigurationInputSchema.parse({
       instanceId: INSTANCE_ID,
-      sessionId: SESSION_ID,
       rootUri: "file:///workspace",
       extensionId: "ms-python.python",
       key: "python.analysis.typeCheckingMode",
       target: "workspace",
       expectedValueSha256: HASH,
       newValue: "strict",
-      reason: "Use the strict analyzer for this experiment.",
+      reason: "Use the strict analyzer for this workspace.",
     })).toMatchObject({ expectedValueSha256: HASH, newValue: "strict" });
     expect(() => UpdateExtensionConfigurationInputSchema.parse({
       instanceId: INSTANCE_ID,
-      sessionId: SESSION_ID,
       rootUri: "file:///workspace",
       extensionId: "ms-python.python",
       key: "python.analysis.typeCheckingMode",

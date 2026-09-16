@@ -13,7 +13,7 @@
 | `src/http-runtime.ts`, `src/request-context.ts` | HTTP authentication/admission, session isolation, deadlines and cancellation scopes |
 | `src/service-daemon.ts`, `src/service-control.ts`, `src/service-auth.ts` | Single owner, authenticated management requests/responses and bounded shutdown |
 | `src/windows-service-native.ts`, `src/service-state.ts` | OS-exclusive local named pipe, protected DACLs, stable identity and atomic private files |
-| `src/service-installer.ts`, `src/service-scheduler.ts`, `src/service-config.ts`, `src/service-errors.ts` | Transactional version installation, login task, managed TOML migration and redacted errors |
+| `src/service-installer.ts`, `src/service-version-pruner.ts`, `src/service-scheduler.ts`, `src/service-config.ts`, `src/service-errors.ts` | Transactional installation, bounded current/rollback retention, login task, managed TOML migration and redacted errors |
 | `src/instances.ts` | Version-tolerant descriptor discovery, current live probing, incompatible-instance reporting and explicit selection |
 | `src/rpc-client.ts` | Authentication, protocol initialization, request timeout and cancellation |
 | `src/usage-insights.ts` | Privacy-preserving local aggregate recording, rotation, capacity, recurring prune and flush |
@@ -30,6 +30,8 @@
 - Usage recording is an aggregate evidence channel, not telemetry for source, inputs, outputs or user identity. Active files rotate at 1 MiB, append is bounded by 20 MiB total and daemon shutdown awaits the queue.
 - A disconnected HTTP socket is not cancellation. Only explicit MCP cancellation, session DELETE, deadlines and shutdown cancel the relevant RPC scope. Do not retry mutations.
 - Preserve 128 sessions, 8 requests per session, 64 global requests and 30-minute inactive-session expiry. Busy requests retain admission until the operation actually settles.
+- Parsed capacity rejection must retain the JSON-RPC request ID and return `SERVER_CAPACITY_REACHED`; authentication/Host/Origin failures remain transport-level rejection.
+- After successful installation, retain the current executable and one verified rollback reference. Never prune task/transaction references, and never fail a healthy installation because cleanup failed.
 
 ## Investigation route
 

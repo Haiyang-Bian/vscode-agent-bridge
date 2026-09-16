@@ -49,8 +49,8 @@ try {
   assert.equal((await client.health()).pid, pid);
   const evidence = { daemonPid: pid, noIdeReady: true, initializingObserved: reload.initializing, realWindowReload: true, multipleWindows: 2, explicitRouting: true, windowExitReady: true };
   assert.equal(evidence.initializingObserved, true);
-  await mkdir(path.join(repository, "artifacts/phase1-evidence"), { recursive: true });
-  await writeFile(path.join(repository, "artifacts/phase1-evidence/http-window-lifecycle.json"), JSON.stringify(evidence, null, 2) + "\n");
+  await mkdir(path.join(repository, "artifacts/phase2-evidence"), { recursive: true });
+  await writeFile(path.join(repository, "artifacts/phase2-evidence/http-window-lifecycle.json"), JSON.stringify(evidence, null, 2) + "\n");
   console.log(JSON.stringify(evidence));
 } finally {
   await writeFile(path.join(environment.root, "close-windows"), "cleanup test windows").catch(() => undefined);

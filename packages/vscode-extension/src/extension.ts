@@ -2,40 +2,34 @@ import * as vscode from "vscode";
 
 import { BRIDGE_RELEASE_VERSION } from "@vscode-agent-bridge/protocol";
 
-import { BridgeHost } from "./bridge-host.js";
-import { initializePublishedBridge } from "./bridge-lifecycle.js";
-import { registerBridgeHubUi } from "./bridge-hub-ui.js";
 import { AgentActivityTracker } from "./agent-activity.js";
 import { registerAgentActivityUi } from "./agent-activity-ui.js";
-import { AgentEditorVisibility } from "./agent-editor-visibility.js";
+import { BridgeHost } from "./bridge-host.js";
+import { registerBridgeHubUi } from "./bridge-hub-ui.js";
+import { initializePublishedBridge } from "./bridge-lifecycle.js";
 import { ChangeSetManager } from "./change-set-manager.js";
 import { CodexConfigConflictError } from "./codex-config.js";
 import { DebugManager } from "./debug-manager.js";
 import { createDebugRequestHandlers } from "./debug-request-handlers.js";
+import { ExtensionAwarenessManager } from "./extension-awareness-manager.js";
+import { createExtensionAwarenessRequestHandlers } from "./extension-awareness-handlers.js";
+import { ExtensionIntegrationManager } from "./extension-integration-manager.js";
+import { createExtensionIntegrationRequestHandlers } from "./extension-integration-handlers.js";
+import { ExtensionMarketplaceManager } from "./extension-marketplace-manager.js";
+import { createExtensionMarketplaceRequestHandlers } from "./extension-marketplace-handlers.js";
+import { ExtensionProfileManager } from "./extension-profile-manager.js";
+import { createExtensionProfileRequestHandlers } from "./extension-profile-handlers.js";
+import { IdeAutonomyManager } from "./ide-autonomy-manager.js";
 import {
   configureCodexIntegration,
   inspectInstallation,
   removeCodexIntegration,
   resolveCodexConfigPath,
 } from "./installation.js";
-import { ExperimentManager } from "./experiment-manager.js";
-import { ExtensionAwarenessManager } from "./extension-awareness-manager.js";
-import { createExtensionAwarenessRequestHandlers } from "./extension-awareness-handlers.js";
-import { ExtensionMarketplaceManager } from "./extension-marketplace-manager.js";
-import { createExtensionMarketplaceRequestHandlers } from "./extension-marketplace-handlers.js";
-import { ExtensionProfileManager } from "./extension-profile-manager.js";
-import { createExtensionProfileRequestHandlers } from "./extension-profile-handlers.js";
-import { ExtensionIntegrationManager } from "./extension-integration-manager.js";
-import { createExtensionIntegrationRequestHandlers } from "./extension-integration-handlers.js";
-import { IdeAutonomyManager } from "./ide-autonomy-manager.js";
-import { registerExperimentUi } from "./experiment-ui.js";
-import { ManagedWorktreeManager } from "./managed-worktree-manager.js";
-import { registerManagedWorktreeUi } from "./managed-worktree-ui.js";
+import { LegacyExperimentData } from "./legacy-experiment-data.js";
+import { getBridgePolicyState } from "./policies.js";
 import {
-  getBridgePolicyState,
-} from "./policies.js";
-import {
-  createExperimentRequestHandlers,
+  createChangeRequestHandlers,
   createIdeAutonomyRequestHandlers,
   createTerminalRequestHandlers,
   createWorkspaceRequestHandlers,
@@ -43,13 +37,12 @@ import {
 import { TaskManager } from "./task-manager.js";
 import { createTaskRequestHandlers } from "./task-request-handlers.js";
 import { TerminalObserver } from "./terminal-observer.js";
-import { WorkspaceOnboardingService } from "./workspace-onboarding.js";
 import { WorkspaceConfigurationManager } from "./workspace-configuration-manager.js";
 import { createWorkspaceConfigurationRequestHandlers } from "./workspace-configuration-handlers.js";
+import { WorkspaceSetupService } from "./workspace-setup.js";
 import { WorkflowProvenanceStore } from "./workflow-provenance.js";
 
 let activeHost: BridgeHost | undefined;
-let activeExperimentManager: ExperimentManager | undefined;
 let activeTerminalObserver: TerminalObserver | undefined;
 
 const ACCEPTANCE_ACTION_TITLE = "Apply VS Code Agent Bridge acceptance text edit";
@@ -57,88 +50,54 @@ const ACCEPTANCE_ACTION_TITLE = "Apply VS Code Agent Bridge acceptance text edit
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const output = vscode.window.createOutputChannel("VS Code Agent Bridge", { log: true });
   const host = new BridgeHost(output);
-  const experiments = new ExperimentManager(context, host.instanceId, output);
-  const onboarding = new WorkspaceOnboardingService(host.instanceId);
+  const setup = new WorkspaceSetupService(host.instanceId);
   const activity = new AgentActivityTracker();
-  const visibility = new AgentEditorVisibility(onboarding);
-  const changeSets = new ChangeSetManager(host.instanceId, experiments, visibility);
-  const managed = new ManagedWorktreeManager(experiments);
+  const changeSets = new ChangeSetManager(host.instanceId);
   const terminals = new TerminalObserver(host.instanceId);
-  const configurations = new WorkspaceConfigurationManager(host.instanceId, experiments);
+  const configurations = new WorkspaceConfigurationManager(host.instanceId);
   const provenance = new WorkflowProvenanceStore(context.workspaceState);
-  const tasks = new TaskManager(host.instanceId, experiments, terminals, activity, configurations, provenance);
-  const debug = new DebugManager(host.instanceId, experiments, activity, configurations, tasks, provenance);
+  const tasks = new TaskManager(host.instanceId, terminals, activity, configurations, provenance);
+  const debug = new DebugManager(host.instanceId, activity, configurations, tasks, provenance);
   const extensionAwareness = new ExtensionAwarenessManager(host.instanceId, terminals, tasks, debug);
-  const extensionMarketplace = new ExtensionMarketplaceManager(host.instanceId, experiments);
-  const extensionProfiles = new ExtensionProfileManager(host.instanceId, experiments, context.globalStorageUri);
+  const extensionMarketplace = new ExtensionMarketplaceManager(host.instanceId);
+  const extensionProfiles = new ExtensionProfileManager(host.instanceId, context.globalStorageUri);
   const extensionIntegrations = new ExtensionIntegrationManager(host.instanceId);
-  const ideAutonomy = new IdeAutonomyManager(
-    host.instanceId,
-    experiments,
-    changeSets,
-    visibility,
-  );
-  host.registerRequestHandlers(
-    createExperimentRequestHandlers(
-      host.instanceId,
-      experiments,
-      changeSets,
-      onboarding,
-      activity,
-    ),
-  );
-  host.registerRequestHandlers(createWorkspaceRequestHandlers(onboarding));
+  const ideAutonomy = new IdeAutonomyManager(host.instanceId, changeSets);
+  const legacyData = new LegacyExperimentData(context.globalStorageUri);
+
+  host.registerRequestHandlers(createChangeRequestHandlers(changeSets, activity));
+  host.registerRequestHandlers(createWorkspaceRequestHandlers(setup));
   host.registerRequestHandlers(createTerminalRequestHandlers(terminals));
-  host.registerRequestHandlers(
-    createWorkspaceConfigurationRequestHandlers(configurations, experiments, onboarding, activity),
-  );
-  host.registerRequestHandlers(createTaskRequestHandlers(tasks, experiments, onboarding, activity));
-  host.registerRequestHandlers(createDebugRequestHandlers(debug, experiments, onboarding, activity));
+  host.registerRequestHandlers(createWorkspaceConfigurationRequestHandlers(configurations, activity));
+  host.registerRequestHandlers(createTaskRequestHandlers(tasks, activity));
+  host.registerRequestHandlers(createDebugRequestHandlers(debug, activity));
   host.registerRequestHandlers(createExtensionAwarenessRequestHandlers(extensionAwareness));
-  host.registerRequestHandlers(
-    createExtensionMarketplaceRequestHandlers(extensionMarketplace, experiments, onboarding, activity),
-  );
-  host.registerRequestHandlers(
-    createExtensionProfileRequestHandlers(extensionProfiles, experiments, onboarding, activity),
-  );
+  host.registerRequestHandlers(createExtensionMarketplaceRequestHandlers(extensionMarketplace, activity));
+  host.registerRequestHandlers(createExtensionProfileRequestHandlers(extensionProfiles, activity));
   host.registerRequestHandlers(createExtensionIntegrationRequestHandlers(extensionIntegrations));
-  host.registerRequestHandlers(
-    createIdeAutonomyRequestHandlers(ideAutonomy, experiments, onboarding, activity),
-  );
+  host.registerRequestHandlers(createIdeAutonomyRequestHandlers(ideAutonomy, activity));
+
   let reconcileQueue = Promise.resolve();
   const reconcileBridge = (): Promise<void> => {
-    reconcileQueue = reconcileQueue
-      .catch(() => undefined)
-      .then(() => reconcileBridgePublication(host, output));
+    reconcileQueue = reconcileQueue.catch(() => undefined).then(() => reconcileBridgePublication(host, output));
     return reconcileQueue;
   };
   await initializePublishedBridge(
     host,
     reconcileBridge,
-    async () => { await Promise.all([experiments.initialize(), extensionProfiles.initialize()]); },
+    () => extensionProfiles.initialize(),
     (error) => output.error("Bridge storage initialization failed; the bridge is degraded.", error),
   );
   terminals.start();
   activeHost = host;
-  activeExperimentManager = experiments;
   activeTerminalObserver = terminals;
-  registerExperimentUi(context, experiments, onboarding, output);
   registerAgentActivityUi(context, activity);
-  registerManagedWorktreeUi(context, managed, output);
-  registerBridgeHubUi(context, {
-    host,
-    experiments,
-    terminals,
-    tasks,
-    debug,
-    extensionAwareness,
-  });
+  registerBridgeHubUi(context, { host, terminals, tasks, debug, extensionAwareness, legacyData });
   registerAcceptanceFixtureProvider(context);
-  registerE2ECommands(context, experiments, managed, onboarding, activity, extensionProfiles);
+  registerE2ECommands(context, activity, extensionProfiles, legacyData);
 
   context.subscriptions.push(
     output,
-    experiments,
     terminals,
     tasks,
     debug,
@@ -149,28 +108,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await vscode.window.showInformationMessage(
         host.isListening
           ? `VS Code Agent Bridge is listening (instance=${host.instanceId}${remoteLabel}).`
-          : `VS Code Agent Bridge is not published (enabled=${policy.enabled}, migrationRequired=${policy.legacyMigrationRequired}, trusted=${policy.workspaceTrusted}${remoteLabel}).`,
+          : `VS Code Agent Bridge is not published (enabled=${policy.enabled}, trusted=${policy.workspaceTrusted}${remoteLabel}).`,
       );
     }),
     vscode.commands.registerCommand("vscodeAgentBridge.copyInstanceId", async () => {
       await vscode.env.clipboard.writeText(host.instanceId);
       await vscode.window.showInformationMessage("VS Code Agent Bridge instance ID copied.");
     }),
-    vscode.commands.registerCommand("vscodeAgentBridge.configureCodex", async () => {
-      await configureCodexCommand(context, output);
-    }),
-    vscode.commands.registerCommand("vscodeAgentBridge.configureBridge", async () => {
-      await configureBridgeCommand();
-    }),
-    vscode.commands.registerCommand("vscodeAgentBridge.configureWorkspaceExperiment", async () => {
-      await onboarding.configureInteractively();
-    }),
-    vscode.commands.registerCommand("vscodeAgentBridge.removeCodexConfiguration", async () => {
-      await removeCodexCommand(context, output);
-    }),
-    vscode.commands.registerCommand("vscodeAgentBridge.runDoctor", async () => {
-      await runDoctorCommand(context, host, experiments, managed, terminals, tasks, debug, configurations, extensionProfiles, output);
-    }),
+    vscode.commands.registerCommand("vscodeAgentBridge.configureCodex", () => configureCodexCommand(context, output)),
+    vscode.commands.registerCommand("vscodeAgentBridge.configureBridge", configureBridgeCommand),
+    vscode.commands.registerCommand("vscodeAgentBridge.removeCodexConfiguration", () => removeCodexCommand(context, output)),
+    vscode.commands.registerCommand("vscodeAgentBridge.runDoctor", () =>
+      runDoctorCommand(context, host, terminals, tasks, debug, configurations, extensionProfiles, legacyData, output),
+    ),
     vscode.commands.registerCommand("vscodeAgentBridge.undoLastAgentProfileChange", async () => {
       const confirmed = await vscode.window.showWarningMessage(
         "Undo the latest Agent change to the current VS Code Profile? The value is restored only if it has not changed since.",
@@ -193,49 +143,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const commands = new Set(await vscode.commands.getCommands(true));
       const command = "workbench.profiles.actions.manageProfiles";
       if (!commands.has(command)) {
-        await vscode.window.showErrorMessage("This VS Code build does not expose the native Profiles manager.");
+        await vscode.window.showInformationMessage("The current VS Code stable API does not expose Profile management.");
         return;
       }
-      await vscode.window.showInformationMessage(
-        "Create or copy a Profile in VS Code, open it in a new window, then ask the Agent to inventory and configure that current Profile.",
-      );
       await vscode.commands.executeCommand(command);
     }),
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       void (host.isListening ? host.refreshDescriptor() : Promise.resolve());
     }),
-    vscode.workspace.onDidGrantWorkspaceTrust(() => {
-      void reconcileBridge();
-    }),
+    vscode.workspace.onDidGrantWorkspaceTrust(() => void reconcileBridge()),
     vscode.workspace.onDidChangeConfiguration((event) => {
-      if (
-        event.affectsConfiguration("vscodeAgentBridge.enabled") ||
-        event.affectsConfiguration("vscodeAgentBridge.executionMode") ||
-        event.affectsConfiguration("vscodeAgentBridge.autonomyProfile") ||
-        event.affectsConfiguration("vscodeAgentBridge.terminalReadPolicy")
-      ) {
-        void reconcileBridge();
-      }
+      if (event.affectsConfiguration("vscodeAgentBridge.enabled")) void reconcileBridge();
     }),
-    {
-      dispose: () => {
-        void host.stop();
-      },
-    },
+    { dispose: () => { void host.stop(); } },
   );
 
   if (vscode.env.remoteName) {
-    output.warn(
-      `Remote extension host detected (${vscode.env.remoteName}); remote routing is not yet supported.`,
-    );
+    output.warn(`Remote extension host detected (${vscode.env.remoteName}); remote routing is not supported.`);
   }
-
-  void maybeOfferLegacyPolicyMigration();
-  if (getBridgePolicyState().publishAllowed) {
-    void maybeOfferCodexSetup(context, output);
-  }
+  if (getBridgePolicyState().publishAllowed) void maybeOfferCodexSetup(context, output);
 }
-
 function registerAcceptanceFixtureProvider(context: vscode.ExtensionContext): void {
   let registration: vscode.Disposable | undefined;
 
@@ -298,36 +225,22 @@ function registerAcceptanceFixtureProvider(context: vscode.ExtensionContext): vo
 
 function registerE2ECommands(
   context: vscode.ExtensionContext,
-  experiments: ExperimentManager,
-  managed: ManagedWorktreeManager,
-  onboarding: WorkspaceOnboardingService,
   activity: AgentActivityTracker,
   extensionProfiles: ExtensionProfileManager,
+  legacyData: LegacyExperimentData,
 ): void {
-  if (process.env.VSCODE_AGENT_BRIDGE_E2E !== "1") {
-    return;
-  }
-  const formatterSelector: vscode.DocumentSelector = {
-    scheme: "file",
-    pattern: "**/*.bridgeformat",
-  };
-  const codeActionSelector: vscode.DocumentSelector = {
-    scheme: "file",
-    pattern: "**/*.bridgeaction",
-  };
+  if (process.env.VSCODE_AGENT_BRIDGE_E2E !== "1") return;
+  const formatterSelector: vscode.DocumentSelector = { scheme: "file", pattern: "**/*.bridgeformat" };
+  const codeActionSelector: vscode.DocumentSelector = { scheme: "file", pattern: "**/*.bridgeaction" };
   context.subscriptions.push(
     vscode.languages.registerDocumentFormattingEditProvider(formatterSelector, {
       provideDocumentFormattingEdits(document) {
         const formattedText = "export const formattedValue = 42;\n";
-        if (document.getText() === formattedText) {
-          return undefined;
-        }
-        return [
-          vscode.TextEdit.replace(
-            new vscode.Range(new vscode.Position(0, 0), document.positionAt(document.getText().length)),
-            formattedText,
-          ),
-        ];
+        if (document.getText() === formattedText) return undefined;
+        return [vscode.TextEdit.replace(
+          new vscode.Range(new vscode.Position(0, 0), document.positionAt(document.getText().length)),
+          formattedText,
+        )];
       },
     }),
     vscode.languages.registerCodeActionsProvider(codeActionSelector, {
@@ -338,106 +251,29 @@ function registerE2ECommands(
           safe.edit = new vscode.WorkspaceEdit();
           safe.edit.replace(
             document.uri,
-            new vscode.Range(
-              document.positionAt(markerOffset),
-              document.positionAt(markerOffset + "BROKEN_E2E".length),
-            ),
+            new vscode.Range(document.positionAt(markerOffset), document.positionAt(markerOffset + "BROKEN_E2E".length)),
             "FIXED_E2E",
           );
         }
-
-        const commandOnly = new vscode.CodeAction(
-          "Unsupported command-only bridge E2E action",
-          vscode.CodeActionKind.QuickFix,
-        );
-        commandOnly.command = {
-          title: "Must never run",
-          command: "vscodeAgentBridge.e2eNeverRun",
-        };
-
-        const resourceOperation = new vscode.CodeAction(
-          "Unsupported resource bridge E2E action",
-          vscode.CodeActionKind.QuickFix,
-        );
+        const commandOnly = new vscode.CodeAction("Unsupported command-only bridge E2E action", vscode.CodeActionKind.QuickFix);
+        commandOnly.command = { title: "Must never run", command: "vscodeAgentBridge.e2eNeverRun" };
+        const resourceOperation = new vscode.CodeAction("Unsupported resource bridge E2E action", vscode.CodeActionKind.QuickFix);
         resourceOperation.edit = new vscode.WorkspaceEdit();
         resourceOperation.edit.createFile(vscode.Uri.joinPath(document.uri, "..", "forbidden.txt"));
         return [safe, commandOnly, resourceOperation];
       },
     }),
-    vscode.commands.registerCommand("vscodeAgentBridge.e2eStartExperiment", async (title: string) => {
-      const root = vscode.workspace.workspaceFolders?.[0]?.uri;
-      if (!root) {
-        throw new Error("The E2E workspace root is unavailable.");
-      }
-      return experiments.startWorkspaceExperiment({ title, root });
-    }),
-    vscode.commands.registerCommand(
-      "vscodeAgentBridge.e2eConfigureWorkspaceExperiment",
-      async (visibility: Parameters<WorkspaceOnboardingService["configureRoot"]>[2] = "focusFirst") => {
-        const root = vscode.workspace.workspaceFolders?.[0];
-        if (!root) {
-          throw new Error("The E2E workspace root is unavailable.");
-        }
-        await onboarding.configureRoot(root, true, visibility);
-      },
-    ),
     vscode.commands.registerCommand("vscodeAgentBridge.e2eGetAgentActivity", () => activity.entries),
-    vscode.commands.registerCommand("vscodeAgentBridge.e2eUndoLastProfileChange", () =>
-      extensionProfiles.undoLastGlobalChange(),
-    ),
-    vscode.commands.registerCommand(
-      "vscodeAgentBridge.e2eMarkCheckpointAccepted",
-      (checkpointId: string) => experiments.markAccepted(checkpointId),
-    ),
-    vscode.commands.registerCommand("vscodeAgentBridge.e2eCreateCheckpoint", (summary: string) =>
-      experiments.createExplicitCheckpoint(summary),
-    ),
-    vscode.commands.registerCommand("vscodeAgentBridge.e2eRestoreAccepted", () =>
-      experiments.restoreAccepted(),
-    ),
-    vscode.commands.registerCommand("vscodeAgentBridge.e2eFinalizeExperiment", () =>
-      experiments.finalize(),
-    ),
-    vscode.commands.registerCommand("vscodeAgentBridge.e2eAbandonExperiment", () =>
-      experiments.abandon(),
-    ),
-    vscode.commands.registerCommand("vscodeAgentBridge.e2eStartManagedExperiment", async (title: string) => {
-      const root = vscode.workspace.workspaceFolders?.[0]?.uri;
-      if (!root) {
-        throw new Error("The E2E workspace root is unavailable.");
-      }
-      return managed.start({ repositoryRoot: root.fsPath, title });
-    }),
-    vscode.commands.registerCommand(
-      "vscodeAgentBridge.e2eSetManagedAcceptedCommit",
-      (sessionId: string, acceptedCommit: string) =>
-        experiments.updateManagedMetadata(sessionId, { acceptedCommit }),
-    ),
-    vscode.commands.registerCommand(
-      "vscodeAgentBridge.e2eUpdateManagedMetadata",
-      (sessionId: string, update: Parameters<ExperimentManager["updateManagedMetadata"]>[1]) =>
-        experiments.updateManagedMetadata(sessionId, update),
-    ),
-    vscode.commands.registerCommand("vscodeAgentBridge.e2ePreviewManagedPromotion", (sessionId: string) =>
-      managed.previewPromotion(sessionId),
-    ),
-    vscode.commands.registerCommand(
-      "vscodeAgentBridge.e2ePromoteManagedExperiment",
-      (preview: Awaited<ReturnType<ManagedWorktreeManager["previewPromotion"]>>, message: string) =>
-        managed.promote(preview, message),
-    ),
+    vscode.commands.registerCommand("vscodeAgentBridge.e2eUndoLastProfileChange", () => extensionProfiles.undoLastGlobalChange()),
+    vscode.commands.registerCommand("vscodeAgentBridge.e2eHasLegacyExperimentData", () => legacyData.exists()),
   );
 }
-
 export async function deactivate(): Promise<void> {
   const host = activeHost;
-  const experiments = activeExperimentManager;
   const terminals = activeTerminalObserver;
   activeHost = undefined;
-  activeExperimentManager = undefined;
   activeTerminalObserver = undefined;
   terminals?.dispose();
-  await experiments?.disposeAsync();
   await host?.stop();
 }
 
@@ -521,10 +357,7 @@ async function configureBridgeCommand(): Promise<void> {
     return;
   }
   const configuration = vscode.workspace.getConfiguration("vscodeAgentBridge");
-  await Promise.all([
-    configuration.update("enabled", enabled.value, vscode.ConfigurationTarget.Global),
-    configuration.update("executionMode", "explicit", vscode.ConfigurationTarget.Global),
-  ]);
+  await configuration.update("enabled", enabled.value, vscode.ConfigurationTarget.Global);
   await vscode.window.showInformationMessage(
     enabled.value
       ? "VS Code Agent Bridge enabled. Codex or its supervising Agent decides per-tool approval from MCP annotations."
@@ -548,58 +381,26 @@ async function reconcileBridgePublication(
   if (host.isListening) {
     await host.stop();
   }
-  if (policy.legacyMigrationRequired) {
-    output.warn("A restrictive pre-v0.7 policy is present; bridge publication is paused pending an explicit migration choice.");
-  }
-}
-
-async function maybeOfferLegacyPolicyMigration(): Promise<void> {
-  if (!getBridgePolicyState().legacyMigrationRequired) {
-    return;
-  }
-  const choice = await vscode.window.showWarningMessage(
-    "VS Code Agent Bridge v0.7 replaces readOnly/review/terminal policies with one master switch. Choose whether to enable the fully annotated bridge; no previous restriction will be silently widened.",
-    { modal: true },
-    "Enable v0.7 Bridge",
-    "Keep Disabled",
-  );
-  if (!choice) {
-    return;
-  }
-  await vscode.workspace
-    .getConfiguration("vscodeAgentBridge")
-    .update("enabled", choice === "Enable v0.7 Bridge", vscode.ConfigurationTarget.Global);
 }
 
 async function runDoctorCommand(
   context: vscode.ExtensionContext,
   host: BridgeHost,
-  experiments: ExperimentManager,
-  managed: ManagedWorktreeManager,
   terminals: TerminalObserver,
   tasks: TaskManager,
   debug: DebugManager,
   configurations: WorkspaceConfigurationManager,
   extensionProfiles: ExtensionProfileManager,
+  legacyData: LegacyExperimentData,
   output: vscode.LogOutputChannel,
 ): Promise<void> {
   const policy = getBridgePolicyState();
-  const [report, experimentState, managedState, profileJournal] = await Promise.all([
+  const [report, profileJournal, legacyExperimentData] = await Promise.all([
     inspectInstallation(context),
-    experiments.getStoreStats()
-      .then((stats) => ({ available: true as const, stats }))
-      .catch(() => ({
-        available: false as const,
-        stats: { sessionCount: 0, activeCount: 0, corruptCount: 0, storageBytes: 0, v1Count: 0, v2Count: 0, recoveryRequiredCount: 0 },
-      })),
-    managed.repairReport()
-      .then((report) => ({ available: true as const, report }))
-      .catch(() => ({ available: false as const, report: [] })),
     extensionProfiles.journalHealth()
       .catch(() => ({ pendingCount: 0, attentionRequiredCount: 1, healthy: false })),
+    legacyData.exists(),
   ]);
-  const experimentStats = experimentState.stats;
-  const managedReport = managedState.report;
   const configurationReports = await Promise.all(
     (vscode.workspace.workspaceFolders ?? []).flatMap((root) => [
       configurations.getConfiguration({ rootUri: root.uri.toString(true), target: "tasks" }),
@@ -608,30 +409,21 @@ async function runDoctorCommand(
   );
   const deferredConfigurations = configurationReports.filter((result) => result.deferredEffects);
   const terminalStats = terminals.getStats();
-  const commandIds = new Set(await vscode.commands.getCommands(true));
-  const managedAttentionRequired = managedReport.filter(
-    (item) => !item.worktreeRegistered || !item.worktreePathPresent || !item.branchMatches || item.state !== "ready",
-  ).length;
   const installationHealthy =
     report.platformSupported &&
     report.versionAligned &&
     report.bundledExecutable === "present" &&
     report.installedExecutable === "present" &&
-    report.codexConfig === "current" && report.httpService === "ready" && report.loginTask === "present";
+    report.codexConfig === "current" &&
+    report.httpService === "ready" &&
+    report.loginTask === "present";
   const runtimeHealthy =
     policy.publishAllowed &&
     host.isListening &&
     host.lifecycle === "ready" &&
     host.descriptorHealthy &&
     !vscode.env.remoteName;
-  const workspaceDataHealthy =
-    experimentState.available &&
-    managedState.available &&
-    experimentStats.corruptCount === 0 &&
-    experimentStats.recoveryRequiredCount === 0 &&
-    managedAttentionRequired === 0 &&
-    profileJournal.healthy;
-  const healthy = installationHealthy && runtimeHealthy && workspaceDataHealthy;
+  const healthy = installationHealthy && runtimeHealthy && profileJournal.healthy;
   const lines = [
     `releaseVersion=${report.releaseVersion}`,
     `extensionVersion=${report.extensionVersion}`,
@@ -649,25 +441,12 @@ async function runDoctorCommand(
     `serviceVersion=${report.serviceVersion ?? "unavailable"}`,
     `servicePid=${report.servicePid ?? "unavailable"}`,
     `bridgeEnabled=${policy.enabled}`,
-    `executionMode=${policy.executionMode}`,
-    `legacyAggressiveExecutionMode=${policy.legacyAggressiveExecutionMode}`,
-    `legacyPolicyMigrationRequired=${policy.legacyMigrationRequired}`,
     `workspaceTrusted=${policy.workspaceTrusted}`,
     `remoteContext=${vscode.env.remoteName ? "unsupported" : "local"}`,
-    `experimentSessions=${experimentStats.sessionCount}`,
-    `activeExperiments=${experimentStats.activeCount}`,
-    `corruptExperiments=${experimentStats.corruptCount}`,
-    `experimentStorageBytes=${experimentStats.storageBytes}`,
-    `legacyV1Experiments=${experimentStats.v1Count}`,
-    `resourceV2Experiments=${experimentStats.v2Count}`,
-    `resourceRecoveryRequired=${experimentStats.recoveryRequiredCount}`,
-    `experimentStoreAvailable=${experimentState.available}`,
+    `legacyExperimentData=${legacyExperimentData ? "preserved-not-loaded" : "absent"}`,
     `profileJournalPending=${profileJournal.pendingCount}`,
     `profileJournalAttentionRequired=${profileJournal.attentionRequiredCount}`,
     `profileJournalHealthy=${profileJournal.healthy}`,
-    `managedExperiments=${managedReport.length}`,
-    `managedStoreAvailable=${managedState.available}`,
-    `managedAttentionRequired=${managedAttentionRequired}`,
     `terminalCount=${terminalStats.terminalCount}`,
     `terminalExecutions=${terminalStats.executionCount}`,
     `terminalExecutionsWithOutput=${terminalStats.executionsWithOutput}`,
@@ -676,28 +455,18 @@ async function runDoctorCommand(
     `activeTaskExecutions=${tasks.activeCount}`,
     `activeDebugSessions=${debug.activeCount}`,
     `deferredWorkflowConfigurations=${deferredConfigurations.length}`,
-    `nativeExtensionInstall=${commandIds.has("workbench.extensions.installExtension") ? "available" : "user-action-only"}`,
-    `nativeProfilesManager=${commandIds.has("workbench.profiles.actions.manageProfiles") ? "available" : "unavailable"}`,
+    `profileName=unavailable-stable-api`,
+    `allOutputSources=unavailable-stable-api`,
     `installationHealthy=${installationHealthy}`,
     `runtimeHealthy=${runtimeHealthy}`,
-    `workspaceDataHealthy=${workspaceDataHealthy}`,
     `doctorHealthy=${healthy}`,
   ];
   output.info(`Doctor report:\n${lines.join("\n")}`);
   output.show(true);
-  if (policy.legacyAggressiveExecutionMode) {
-    const choice = await vscode.window.showWarningMessage(
-      "The legacy aggressive executionMode value is ignored and safely treated as explicit. Remove the old value from Settings when convenient.",
-      "Open Settings",
-    );
-    if (choice === "Open Settings") {
-      await vscode.commands.executeCommand("workbench.action.openSettings", "vscodeAgentBridge.executionMode");
-    }
-  }
   const deferredConfiguration = deferredConfigurations.find((result) => result.uri !== null);
   if (deferredConfiguration?.uri) {
     const choice = await vscode.window.showWarningMessage(
-      "An existing workspace Task or workspace file still contains folder-open deferred execution. The Bridge will not remove user configuration automatically.",
+      "An existing workspace Task or workspace file contains folder-open deferred execution. The Bridge does not alter it automatically.",
       "Open Configuration",
     );
     if (choice === "Open Configuration") {
@@ -710,7 +479,6 @@ async function runDoctorCommand(
       : "VS Code Agent Bridge Doctor found setup items; see the output channel.",
   );
 }
-
 async function maybeOfferCodexSetup(
   context: vscode.ExtensionContext,
   output: vscode.LogOutputChannel,

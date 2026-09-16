@@ -9,7 +9,7 @@ import {
   type UpdateExtensionConfigurationResult,
 } from "@vscode-agent-bridge/protocol";
 
-import { ExperimentManager } from "./experiment-manager.js";
+import { assertAgentWriteAllowed } from "./policies.js";
 import {
   GlobalProfileChangeJournal,
   assertConfigurationKeyAllowed,
@@ -21,13 +21,11 @@ import {
 
 export class ExtensionProfileManager {
   readonly #instanceId: string;
-  readonly #experiments: ExperimentManager;
   readonly #journal: GlobalProfileChangeJournal;
   #globalQueue: Promise<unknown> = Promise.resolve();
 
-  constructor(instanceId: string, experiments: ExperimentManager, globalStorageUri: vscode.Uri) {
+  constructor(instanceId: string, globalStorageUri: vscode.Uri) {
     this.#instanceId = instanceId;
-    this.#experiments = experiments;
     this.#journal = new GlobalProfileChangeJournal(globalStorageUri.fsPath);
   }
 
@@ -90,10 +88,7 @@ export class ExtensionProfileManager {
   async #updateConfiguration(
     params: UpdateExtensionConfigurationParams,
   ): Promise<UpdateExtensionConfigurationResult> {
-    const experiment = await this.#experiments.assertResourceChangesAllowed(params.sessionId);
-    if (experiment.rootUri !== params.rootUri) {
-      throw new BridgeError("EXPERIMENT_NOT_OWNED", "The configuration target is outside the active experiment root.");
-    }
+    assertAgentWriteAllowed();
     const { extension, setting } = resolveDeclaredSetting(params.extensionId, params.key);
     assertConfigurationKeyAllowed(params.key);
     assertConfigurationTargetAllowed(setting, params.target);
@@ -111,7 +106,7 @@ export class ExtensionProfileManager {
     }
     const nextSha256 = configurationValueSha256(params.newValue, true);
     if (beforeSha256 === nextSha256) {
-      return result(this.#instanceId, params, extension.id, false, nextSha256, null, null);
+      return result(this.#instanceId, params, extension.id, false, nextSha256, null);
     }
 
     if (params.target === "global") {
@@ -151,11 +146,9 @@ export class ExtensionProfileManager {
           "The Global Profile value changed but its journal commit failed; Doctor attention is required.",
         );
       }
-      return result(this.#instanceId, params, extension.id, true, nextSha256, null, change.changeId);
+      return result(this.#instanceId, params, extension.id, true, nextSha256, change.changeId);
     }
 
-    const settingsUri = configurationTargetUri(root.uri, params.target);
-    await this.#experiments.captureBeforeResourceApply(params.sessionId, [settingsUri]);
     try {
       await updateSetting(
         configuration,
@@ -166,17 +159,27 @@ export class ExtensionProfileManager {
           : vscode.ConfigurationTarget.WorkspaceFolder,
       );
     } catch {
+      try {
+        await updateSetting(
+          configuration,
+          params.key,
+          beforeValue,
+          params.target === "workspace"
+            ? vscode.ConfigurationTarget.Workspace
+            : vscode.ConfigurationTarget.WorkspaceFolder,
+        );
+      } catch {
+        throw new BridgeError(
+          "EXTENSION_CONFIGURATION_ATTENTION_REQUIRED",
+          "The workspace setting update failed and the previous value could not be restored.",
+        );
+      }
       throw new BridgeError(
         "EXTENSION_CONFIGURATION_DENIED",
         "VS Code rejected the declared extension configuration update.",
       );
     }
-    const checkpointId = await this.#experiments.captureAfterAgentApply(
-      params.sessionId,
-      params.reason,
-      [settingsUri],
-    );
-    return result(this.#instanceId, params, extension.id, true, nextSha256, checkpointId, null);
+    return result(this.#instanceId, params, extension.id, true, nextSha256, null);
   }
 
   async undoLastGlobalChange(): Promise<boolean> {
@@ -259,13 +262,6 @@ function resolveRequiredRoot(rootUri: string): vscode.WorkspaceFolder {
   return root;
 }
 
-function configurationTargetUri(root: vscode.Uri, target: ExtensionConfigurationTarget): vscode.Uri {
-  if (target === "workspace" && vscode.workspace.workspaceFile?.scheme === "file") {
-    return vscode.workspace.workspaceFile;
-  }
-  return vscode.Uri.joinPath(root, ".vscode", "settings.json");
-}
-
 async function updateSetting(
   configuration: vscode.WorkspaceConfiguration,
   key: string,
@@ -288,20 +284,17 @@ function result(
   extensionId: string,
   changed: boolean,
   valueSha256: string,
-  checkpointId: string | null,
   globalChangeId: string | null,
 ): UpdateExtensionConfigurationResult {
   return {
     instanceId,
-    sessionId: params.sessionId,
     extensionId,
     key: params.key,
     target: params.target,
     changed,
     valueSha256,
-    checkpointId,
     globalChangeId,
-    recoverability: params.target === "global" ? "globalJournal" : "experiment",
+    recoverability: params.target === "global" ? "globalJournal" : "none",
     updatedAt: new Date().toISOString(),
   };
 }

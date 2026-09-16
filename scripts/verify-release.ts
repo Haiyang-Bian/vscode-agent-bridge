@@ -61,28 +61,11 @@ assert(
   Array.isArray(extensionManifest.extensionKind) && extensionManifest.extensionKind.includes("ui"),
   "Extension must run as a desktop UI extension.",
 );
-assert(MCP_TOOL_NAMES.length === 64, "The release must expose exactly sixty-four MCP tools.");
+assert(MCP_TOOL_NAMES.length === 57, "The release must expose exactly fifty-seven MCP tools.");
 assert(
   rootDevDependencies["@vscode/vsce"] === "3.9.3-4",
   "The release must pin the verified OIDC-capable vsce build exactly.",
 );
-const gitRunnerSource = await readFile(
-  path.join(extensionRoot, "src", "git-runner.ts"),
-  "utf8",
-);
-for (const forbidden of [
-  /\["fetch"/u,
-  /\["pull"/u,
-  /\["push"/u,
-  /\["remote"/u,
-  /\["config"/u,
-  /worktree",\s*"prune/u,
-  /reset",\s*"--hard/u,
-  /shell\s*:/u,
-]) {
-  assert(!forbidden.test(gitRunnerSource), `Forbidden Git execution pattern: ${forbidden}.`);
-}
-assert(gitRunnerSource.includes("execFile"), "Managed Git operations must use execFile.");
 const terminalObserverSource = await readFile(
   path.join(extensionRoot, "src", "terminal-observer.ts"),
   "utf8",
@@ -177,14 +160,10 @@ assert(
     "vscode_prepare_text_edits",
     "vscode_prepare_rename",
     "vscode_apply_change_set",
-    "vscode_record_experiment_evidence",
     "vscode_save_document",
     "vscode_format_document",
     "vscode_list_code_actions",
     "vscode_apply_code_action",
-    "vscode_start_experiment",
-    "vscode_rename_experiment",
-    "vscode_create_experiment_checkpoint",
     "vscode_update_workspace_configuration",
       "vscode_prepare_resource_changes",
       "vscode_prepare_task",
@@ -203,6 +182,22 @@ assert(
     "vscode_update_extension_configuration",
   ].every((name) => MCP_TOOL_NAMES.includes(name)),
   "The guarded IDE workflow mutation surface is incomplete.",
+);
+for (const removed of [
+  "vscode_get_experiment",
+  "vscode_list_experiments",
+  "vscode_start_experiment",
+  "vscode_rename_experiment",
+  "vscode_create_experiment_checkpoint",
+  "vscode_list_experiment_checkpoints",
+  "vscode_record_experiment_evidence",
+]) {
+  assert(!(MCP_TOOL_NAMES as readonly string[]).includes(removed), `Removed experiment tool is still registered: ${removed}.`);
+}
+const contributedViews = (extensionManifest.contributes as { views?: Record<string, Array<{ id?: string }>> } | undefined)?.views?.vscodeAgentBridge ?? [];
+assert(
+  JSON.stringify(contributedViews.map((view) => view.id)) === JSON.stringify(["vscodeAgentBridge.statusView", "vscodeAgentBridge.agentActivityView"]),
+  "The extension must contribute only Status and Agent Activity views.",
 );
 assert(
   MCP_TOOL_NAMES.filter((name) => name.includes("extension")).join(",") ===

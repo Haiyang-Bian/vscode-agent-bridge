@@ -2,7 +2,7 @@
   "name": "vscode-agent-bridge",
   "displayName": "VS Code Agent Bridge",
   "description": "Expose IDE-native VS Code context to local MCP clients through an authenticated bridge.",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "publisher": "AliceLin",
   "license": "MIT",
   "icon": "resources/icon.png",
@@ -56,47 +56,11 @@
           "scope": "machine",
           "description": "Publish this local trusted VS Code window to configured MCP clients."
         },
-        "vscodeAgentBridge.executionMode": {
-          "type": "string",
-          "enum": [
-            "explicit"
-          ],
-          "enumDescriptions": [
-            "Allow only workflows explicitly started by the current MCP request."
-          ],
-          "default": "explicit",
-          "scope": "machine",
-          "description": "Legacy compatibility setting. Deferred execution is denied; IDE-mediated Task and Debug workflows remain available."
-        },
         "vscodeAgentBridge.enableAcceptanceFixtures": {
           "type": "boolean",
           "default": false,
           "scope": "machine",
           "description": "Register a deterministic pure-text Code Action fixture for acceptance testing. Keep disabled during normal use."
-        },
-        "vscodeAgentBridge.experiments.enabled": {
-          "type": "boolean",
-          "default": false,
-          "scope": "resource",
-          "description": "Allow bounded Agent experiment writes for this workspace folder. An absent folder value means onboarding has not run."
-        },
-        "vscodeAgentBridge.agentEditVisibility": {
-          "type": "string",
-          "enum": [
-            "focusFirst",
-            "focusEach",
-            "firstOnly",
-            "off"
-          ],
-          "enumDescriptions": [
-            "Open every target and focus the first before an Agent mutation.",
-            "Focus every target in sequence before an Agent mutation.",
-            "Open and focus only the first target.",
-            "Do not automatically open target editors."
-          ],
-          "default": "focusFirst",
-          "scope": "resource",
-          "description": "Controls how Agent text mutations become visible in VS Code."
         }
       }
     },
@@ -116,11 +80,6 @@
       {
         "command": "vscodeAgentBridge.configureBridge",
         "title": "VS Code Agent Bridge: Configure Bridge"
-      },
-      {
-        "command": "vscodeAgentBridge.configureWorkspaceExperiment",
-        "title": "VS Code Agent Bridge: Configure Workspace Experiment",
-        "enablement": "isWorkspaceTrusted"
       },
       {
         "command": "vscodeAgentBridge.removeCodexConfiguration",
@@ -151,197 +110,47 @@
         "title": "VS Code Agent Bridge: Export Usage Insights"
       },
       {
-        "command": "vscodeAgentBridge.startExperiment",
-        "title": "VS Code Agent Bridge: Start Agent Experiment",
-        "enablement": "isWorkspaceTrusted"
+        "command": "vscodeAgentBridge.openLegacyExperimentData",
+        "title": "VS Code Agent Bridge: Open Legacy Experiment Data Location"
       },
       {
-        "command": "vscodeAgentBridge.reviewExperiment",
-        "title": "VS Code Agent Bridge: Review Agent Experiment"
-      },
-      {
-        "command": "vscodeAgentBridge.createCheckpoint",
-        "title": "VS Code Agent Bridge: Create Experiment Checkpoint",
-        "enablement": "isWorkspaceTrusted"
-      },
-      {
-        "command": "vscodeAgentBridge.markCheckpointAccepted",
-        "title": "VS Code Agent Bridge: Mark Checkpoint as Accepted",
-        "enablement": "isWorkspaceTrusted"
-      },
-      {
-        "command": "vscodeAgentBridge.reviewCheckpoint",
-        "title": "VS Code Agent Bridge: Review Checkpoint"
-      },
-      {
-        "command": "vscodeAgentBridge.restoreAccepted",
-        "title": "VS Code Agent Bridge: Restore Accepted Candidate",
-        "enablement": "isWorkspaceTrusted"
-      },
-      {
-        "command": "vscodeAgentBridge.finalizeExperiment",
-        "title": "VS Code Agent Bridge: Finalize Agent Experiment",
-        "enablement": "isWorkspaceTrusted"
-      },
-      {
-        "command": "vscodeAgentBridge.abandonExperiment",
-        "title": "VS Code Agent Bridge: Abandon Agent Experiment",
-        "enablement": "isWorkspaceTrusted"
-      },
-      {
-        "command": "vscodeAgentBridge.renameExperiment",
-        "title": "VS Code Agent Bridge: Rename Agent Experiment",
-        "enablement": "isWorkspaceTrusted"
-      },
-      {
-        "command": "vscodeAgentBridge.toggleExperimentPinned",
-        "title": "VS Code Agent Bridge: Pin or Unpin Experiment"
-      },
-      {
-        "command": "vscodeAgentBridge.deleteExperiment",
-        "title": "VS Code Agent Bridge: Delete Experiment Data"
-      },
-      {
-        "command": "vscodeAgentBridge.startManagedExperiment",
-        "title": "VS Code Agent Bridge: Start Managed Worktree Experiment (Advanced)",
-        "enablement": "isWindows && isWorkspaceTrusted"
-      },
-      {
-        "command": "vscodeAgentBridge.openManagedExperiment",
-        "title": "VS Code Agent Bridge: Open Managed Experiment (Advanced)"
-      },
-      {
-        "command": "vscodeAgentBridge.createPrivateCheckpointCommit",
-        "title": "VS Code Agent Bridge: Create Private Checkpoint Commit",
-        "enablement": "isWindows && isWorkspaceTrusted"
-      },
-      {
-        "command": "vscodeAgentBridge.syncManagedExperiment",
-        "title": "VS Code Agent Bridge: Sync Managed Experiment",
-        "enablement": "isWindows && isWorkspaceTrusted"
-      },
-      {
-        "command": "vscodeAgentBridge.continueManagedSync",
-        "title": "VS Code Agent Bridge: Continue Experiment Sync",
-        "enablement": "isWindows && isWorkspaceTrusted"
-      },
-      {
-        "command": "vscodeAgentBridge.abortManagedSync",
-        "title": "VS Code Agent Bridge: Abort Experiment Sync",
-        "enablement": "isWindows && isWorkspaceTrusted"
-      },
-      {
-        "command": "vscodeAgentBridge.finalizeManagedExperiment",
-        "title": "VS Code Agent Bridge: Finalize Managed Experiment (Advanced)",
-        "enablement": "isWindows && isWorkspaceTrusted"
-      },
-      {
-        "command": "vscodeAgentBridge.abandonManagedExperiment",
-        "title": "VS Code Agent Bridge: Abandon Managed Experiment",
-        "enablement": "isWindows && isWorkspaceTrusted"
-      },
-      {
-        "command": "vscodeAgentBridge.deleteManagedWorktree",
-        "title": "VS Code Agent Bridge: Delete Managed Worktree",
-        "enablement": "isWindows && isWorkspaceTrusted"
-      },
-      {
-        "command": "vscodeAgentBridge.repairManagedExperiments",
-        "title": "VS Code Agent Bridge: Repair Managed Experiments",
-        "enablement": "isWindows && isWorkspaceTrusted"
+        "command": "vscodeAgentBridge.deleteLegacyExperimentData",
+        "title": "VS Code Agent Bridge: Delete Legacy Experiment Data"
       }
     ],
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "vscodeAgentBridgeExperiments",
+          "id": "vscodeAgentBridge",
           "title": "VS Code Agent Bridge",
           "icon": "resources/experiment.svg"
         }
       ]
     },
     "views": {
-      "vscodeAgentBridgeExperiments": [
+      "vscodeAgentBridge": [
         {
-          "id": "vscodeAgentBridge.overviewView",
-          "name": "Overview"
-        },
-        {
-          "id": "vscodeAgentBridge.experimentsView",
-          "name": "Experiments"
+          "id": "vscodeAgentBridge.statusView",
+          "name": "Status"
         },
         {
           "id": "vscodeAgentBridge.agentActivityView",
           "name": "Agent Activity"
-        },
-        {
-          "id": "vscodeAgentBridge.capabilitiesView",
-          "name": "Capabilities"
-        },
-        {
-          "id": "vscodeAgentBridge.usageInsightsView",
-          "name": "Usage Insights"
         }
       ]
     },
     "viewsWelcome": [
       {
-        "view": "vscodeAgentBridge.overviewView",
-        "contents": "[Configure Codex](command:vscodeAgentBridge.configureCodex)\n[Run Doctor](command:vscodeAgentBridge.runDoctor)\n[Start Experiment](command:vscodeAgentBridge.startExperiment)"
-      },
-      {
-        "view": "vscodeAgentBridge.usageInsightsView",
-        "contents": "Usage insights stay on this computer and never contain tool parameters or results.\n[Refresh](command:vscodeAgentBridge.refreshHub)\n[Export aggregate report](command:vscodeAgentBridge.exportUsageInsights)\n[Clear local insights](command:vscodeAgentBridge.clearUsageInsights)"
+        "view": "vscodeAgentBridge.statusView",
+        "contents": "[Configure Codex](command:vscodeAgentBridge.configureCodex)\n[Run Doctor](command:vscodeAgentBridge.runDoctor)"
       }
     ],
     "menus": {
       "view/title": [
         {
           "command": "vscodeAgentBridge.refreshHub",
-          "when": "view == vscodeAgentBridge.overviewView || view == vscodeAgentBridge.capabilitiesView || view == vscodeAgentBridge.usageInsightsView",
+          "when": "view == vscodeAgentBridge.statusView",
           "group": "navigation"
-        },
-        {
-          "command": "vscodeAgentBridge.startExperiment",
-          "when": "view == vscodeAgentBridge.experimentsView && isWorkspaceTrusted",
-          "group": "navigation"
-        },
-        {
-          "command": "vscodeAgentBridge.createCheckpoint",
-          "when": "view == vscodeAgentBridge.experimentsView && isWorkspaceTrusted",
-          "group": "navigation@2"
-        },
-        {
-          "command": "vscodeAgentBridge.configureWorkspaceExperiment",
-          "when": "view == vscodeAgentBridge.experimentsView && isWorkspaceTrusted",
-          "group": "navigation@3"
-        }
-      ],
-      "view/item/context": [
-        {
-          "command": "vscodeAgentBridge.markCheckpointAccepted",
-          "when": "view == vscodeAgentBridge.experimentsView && viewItem == experimentCheckpoint",
-          "group": "inline"
-        },
-        {
-          "command": "vscodeAgentBridge.reviewCheckpoint",
-          "when": "view == vscodeAgentBridge.experimentsView && viewItem == experimentCheckpoint",
-          "group": "navigation"
-        },
-        {
-          "command": "vscodeAgentBridge.renameExperiment",
-          "when": "view == vscodeAgentBridge.experimentsView && (viewItem == experiment || viewItem == activeExperiment)",
-          "group": "navigation"
-        },
-        {
-          "command": "vscodeAgentBridge.toggleExperimentPinned",
-          "when": "view == vscodeAgentBridge.experimentsView && (viewItem == experiment || viewItem == activeExperiment)",
-          "group": "navigation@2"
-        },
-        {
-          "command": "vscodeAgentBridge.deleteExperiment",
-          "when": "view == vscodeAgentBridge.experimentsView && viewItem == experiment",
-          "group": "navigation@2"
         }
       ]
     }

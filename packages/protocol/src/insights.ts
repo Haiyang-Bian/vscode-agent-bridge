@@ -50,7 +50,6 @@ export const BridgeCapabilityToolSchema = z
     domainLabel: z.string().min(1),
     intent: z.enum(["observe", "prepare", "act", "control"]),
     sideEffectScope: z.enum(["none", "memory", "workspace", "process", "debuggee"]),
-    requiresExperiment: z.boolean(),
     recoverability: z.enum(["full", "partial", "none", "notApplicable"]),
     openWorld: z.boolean(),
     sensitivity: z.enum(["public", "workspaceMetadata", "source", "terminal", "debug"]),
@@ -102,7 +101,6 @@ export const UsageInsightsResultSchema = z
         applied: z.number().int().nonnegative(),
         saved: z.number().int().nonnegative(),
         validated: z.number().int().nonnegative(),
-        checkpointed: z.number().int().nonnegative(),
       })
       .strict(),
     suggestions: z.array(z.string().min(1).max(500)).max(20),
@@ -142,7 +140,6 @@ export function aggregateUsageInsights(
     applied: countMatching(selected, ["vscode_apply_change_set", "vscode_apply_code_action", "vscode_format_document"]),
     saved: countMatching(selected, ["vscode_save_document"]),
     validated: countMatching(selected, ["vscode_run_task"]),
-    checkpointed: countMatching(selected, ["vscode_create_experiment_checkpoint"]),
   };
 
   const suggestions: string[] = [];
@@ -156,9 +153,6 @@ export function aggregateUsageInsights(
   }
   if (workflowClosures.applied > workflowClosures.saved && names.has("vscode_save_document")) {
     suggestions.push("More edit workflows were applied than saved; verify whether dirty buffers are intentional before validation.");
-  }
-  if (workflowClosures.validated > workflowClosures.checkpointed) {
-    suggestions.push("Validated workflows outnumber explicit checkpoints; consider checkpointing stable candidates after successful tasks or tests.");
   }
 
   return {

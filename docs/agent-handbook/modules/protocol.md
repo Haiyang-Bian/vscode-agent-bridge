@@ -4,7 +4,7 @@
 
 `packages/protocol` is the shared contract library compiled into both runtime layers. It keeps transport and tool behavior aligned without becoming a service.
 
-`src/service.ts` owns service identity, status, management proofs and installation schemas (contract v1); these do not change extension RPC v11. `src/codex-config.ts` contains pure managed-TOML transformation shared by the CLI and extension. Persistence and credential ACLs remain in the MCP runtime.
+`src/service.ts` owns service identity, status, management proofs and installation schemas (contract v1); these are independent of extension RPC v12. `src/codex-config.ts` contains pure managed-TOML transformation shared by the CLI and extension. Persistence and credential ACLs remain in the MCP runtime.
 
 ## Ownership map
 
@@ -15,7 +15,7 @@
 | JSON-RPC framing and envelopes | `src/rpc.ts` |
 | Instance discovery contracts | `src/registry.ts`, descriptor/public-instance schemas in `src/schemas.ts` |
 | General IDE/language schemas | `src/ide.ts`, `src/schemas.ts`, `src/workspace.ts` |
-| Experiment/change contracts | `src/experiments.ts` |
+| Direct change contracts | `src/changes.ts` |
 | Task/Debug/workflow contracts | `src/workflows.ts`, `src/terminals.ts` (prepared/persisted definitions, fingerprints and provenance) |
 | Extension reflection/orchestration/adapters | `src/extension-awareness.ts`, `src/extension-orchestration.ts`, `src/extension-integrations.ts` |
 | Usage insights | `src/insights.ts` |

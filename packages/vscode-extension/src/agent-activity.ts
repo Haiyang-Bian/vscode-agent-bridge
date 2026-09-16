@@ -22,11 +22,17 @@ export interface AgentActivityEntry {
   readonly targets: readonly string[];
   readonly fileCount: number | null;
   readonly editCount: number | null;
-  readonly checkpointId: string | null;
+  readonly locations: readonly AgentActivityLocation[];
   readonly errorCode: string | null;
   readonly parentOperationId: string | null;
   readonly workflow: AgentActivityWorkflow | null;
 }
+
+export type AgentActivityLocation =
+  | { readonly kind: "uri"; readonly uri: string; readonly line?: number | undefined; readonly character?: number | undefined }
+  | { readonly kind: "terminal"; readonly terminalId: string }
+  | { readonly kind: "task"; readonly executionId: string }
+  | { readonly kind: "debug"; readonly debugSessionId: string };
 
 export interface AgentActivityWorkflow {
   readonly kind: "task" | "debug";
@@ -43,10 +49,11 @@ export interface AgentActivityWorkflow {
 export interface AgentActivityInput {
   readonly toolName: string;
   readonly title: string;
-  readonly reason?: string | null;
+  readonly reason?: string | null | undefined;
   readonly targets?: readonly string[];
   readonly parentOperationId?: string | null;
   readonly workflow?: AgentActivityWorkflow | null;
+  readonly locations?: readonly AgentActivityLocation[];
 }
 
 export interface AgentActivityCompletion {
@@ -54,8 +61,8 @@ export interface AgentActivityCompletion {
   readonly targets?: readonly string[];
   readonly fileCount?: number | null;
   readonly editCount?: number | null;
-  readonly checkpointId?: string | null;
   readonly workflow?: AgentActivityWorkflow | null;
+  readonly locations?: readonly AgentActivityLocation[];
 }
 
 export class AgentActivityTracker {
@@ -68,12 +75,20 @@ export class AgentActivityTracker {
   }
 
   get entries(): readonly AgentActivityEntry[] {
-    return this.#entries.map((entry) => ({ ...entry, targets: [...entry.targets] }));
+    return this.#entries.map((entry) => ({
+      ...entry,
+      targets: [...entry.targets],
+      locations: entry.locations.map((location) => ({ ...location })),
+    }));
   }
 
   subscribe(listener: () => void): { dispose(): void } {
     this.#listeners.add(listener);
     return { dispose: () => this.#listeners.delete(listener) };
+  }
+
+  find(operationId: string): AgentActivityEntry | undefined {
+    return this.entries.find((entry) => entry.operationId === operationId);
   }
 
   record(
@@ -94,7 +109,7 @@ export class AgentActivityTracker {
       targets: sanitizeTargets(completion.targets ?? input.targets ?? []),
       fileCount: completion.fileCount ?? null,
       editCount: completion.editCount ?? null,
-      checkpointId: completion.checkpointId ?? null,
+      locations: sanitizeLocations(completion.locations ?? input.locations ?? []),
       errorCode: completion.errorCode ?? null,
       parentOperationId: input.parentOperationId ?? null,
       workflow: sanitizeWorkflow(completion.workflow ?? input.workflow ?? null),
@@ -121,7 +136,7 @@ export class AgentActivityTracker {
       targets: sanitizeTargets(input.targets ?? []),
       fileCount: null,
       editCount: null,
-      checkpointId: null,
+      locations: sanitizeLocations(input.locations ?? []),
       errorCode: null,
       parentOperationId: input.parentOperationId ?? null,
       workflow: sanitizeWorkflow(input.workflow ?? null),
@@ -139,7 +154,7 @@ export class AgentActivityTracker {
         targets: sanitizeTargets(completion.targets ?? this.#find(operationId)?.targets ?? []),
         fileCount: completion.fileCount ?? null,
         editCount: completion.editCount ?? null,
-        checkpointId: completion.checkpointId ?? null,
+        locations: sanitizeLocations(completion.locations ?? this.#find(operationId)?.locations ?? []),
         workflow: sanitizeWorkflow(completion.workflow ?? this.#find(operationId)?.workflow ?? null),
       });
       return result;
@@ -155,13 +170,17 @@ export class AgentActivityTracker {
 
   update(
     operationId: string,
-    update: Partial<Pick<AgentActivityEntry, "status" | "completedAt" | "checkpointId" | "errorCode">> & {
+    update: Partial<Pick<AgentActivityEntry, "status" | "completedAt" | "errorCode">> & {
       readonly workflow?: AgentActivityWorkflow | null;
+      readonly locations?: readonly AgentActivityLocation[];
     },
   ): void {
     this.#replace(operationId, {
       ...update,
       workflow: update.workflow === undefined ? this.#find(operationId)?.workflow ?? null : sanitizeWorkflow(update.workflow),
+      locations: update.locations === undefined
+        ? this.#find(operationId)?.locations ?? []
+        : sanitizeLocations(update.locations),
     });
   }
 
@@ -192,6 +211,33 @@ function sanitizeText(value: string, limit: number): string {
 
 function sanitizeTargets(values: readonly string[]): string[] {
   return [...new Set(values.map(sanitizeTarget).filter((value) => value.length > 0))].slice(0, 50);
+}
+
+function sanitizeLocations(values: readonly AgentActivityLocation[]): AgentActivityLocation[] {
+  const result: AgentActivityLocation[] = [];
+  for (const location of values.slice(0, 50)) {
+    if (location.kind === "uri") {
+      try {
+        const parsed = new URL(location.uri);
+        if (parsed.protocol === "file:") result.push({ ...location, uri: parsed.toString() });
+      } catch {
+        // Ignore malformed or non-file locations.
+      }
+      continue;
+    }
+    const id = sanitizeText(
+      location.kind === "terminal"
+        ? location.terminalId
+        : location.kind === "task"
+          ? location.executionId
+          : location.debugSessionId,
+      200,
+    );
+    if (location.kind === "terminal") result.push({ kind: "terminal", terminalId: id });
+    else if (location.kind === "task") result.push({ kind: "task", executionId: id });
+    else result.push({ kind: "debug", debugSessionId: id });
+  }
+  return result;
 }
 
 function sanitizeTarget(value: string): string {

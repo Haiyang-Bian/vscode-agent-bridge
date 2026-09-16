@@ -35,15 +35,26 @@ async function run() {
     let previous; try { previous = JSON.parse(await fs.readFile(marker, "utf8")); } catch {}
     if (!previous) {
       await publish(marker, { instanceId: descriptor.instanceId, initializing });
-      await vscode.commands.executeCommand("workbench.action.reloadWindow");
+      await executeWindowCommand("workbench.action.reloadWindow");
       return;
     }
     if (descriptor.instanceId === previous.instanceId) throw new Error("Reload did not replace the extension instance");
     await publish(path.join(root, "window-reloaded.json"), { beforeInstanceId: previous.instanceId, afterInstanceId: descriptor.instanceId, initializing: previous.initializing || initializing });
-    await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(process.env.VSCODE_AGENT_BRIDGE_HTTP_SECONDARY), { forceNewWindow: true });
+    await executeWindowCommand("vscode.openFolder", vscode.Uri.file(process.env.VSCODE_AGENT_BRIDGE_HTTP_SECONDARY), { forceNewWindow: true });
   }
   await wait(async () => { try { await fs.access(path.join(root, "close-windows")); return true; } catch {} });
-  await vscode.commands.executeCommand("workbench.action.closeWindow");
+  await executeWindowCommand("workbench.action.closeWindow");
+}
+
+async function executeWindowCommand(command, ...args) {
+  try { await vscode.commands.executeCommand(command, ...args); }
+  catch (error) {
+    // Reload/open/close can cancel the command promise while the requested
+    // window transition is already in progress. The outer process observes
+    // the resulting descriptors and markers, so a missing transition still
+    // fails by timeout.
+    if (error?.message !== "Canceled") throw error;
+  }
 }
 
 async function wait(operation) {

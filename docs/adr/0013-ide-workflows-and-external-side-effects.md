@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Release: 0.7.0
+- Partially superseded by ADR 0023: external-side-effect limits remain, while experiment recovery is removed.
 
 ## Context
 
@@ -20,4 +21,3 @@ Testing is represented by VS Code test Tasks. The extension does not depend on p
 - Task and debug execution are visible and auditable but not claimed to be non-destructive.
 - The MCP client or supervising agent decides whether an annotated open-world operation requires approval.
 - Coverage becomes partial when an operation modifies unsupported binary or external state; Finalize and restore must report that limitation honestly.
-

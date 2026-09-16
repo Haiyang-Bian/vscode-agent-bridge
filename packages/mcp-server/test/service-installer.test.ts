@@ -1,11 +1,11 @@
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { BRIDGE_RELEASE_VERSION, BRIDGE_PROTOCOL_VERSION, SERVICE_DIRECTORY_ENV, type ServiceStatus } from "@vscode-agent-bridge/protocol";
 import { ServiceInstaller } from "../src/service-installer.js";
-import { resolveServicePaths, readIdentity, readOptional, writePrivateJson, type ServicePaths } from "../src/service-state.js";
+import { resolveServicePaths, readIdentity, readInstallation, readOptional, writePrivateJson, type ServicePaths } from "../src/service-state.js";
 import { isCurrentLoginTask, type ServiceScheduler } from "../src/service-scheduler.js";
 import { writeConfigChange } from "../src/service-config.js";
 
@@ -21,7 +21,7 @@ afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
 function fixture() {
   let task: string | null = null, current: ServiceStatus | null = null;
-  let generation = 0, rejectReady = false;
+  let generation = 0, rejectReady = false, rejectPrune = false;
   const events: string[] = [];
   const scheduler: ServiceScheduler = {
     query: async () => task,
@@ -29,9 +29,19 @@ function fixture() {
     run: async () => { events.push("run"); },
     remove: async () => { events.push("remove"); task = null; },
   };
+  const prepared = (value: number) => {
+    const data = Buffer.from(`service-generation-${value}`);
+    const sha256 = createHash("sha256").update(data).digest("hex");
+    return { data, sha256, executablePath: path.join(root, "versions", BRIDGE_RELEASE_VERSION, sha256.slice(0, 16), "vscode-agent-bridge-mcp.exe") };
+  };
   const installer = new ServiceInstaller(paths, {
     scheduler,
-    prepare: async () => ({ executablePath: path.join(root, `v${generation}`, "bridge.exe"), sha256: String(generation).repeat(64), changed: false }),
+    prepare: async () => {
+      const value = prepared(generation);
+      await mkdir(path.dirname(value.executablePath), { recursive: true });
+      await writeFile(value.executablePath, value.data);
+      return { executablePath: value.executablePath, sha256: value.sha256, changed: false };
+    },
     current: async () => { if (!current) throw new Error("Not running"); return current; },
     stop: async (_paths, _identity, status) => { expect(status.bootId).toBe(current!.bootId); events.push("stop"); current = null; },
     ready: async (_paths, identity) => {
@@ -41,9 +51,11 @@ function fixture() {
         version: BRIDGE_RELEASE_VERSION, protocolVersion: BRIDGE_PROTOCOL_VERSION, sessions: 0, activeRequests: 0, startedAt: new Date().toISOString() };
       return current;
     },
+    prune: async () => { if (rejectPrune) throw new Error("Injected cleanup failure"); },
   });
   return { installer, events, scheduler, get current() { return current; }, get task() { return task; },
-    upgrade() { generation++; }, failStart() { rejectReady = true; } };
+    get executablePath() { return prepared(generation).executablePath; },
+    upgrade() { generation++; }, failStart() { rejectReady = true; }, failPrune() { rejectPrune = true; } };
 }
 
 describe("Transactional service installation", () => {
@@ -68,8 +80,8 @@ describe("Transactional service installation", () => {
     expect(f.events).toEqual(["register", "run", "ready", "ready"]);
     expect(await readOptional(paths.transaction)).toBeNull();
     expect((await readdir(root)).some(name => name.endsWith(".tmp"))).toBe(false);
-    expect(isCurrentLoginTask(f.task!, paths, path.join(root, "v0", "bridge.exe"))).toBe(true);
-    expect(isCurrentLoginTask(f.task!.replace("IgnoreNew", "Parallel"), paths, path.join(root, "v0", "bridge.exe"))).toBe(false);
+    expect(isCurrentLoginTask(f.task!, paths, f.executablePath)).toBe(true);
+    expect(isCurrentLoginTask(f.task!.replace("IgnoreNew", "Parallel"), paths, f.executablePath)).toBe(false);
   });
 
   test("a failed first install restores the original config and removes only its new task/identity", async () => {
@@ -145,5 +157,30 @@ describe("Transactional service installation", () => {
     expect(await readFile(paths.identity, "utf8")).toBe(previousIdentity);
     expect(f.task).toBe(previousTask); expect(f.current?.state).toBe("ready");
     expect(await readOptional(paths.transaction)).not.toBeNull();
+  });
+
+  test("a version cleanup failure does not fail or roll back a healthy installation", async () => {
+    const f = fixture(); f.failPrune();
+    const result = await f.installer.install({ sourceExecutable: "source.exe", configPath });
+    expect(result.status.state).toBe("ready");
+    expect(f.current?.bootId).toBe(result.status.bootId);
+    expect(await readOptional(paths.installation)).not.toBeNull();
+    expect(await readOptional(paths.transaction)).toBeNull();
+  });
+
+  test("a successful upgrade records the previously verified executable as its rollback", async () => {
+    const f = fixture();
+    await f.installer.install({ sourceExecutable: "source.exe", configPath });
+    const previous = await readInstallation(paths);
+    if (!previous) throw new Error("Expected the initial installation record.");
+    f.upgrade();
+    await f.installer.install({ sourceExecutable: "next.exe", configPath });
+    const current = await readInstallation(paths);
+    expect(current?.executablePath).toBe(f.executablePath);
+    expect(current?.rollback).toEqual({
+      version: previous.version,
+      executablePath: previous.executablePath,
+      executableSha256: previous.executableSha256,
+    });
   });
 });

@@ -55,11 +55,19 @@ export const ServiceManagementResponseSchema = z.object({
   proof: SecretSchema,
 }).strict();
 
+export const ServiceExecutableReferenceSchema = z.object({
+  version: z.string().max(64),
+  executablePath: z.string().min(1).max(4096),
+  executableSha256: SecretSchema,
+}).strict();
+export type ServiceExecutableReference = z.infer<typeof ServiceExecutableReferenceSchema>;
+
 export const ServiceInstallationSchema = z.object({
   contractVersion: z.literal(SERVICE_CONTRACT_VERSION),
   version: z.string().max(64),
   executablePath: z.string().min(1).max(4096),
   executableSha256: SecretSchema,
+  rollback: ServiceExecutableReferenceSchema.nullable().default(null),
   taskName: z.string().min(1).max(240),
   codexConfigPath: z.string().min(1).max(4096).nullable(),
   registryDirectory: z.string().min(1).max(4096).nullable().default(null),

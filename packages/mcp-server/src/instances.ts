@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   BridgeError,
   BRIDGE_PROTOCOL_VERSION,
+  BRIDGE_RELEASE_VERSION,
   InstanceDescriptorEnvelopeSchema,
   InstanceDescriptorSchema,
   asBridgeError,
@@ -140,7 +141,28 @@ export function toPublicInstance(registered: RegisteredInstance): PublicInstance
     workspaceFolders: descriptor.workspaceFolders,
     transportKind: descriptor.transport.kind,
     compatibility: registered.compatibility,
+    releaseAlignment: compareReleaseVersions(descriptor.extensionVersion, BRIDGE_RELEASE_VERSION),
   };
+}
+
+export function compareReleaseVersions(
+  extensionVersion: string,
+  serverVersion: string,
+): PublicInstance["releaseAlignment"] {
+  const extension = parseReleaseVersion(extensionVersion);
+  const server = parseReleaseVersion(serverVersion);
+  if (!extension || !server) return "unknown";
+  for (let index = 0; index < 3; index += 1) {
+    if (extension[index]! < server[index]!) return "older";
+    if (extension[index]! > server[index]!) return "newer";
+  }
+  return "current";
+}
+
+function parseReleaseVersion(value: string): readonly [number, number, number] | null {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/u.exec(value);
+  if (!match) return null;
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
 }
 
 function assertCompatible(registered: RegisteredInstance): InstanceDescriptor {

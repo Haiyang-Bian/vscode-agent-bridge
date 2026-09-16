@@ -1,6 +1,6 @@
 # Shared HTTP service installation and recovery
 
-Version 0.13.0 uses one Windows x64 daemon for the current user. It starts on login and stays ready when no VS Code window exists. Codex uses authenticated Streamable HTTP at a persisted `127.0.0.1` port and `/mcp`; it does not launch a transport process. Extension RPC stays at v11, including compatibility with the 0.12.0 extension. Descriptor discovery remains in use; active extension registration is deferred.
+Version 0.14.0 uses one Windows x64 daemon for the current user. It starts on login and stays ready when no VS Code window exists. Codex uses authenticated Streamable HTTP at a persisted `127.0.0.1` port and `/mcp`; it does not launch a transport process. Extension RPC is v12. Older v11 windows remain visible as incompatible descriptors and are not used for calls. Protocol compatibility and product release alignment are reported separately.
 
 The formal service keeps its protected state and versioned binaries under `%USERPROFILE%\.vscode-agent-bridge\service`. This location is shared by packaged Codex, VS Code and Task Scheduler. Packaged applications can redirect `LocalAppData` writes to their private cache; publishing that logical path as a login-task executable can make the task fail with file-not-found even though the installing process sees the file. Custom isolated service directories should also be outside such application-private redirection.
 
@@ -13,13 +13,13 @@ Install the verified VSIX and run **VS Code Agent Bridge: Configure Codex**, or 
 .\vscode-agent-bridge-mcp.exe service status
 ```
 
-The CLI honors `CODEX_HOME`; `--config <absolute-config-path>` selects another Codex configuration. It validates the TOML and refuses an unmarked bridge entry or concurrent edits. The managed block uses `url`, an Authorization header, the same 64-tool allowlist and 10/120-second timeouts. Credentials are written directly to protected files; the configuration wizard does not put them on the clipboard.
+The CLI honors `CODEX_HOME`; `--config <absolute-config-path>` selects another Codex configuration. It validates the TOML and refuses an unmarked bridge entry or concurrent edits. The managed block uses `url`, an Authorization header, the 57-tool allowlist and 10/120-second timeouts. Credentials are written directly to protected files; the configuration wizard does not put them on the clipboard.
 
 If a TOML editor has inserted unrelated tables inside the bridge's begin/end comments, installation and removal report a conflict before changing the service. Move those settings outside the comments while preserving their table headers and values, then retry. Marker ownership is checked against parsed non-bridge settings; comments alone do not authorize deleting another plugin's configuration.
 
-The installer stages and self-tests a version/hash-specific executable, saves a protected rollback record, stops the authenticated old daemon, updates the login task, starts and verifies the new daemon, and only then commits Codex configuration and the installation record. Repeating a current install keeps the existing daemon. Version files are retained for recovery.
+The installer stages and self-tests a version/hash-specific executable, saves a protected rollback reference, stops the authenticated old daemon, updates the login task, starts and verifies the new daemon, and only then commits Codex configuration and the installation record. Repeating a current install keeps the existing daemon. After a successful health check it retains the active executable and one checksum-verified rollback executable. Files referenced by an active transaction or login task are excluded from cleanup; cleanup failure does not affect the running service.
 
-Use a fresh Codex client to initialize, list tools and call `vscode_list_instances` followed by an explicit-instance IDE read. Existing clients can still own legacy 0.12 STDIO processes until they naturally close. Count the new shared daemon separately; never terminate all similarly named processes.
+Use a fresh Codex client to initialize, list the 57 tools and call `vscode_list_instances` followed by an explicit-instance IDE read. If a v11 extension is still running, discovery shows it as protocol-incompatible; install/reload the 0.14.0 VSIX before calling IDE tools. Count the shared daemon separately from short-lived diagnostics; never terminate all similarly named processes.
 
 ## Lifecycle commands
 
@@ -53,7 +53,7 @@ Configuration, credential, backup and transaction files have protected DACLs lim
 
 A failed migration restores the previous task, identity, managed configuration and running service. It only stops the authenticated candidate boot created during the transaction. If concurrent configuration edits prevent safe restoration, the edits and private recovery record remain for review; no unrelated configuration is overwritten. Do not delete that record before resolving the conflict.
 
-Uninstall stops the shared service, removes the login task and marked Codex block, and keeps other settings, private identity and version files. The configuration backup permits deliberate restoration of the previous client setup. Restoring an older product also requires its matching executable and task/configuration; do not point old STDIO configuration at the HTTP-only 0.13 executable.
+Uninstall stops the shared service, removes the login task and marked Codex block, and keeps other settings, private identity and the retained current/rollback binaries. The configuration backup permits deliberate restoration of the previous client setup. Restoring an older product also requires its matching executable and task/configuration; do not point old STDIO configuration at an HTTP-only executable.
 
 ## Isolated acceptance
 

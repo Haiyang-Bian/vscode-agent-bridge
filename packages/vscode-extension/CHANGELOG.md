@@ -1,5 +1,13 @@
 # Change Log
 
+## 0.14.0 - 2026-09-16 (unpublished)
+
+- Replaced experiment-bound workflows with 57 direct IDE tools on Bridge protocol v12 while preserving trust, root, stale-state, fingerprint and client-approval boundaries.
+- Removed experiment and Managed Worktree commands, storage loading and views; legacy Bridge data is notice-only and can be deleted only after user confirmation.
+- Reduced the Activity Bar to Status and Agent Activity, stopped Agent operations from opening/focusing editors, and kept only side effects, running workflows and failures in Activity.
+- Separated protocol compatibility from release alignment and changed parsed capacity rejection to correlated JSON-RPC `SERVER_CAPACITY_REACHED` errors.
+- Bounded successful service upgrades to the active executable plus one verified rollback version while protecting task and transaction references.
+
 ## 0.13.0 - 2026-09-07 (unpublished)
 
 - Replaced client-launched STDIO with one authenticated, per-user Streamable HTTP daemon; all 64 tools and extension RPC v11 remain compatible.

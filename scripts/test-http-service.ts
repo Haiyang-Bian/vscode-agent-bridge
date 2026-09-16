@@ -3,9 +3,9 @@ import { copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "nod
 import os from "node:os";
 import path from "node:path";
 import { ServiceInstaller, prepareExecutable } from "../packages/mcp-server/src/service-installer.ts";
-import { resolveServicePaths, readIdentity, readOptional } from "../packages/mcp-server/src/service-state.ts";
+import { resolveServicePaths, readIdentity, readOptional, writePrivateJson } from "../packages/mcp-server/src/service-state.ts";
 import { controlRequest, stopVerifiedService, waitForReady } from "../packages/mcp-server/src/service-control.ts";
-import { isCurrentLoginTask } from "../packages/mcp-server/src/service-scheduler.ts";
+import { createLoginTaskXml, isCurrentLoginTask } from "../packages/mcp-server/src/service-scheduler.ts";
 import { BRIDGE_RELEASE_VERSION } from "@vscode-agent-bridge/protocol";
 import { assertPrivateWindowsFiles } from "./lib/windows-acl-test.ts";
 
@@ -39,6 +39,28 @@ try {
   assert.equal(second.status.bootId, first.status.bootId, "idempotent install must keep the daemon");
   assert.equal(second.changed, false);
   evidence.idempotent = true;
+
+  const rollbackExecutable = path.join(paths.directory, "versions", "0.13.0-fixture", installation.executableSha256.slice(0, 16), "vscode-agent-bridge-mcp.exe");
+  await mkdir(path.dirname(rollbackExecutable), { recursive: true });
+  await copyFile(installation.executablePath, rollbackExecutable);
+  const rollbackInstallation = { ...installation, version: "0.13.0-fixture", executablePath: rollbackExecutable, rollback: null,
+    installedAt: new Date().toISOString() };
+  await installer.stop();
+  await writePrivateJson(paths.installation, rollbackInstallation, paths.userSid);
+  await installer.scheduler.register(createLoginTaskXml(paths, rollbackExecutable, registryDirectory));
+  await installer.scheduler.run();
+  await waitForReady(paths, identity);
+  const staleExecutable = path.join(paths.directory, "versions", "0.12.0-stale", "aaaaaaaaaaaaaaaa", "vscode-agent-bridge-mcp.exe");
+  await mkdir(path.dirname(staleExecutable), { recursive: true });
+  await writeFile(staleExecutable, "stale fixture");
+  const upgraded = await installer.install({ sourceExecutable, configPath, registryDirectory });
+  const upgradedInstallation = JSON.parse((await readOptional(paths.installation))!);
+  assert.equal(upgradedInstallation.executablePath, installation.executablePath);
+  assert.equal(upgradedInstallation.rollback.executablePath, rollbackExecutable);
+  assert.equal(upgradedInstallation.rollback.executableSha256, installation.executableSha256);
+  assert.equal(await readOptional(staleExecutable), null, "unreferenced versions must be pruned after a healthy upgrade");
+  assert.equal(upgraded.status.state, "ready");
+  evidence.versionRetentionVerified = true;
 
   const originalConfig = await readFile(configPath, "utf8");
   const originalIdentity = await readFile(paths.identity, "utf8");
@@ -80,8 +102,8 @@ try {
   assert.ok((await readFile(installation.executablePath)).length > 0);
   evidence.uninstallVerified = true;
   console.log(JSON.stringify(evidence));
-  await mkdir(path.join(repository, "artifacts/phase1-evidence"), { recursive: true });
-  await writeFile(path.join(repository, "artifacts/phase1-evidence/http-service-install.json"), JSON.stringify(evidence, null, 2) + "\n");
+  await mkdir(path.join(repository, "artifacts/phase2-evidence"), { recursive: true });
+  await writeFile(path.join(repository, "artifacts/phase2-evidence/http-service-install.json"), JSON.stringify(evidence, null, 2) + "\n");
 } finally {
   if (await readOptional(paths.identity)) {
     const identity = await readIdentity(paths);
