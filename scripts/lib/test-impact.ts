@@ -410,6 +410,8 @@ function classifyExtensionSource(
     actions.markFull(`Extension composition root changed: ${changedPath}`, true);
     return;
   }
+  // Retired module names stay classified until the branch that deletes them is
+  // merged; afterward they disappear from ordinary diffs.
   if (["bridge-host.ts", "bridge-lifecycle.ts", "private-registry-file.ts", "windows-identity.ts", "workspace-setup.ts", "legacy-experiment-data.ts", "workspace-onboarding.ts", "policies.ts", "codex-config.ts"].includes(fileName)) {
     actions.addDomain("lifecycle");
     actions.addScenario("lifecycle");
@@ -421,7 +423,7 @@ function classifyExtensionSource(
     actions.addDomain("direct-ide");
     actions.addScenario("direct-ide");
     if (["experiment-manager.ts", "experiment-store.ts", "change-set-manager.ts", "resource-change-executor.ts"].includes(fileName)) {
-      actions.markFull(`Recoverable mutation or persistence boundary changed: ${changedPath}`);
+      actions.markFull(`Guarded mutation or retired persistence boundary changed: ${changedPath}`);
     }
     return;
   }
