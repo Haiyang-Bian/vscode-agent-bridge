@@ -36,6 +36,6 @@ Artifact commands are not ordinary development checks. Run them only when the im
 
 ## Direct focused tests
 
-`bun scripts/test-http-service.ts` exercises real isolated Windows login tasks using the built EXE. It belongs to the artifact gate. `bun run test:e2e:scenario -- http-bridge` tests shared HTTP clients against the actual Extension Host, including cancellation before delayed onboarding can modify settings. Local product commands are documented in [installation and recovery](../../installation.md).
+`bun scripts/test-http-service.ts` exercises real isolated Windows login tasks using the built EXE. It belongs to the artifact gate. `bun run test:e2e:scenario -- http-bridge` tests shared HTTP clients against the actual Extension Host; `direct-ide` covers direct guarded mutations and focus preservation. Local product commands are documented in [installation and recovery](../../installation.md).
 
 Prefer the exact changed test during diagnosis, for example `bun test <test-file>`. After it passes, return to the impact-selected command. Do not use an ad hoc direct test to claim a required wider gate passed.

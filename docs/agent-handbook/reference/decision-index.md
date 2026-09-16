@@ -8,10 +8,10 @@ Read only the decisions that constrain the task. Accepted ADRs are authoritative
 | [0002](../../adr/0002-local-security-boundary.md) | Local authentication and security boundary | Descriptor, IPC, trust, secrets, generic capability bans |
 | [0003](../../adr/0003-tool-contracts.md) | Tool contracts and rollout order | MCP surface, schemas, errors, bounds, mutations |
 | [0004](../../adr/0004-windows-distribution-and-managed-codex-config.md) | Windows distribution and managed Codex config | VSIX, executable install, Codex configuration |
-| [0005](../../adr/0005-experiment-history.md) | Experiment history | Checkpoints, acceptance, restore/finalize semantics |
-| [0006](../../adr/0006-experiment-storage.md) | Content-addressed local experiment storage | Persistence, leases, retention, snapshots |
+| [0005](../../adr/0005-experiment-history.md) | Experiment history (superseded by 0023) | Historical checkpoint, acceptance and restore semantics |
+| [0006](../../adr/0006-experiment-storage.md) | Experiment storage (superseded by 0023) | Historical persistence, leases, retention and snapshots |
 | [0007](../../adr/0007-guarded-change-sets.md) | Guarded change sets | Text mutation, version/hash preconditions |
-| [0008](../../adr/0008-managed-worktrees-and-promotion.md) | Managed worktrees and one-commit promotion | Git isolation, synchronization, promotion, cleanup |
+| [0008](../../adr/0008-managed-worktrees-and-promotion.md) | Managed worktrees (superseded by 0023) | Historical Git isolation, promotion and cleanup |
 | [0009](../../adr/0009-ide-autonomy-and-terminal-observation.md) | IDE autonomy and terminal observation | Workflow modes, terminal capture and visibility |
 | [0010](../../adr/0010-workspace-reflexivity-and-visible-agent-activity.md) | Workspace reflexivity and visible Agent activity | Onboarding, workspace state, Agent UI visibility |
 | [0011](../../adr/0011-request-cancellation-readiness-and-capture-scope.md) | Cancellation, readiness and capture scope | RPC cancellation, lifecycle, bounded output |

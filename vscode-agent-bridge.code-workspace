@@ -28,8 +28,6 @@
     "debug.javascript.autoAttachFilter": "disabled",
     "bun.runtime": "bun",
     "bun.test.customScript": "bun test",
-    "vscodeAgentBridge.experiments.enabled": true,
-    "vscodeAgentBridge.agentEditVisibility": "focusFirst",
     "search.useIgnoreFiles": true,
     "search.useGlobalIgnoreFiles": false,
     "search.exclude": {

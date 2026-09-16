@@ -29,14 +29,14 @@ flowchart LR
 
 There are two runtime layers. `packages/protocol` is linked into both but has no independent process, lifecycle or state.
 
-The current-user login task owns daemon startup. A stable OS-exclusive pipe prevents competing versions from running simultaneously. Each authenticated HTTP MCP session has independent protocol state and cancellation; discovery and privacy-preserving usage are process-shared. Service identity and management contract v1 are separate from extension RPC v11. See [ADR 0022](../adr/0022-per-user-http-daemon.md).
+The current-user login task owns daemon startup. A stable OS-exclusive pipe prevents competing versions from running simultaneously. Each authenticated HTTP MCP session has independent protocol state and cancellation; discovery and privacy-preserving usage are process-shared. Service identity and management contract v1 are separate from extension RPC v12. See [ADR 0022](../adr/0022-per-user-http-daemon.md) and [ADR 0023](../adr/0023-direct-ide-bridge.md).
 
 ## Request lifecycle
 
 1. After all handlers are registered and policy permits publication, the extension creates a random instance ID, local IPC endpoint and authentication token, then publishes an `initializing` descriptor. On Windows, directory/file ACLs allow only the current SID and SYSTEM.
 2. The MCP server probes current descriptors, retains unknown old protocols only as sanitized incompatible instances and requires explicit routing when multiple windows exist.
 3. The RPC client authenticates and negotiates the protocol before capability calls.
-4. Storage recovery transitions the descriptor to `ready` or `degraded`; `BridgeHost` validates framing, lifecycle and request envelopes before dispatching to typed handlers.
+4. Extension initialization transitions the descriptor to `ready` or `degraded`; `BridgeHost` validates framing, lifecycle and request envelopes before dispatching to typed handlers.
 5. Handlers validate schema/routing and translate stable errors; managers own VS Code behavior and state transitions.
 6. Results return through bounded protocol contracts and then through the MCP tool schema.
 
@@ -48,7 +48,7 @@ When debugging, locate the failing step before editing code. See the [debugging 
 | --- | --- | --- |
 | Protocol package | Schemas, constants, stable errors, RPC framing, registry types, authoritative tool catalog | Runtime state, VS Code APIs, workspace mutation |
 | MCP server | HTTP session and per-user daemon lifecycle, instance discovery, routing, RPC client, MCP result shaping, local aggregate usage records | Direct VS Code behavior or arbitrary workspace access |
-| VS Code extension | Descriptor publication, VS Code APIs, trust/policy, experiments, handlers, managers, native UI | MCP HTTP framing or client approval policy |
+| VS Code extension | Descriptor publication, VS Code APIs, trust/policy, direct guarded operations, handlers, managers, native UI | MCP HTTP framing or client approval policy |
 | Repository scripts | Build/test/package/release orchestration and impact selection | Product behavior or alternate runtime contracts |
 
 ## State ownership
@@ -56,10 +56,9 @@ When debugging, locate the failing step before editing code. See the [debugging 
 | State | Owner and lifetime | Recovery/privacy note |
 | --- | --- | --- |
 | Instance descriptor/token | Extension publication; per live window | Discovery metadata is sensitive and never returned through MCP |
-| Experiment manifests/snapshots | Extension global storage | Content-addressed local recovery journal, not Git or sync |
 | Active terminal/Task/Debug capture | Extension memory | Bounded, sanitized and explicitly coverage-aware |
-| Workspace text/configuration | VS Code and workspace | Mutations require root/trust/experiment and concurrency guards |
-| Managed worktree state | Extension-managed local Git worktree metadata | User-confirmed, no automatic push or broad deletion |
+| Workspace text/configuration | VS Code and workspace | Mutations require root/trust and exact concurrency guards; no durable snapshot promise |
+| Legacy experiment metadata | Extension-owned storage, never loaded | Status may open it or delete Bridge-owned data after confirmation; Git state is untouched |
 | Usage insight sessions | Local per-process aggregate files | No parameters, results, content, raw paths or credentials |
 | Extension Profile undo journal | Extension-local persistent state | Bounded recovery for reviewed configuration changes |
 | Prepared Task/Debug definitions and provenance | Extension memory plus workspaceStorage provenance | Temporary by default; exact file hash is required for persistence |
@@ -83,7 +82,7 @@ Read the relevant ADR and expect wider validation when a change affects:
 - descriptor/IPC/authentication/version handshake;
 - composition roots or lifecycle publication;
 - persistent mutation, recovery or path containment;
-- Task/Debug/process execution or managed Git;
+- Task/Debug/process execution;
 - packaging/install state or isolated Extension Host profiles.
 
 The impact registry encodes the minimum test escalation, but it does not replace architectural judgment.

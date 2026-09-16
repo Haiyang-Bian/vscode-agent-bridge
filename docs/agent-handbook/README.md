@@ -21,11 +21,10 @@ Do not preload every ADR, release checklist, audit or source file. If the select
 | Understand product scope or repository shape | [Project overview](project-overview.md) | [System architecture](architecture.md) |
 | Change schemas, RPC, errors, protocol version or tool catalog | [Protocol module](modules/protocol.md) | ADR 0001, 0002, 0003 and the closest contract test |
 | Change HTTP sessions, daemon lifecycle, discovery, RPC or usage recording | [MCP server module](modules/mcp-server.md) | [Architecture](architecture.md), ADR 0022 |
-| Change extension lifecycle, policy, onboarding or composition | [VS Code extension module](modules/vscode-extension.md) | ADR 0010–0012 and the lifecycle tests |
-| Change experiments, edits, resources or workspace configuration | [VS Code extension module](modules/vscode-extension.md) | ADR 0005–0007, 0010 and 0013 |
+| Change extension lifecycle, policy, legacy-data handling or composition | [VS Code extension module](modules/vscode-extension.md) | ADR 0010–0012, ADR 0023 and the lifecycle tests |
+| Change direct edits, resources or workspace configuration | [VS Code extension module](modules/vscode-extension.md) | ADR 0007, 0013, 0021 and 0023 |
 | Change Task, terminal or Debug behavior | [VS Code extension module](modules/vscode-extension.md) | ADR 0009, 0011, 0013 and [Debugging](playbooks/debugging.md) |
 | Change extension discovery, Marketplace, Profile or adapters | [VS Code extension module](modules/vscode-extension.md) | ADR 0015–0017 |
-| Change Git or Managed Worktree behavior | [VS Code extension module](modules/vscode-extension.md) | ADR 0008 and managed-git tests |
 | Change build, test selection, E2E, packaging, CI or release | [Tooling and release](modules/tooling-and-release.md) | [Testing playbook](playbooks/testing.md) and ADR 0018 |
 | Open or maintain the VS Code development environment | [VS Code workspace](playbooks/vscode-workspace.md) | [Tooling and release](modules/tooling-and-release.md) |
 | Implement a feature or fix a bug | [Change workflow](playbooks/change-workflow.md) | Module page, [Debugging](playbooks/debugging.md), nearest regression test |

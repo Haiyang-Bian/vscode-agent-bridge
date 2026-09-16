@@ -4,17 +4,17 @@
 
 VS Code Agent Bridge gives MCP clients bounded access to IDE-native VS Code state and workflows. It allows arbitrary command specifications only as observable, fingerprinted VS Code Task/Debug workflows; it is not a terminal-input, unrestricted filesystem or IDE-bypassing shell API.
 
-The product separates a per-user shared Streamable HTTP MCP endpoint from the VS Code Extension Host. The bridge adds value where the IDE has authoritative state: unsaved buffers, language services, diagnostics, experiments, visible/captured IDE output, Tasks, Debug, extension metadata and guarded workspace changes.
+The product separates a per-user shared Streamable HTTP MCP endpoint from the VS Code Extension Host. The bridge adds value where the IDE has authoritative state: unsaved buffers, language services, diagnostics, visible/captured IDE output, Tasks, Debug, extension metadata and guarded workspace changes.
 
 ## Current snapshot
 
-This page was last reconciled on 2026-09-07. Verify drift-sensitive values at their source before changing release or compatibility behavior.
+This page was last reconciled on 2026-09-16. Verify drift-sensitive values at their source before changing release or compatibility behavior.
 
 | Fact | Current snapshot | Authoritative source |
 | --- | --- | --- |
-| Package version | 0.13.0 candidate | root and workspace `package.json` files |
-| Internal bridge protocol | v11 | `packages/protocol/src/constants.ts` and version tests |
-| MCP surface | 64 catalog-derived tools | `packages/protocol/src/tool-catalog.ts`, startup registration assertion and HTTP and daemon process tests |
+| Package version | 0.14.0 candidate | root and workspace `package.json` files |
+| Internal bridge protocol | v12 | `packages/protocol/src/constants.ts` and version tests |
+| MCP surface | 57 catalog-derived tools | `packages/protocol/src/tool-catalog.ts`, startup registration assertion and HTTP and daemon process tests |
 | Primary distribution | Side-loaded Windows x64 VSIX with bundled MCP executable | root README and release scripts |
 | Supported runtime context | Local desktop VS Code workspace | ADR 0001 and runtime policy |
 | Dependency/build owner | Bun workspaces; Node only where the official packaging tool requires it | root `package.json` and README |
@@ -26,8 +26,8 @@ This is an engineering candidate with a broad implemented surface, not evidence 
 - The Agent selects an explicit live VS Code instance; discovery never returns bearer credentials or IPC endpoints, and old protocols remain sanitized incompatible entries.
 - The extension owns VS Code API access, workspace trust and mutation enforcement.
 - Reads are bounded and report truncation or incomplete coverage.
-- Writes use experiments plus the strongest applicable concurrency precondition.
-- Recoverability claims cover captured workspace text/resource state, not arbitrary external effects.
+- Writes select an explicit local root and use the strongest applicable concurrency precondition without a global experiment session.
+- Workspace mutations report actual results and do not promise durable snapshot recovery; external effects remain unrecoverable.
 - User-confirmed operations remain user-confirmed; MCP annotations describe side effects but do not replace client approval policy.
 - Shell/Process execution is allowed only through IDE-visible Task/Debug definitions whose complete execution fingerprint is revalidated at start.
 

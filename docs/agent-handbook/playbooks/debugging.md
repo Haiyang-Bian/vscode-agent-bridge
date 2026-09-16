@@ -10,7 +10,7 @@ Use this order before changing code:
 4. `BridgeHost` lifecycle and dispatch.
 5. Request handler schema/routing/error mapping.
 6. Manager/service state transition.
-7. VS Code API/provider/Task/Debug/Git boundary.
+7. VS Code API/provider/Task/Debug boundary.
 8. Packaging, cache, profile or host-process cleanup.
 
 A symptom at the MCP surface can originate several layers below. Preserve stable public errors while finding the internal owner.
@@ -19,9 +19,8 @@ A symptom at the MCP surface can originate several layers below. Preserve stable
 
 - Reproduce with the narrowest existing unit/contract test or one selected E2E scenario.
 - Read the exact handler and manager involved, then their direct tests.
-- Check lifecycle state, workspace trust, instance/session/root routing and stale preconditions.
+- Check lifecycle state, workspace trust, instance/root routing and stale preconditions.
 - Distinguish development-extension runs from packaged VSIX runs and default profiles from isolated profiles.
-- For Git fixtures, check branch, worktree, dirty state, hooks and exact path containment before blaming promotion logic.
 - For terminal/Task/Debug, distinguish observed IDE lifecycle from external process effects that the bridge cannot recover.
 
 Do not log or paste authentication tokens, descriptor endpoints, source snapshots, terminal content, expressions, variables, environment values or raw Codex configuration into reports.
@@ -33,8 +32,8 @@ Do not log or paste authentication tokens, descriptor endpoints, source snapshot
 - Protocol mismatch between installed MCP executable and extension.
 - Reused user-data/extensions directories hiding setup defects.
 - Global VS Code settings not restored after a failed test.
-- Experiment lease/session mismatch or stale document/hash/fingerprint.
-- Onboarding/policy state from an earlier profile.
+- Root mismatch or stale document/hash/fingerprint.
+- Legacy settings or extension state from an earlier profile.
 - Packaged VSIX installed into a different extensions directory from the launched host.
 
 ## After a fix
